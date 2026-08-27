@@ -1,0 +1,13 @@
+# Excluir carpetas de configuración y caché
+.gradle/
+.claude/
+.codex/
+.gradle-codex/
+.idea/
+.kotlin/
+build/
+app/build/
+
+# Archivos pesados o de diseño que no aportan código
+*.png
+*.zip

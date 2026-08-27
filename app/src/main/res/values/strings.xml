@@ -1,0 +1,105 @@
+<resources>
+    <string name="app_name">VIORA</string>
+    <string name="caja_bloqueada">Caja Bloqueada</string>
+    <string name="mensaje_caja_bloqueada">Esta caja está siendo cobrada por otra persona en este momento.\n\nEspera a que finalice o cancele la operación para acceder a ella.</string>
+    <!-- TODO: Remove or change this placeholder text -->
+    <!-- Strings used for fragments for navigation -->
+
+    <!-- Crear Producto -->
+    <string name="informacion_general">Información General</string>
+    <string name="nombre_del_producto">Nombre del producto</string>
+    <string name="categoria">Categoría</string>
+    <string name="costo_base_referencial_titulo">Costo base referencial</string>
+    <string name="costo_base_referencial_hint">Costo base referencial</string>
+    <string name="ayuda_costo_base_referencial">Referencia inicial del producto. Los nuevos ingresos registran su propio costo por lote.</string>
+    <string name="gestion_inventario">Gestión de Inventario</string>
+    <string name="control_stock_titulo">Cómo se controla el stock</string>
+    <string name="control_stock_unidades">Por unidades</string>
+    <string name="control_stock_peso">Por peso</string>
+    <string name="control_stock_volumen">Por volumen</string>
+    <string name="control_stock_ayuda_unidades">Se cuenta 1 por 1. Ej: 1 capsula, 1 tableta, 1 frasco, 1 botella.</string>
+    <string name="control_stock_ayuda_peso">Se controla en gramos. Ej: 1 kg = 1000 g. Si vendes 500 g, se descuenta 500 g.</string>
+    <string name="control_stock_ayuda_volumen">Se controla en mL. Ej: 1 L = 1000 mL. Si vendes 500 mL, se descuenta 500 mL.</string>
+    <string name="tipo_base_inmutable_helper_unidad">Unidad base fija del producto: %1$s</string>
+    <string name="tipo_base_inmutable_error">No se puede cambiar el tipo base ni la unidad base de un producto ya creado. Si necesitas otra configuración, crea un producto nuevo.</string>
+    <string name="unidad_medida_base">Unidad de medida (Base)</string>
+    <string name="ayuda_unidad_base">Unidad mínima de stock (1 = 1). Ej: cápsula, tableta, frasco, botella.</string>
+    <string name="explicacion_unidad_base">El stock se controla en esta unidad. Ej: si un blíster = 10 unidades y una caja = 20 unidades, el sistema descuenta 10 o 20.</string>
+    <string name="metodo_registro">Método de Registro</string>
+    <string name="por_unidades">Por unidades</string>
+    <string name="stock_total_0">Stock: 0 unidades</string>
+    <string name="nueva_presentacion">+ Nueva presentación</string>
+    <string name="presentacion_principal_venta">Presentación principal (Venta)</string>
+    <string name="otros_detalles">Otros Detalles</string>
+    <string name="requiere_receta_medica">Requiere receta médica</string>
+    <string name="producto_activo">Producto activo</string>
+
+    <!-- Diálogos y Acciones -->
+    <string name="boton_continuar">Continuar</string>
+    <string name="boton_cancelar">Cancelar</string>
+
+    <!-- Errores y Validaciones -->
+    <string name="presentaciones_bloque_titulo">Presentaciones</string>
+
+    <!-- Firebase y Sistema -->
+    <string name="titulo_verificacion_producto">Verificación de producto</string>
+    <string name="error_generico_guardar">Error al guardar</string>
+
+    <!-- Editar Producto -->
+    <string name="titulo_editar_producto">Editar Producto</string>
+    <string name="toca_cambiar_imagen">Toca para cambiar imagen</string>
+    <string name="borrar">Borrar</string>
+    <string name="guardar_cambios">Guardar Cambios</string>
+    <string name="stock_actual">Stock Actual</string>
+    <string name="cajas">Cajas</string>
+    <string name="und_caja">Und/Caja</string>
+    <string name="stock_total_prefijo">Stock:</string>
+    <string name="stock_total_formato">%1$s %2$d %3$s</string>
+    <string name="vencimiento_hint">Fecha de Vencimiento (MM/AA)</string>
+    <string name="imagen_del_producto">Imagen del Producto</string>
+
+    <!-- Validaciones y Estados -->
+    <string name="error_nombre_registrado">⚠️ Este producto ya está registrado</string>
+    <string name="sugerencia_nombre_similar">💡 Nombre similar: %1$s</string>
+    <string name="ayuda_cantidad_presentacion">Ej: si es %1$s de 10 %2$s, escribe 10</string>
+
+    <!-- BottomSheet Presentación -->
+    <string name="nombre_presentacion">Nombre de presentación</string>
+    <string name="equivale_unidades">Equivale a cuántas unidades</string>
+
+    <string name="movimientos_inventario_detalle_titulo_default">Detalle del movimiento</string>
+    <string name="movimientos_inventario_label_producto">Producto</string>
+    <string name="movimientos_inventario_label_usuario">Usuario</string>
+    <string name="movimientos_inventario_label_motivo">Motivo</string>
+    <string name="movimientos_inventario_label_referencia">Referencia</string>
+    <string name="movimientos_inventario_btn_cerrar">Cerrar</string>
+    <string name="movimientos_inventario_valor_sin_hora">Sin hora</string>
+    <string name="movimientos_inventario_valor_sin_usuario">Sin usuario</string>
+    <string name="movimientos_inventario_valor_sin_motivo">Sin motivo registrado</string>
+    <string name="movimientos_inventario_valor_sin_referencia">Sin referencia</string>
+    <string name="movimientos_inventario_valor_no_registrado">No registrado</string>
+    <string name="movimientos_inventario_valor_no_identificado">No identificado</string>
+    <string name="movimientos_inventario_referencia_ajuste_manual">Ajuste manual</string>
+    <string name="movimientos_inventario_referencia_ingreso_stock">Ingreso de stock</string>
+    <string name="movimientos_inventario_referencia_indice">Indice: %1$s</string>
+
+    <string name="avisar_por_unidad_base">Avisar por unidad base</string>
+    <string name="avisar_por_presentacion_principal">Avisar por presentación principal</string>
+    <string name="stock_minimo_unidad_base_hint">Stock mínimo (unidad base)</string>
+    <string name="stock_minimo_presentacion_principal_hint">Stock mínimo (presentación principal)</string>
+    <string name="app_established">PLATAFORMA DE SALUD INTELIGENTE</string>
+    <string name="auth_title">SISTEMA DE ACCESO BIOMÉTRICO</string>
+    <string name="biometric_status">ANÁLISIS BIOMÉTRICO ACTIVO</string>
+    <string name="request_credentials">Solicitar credenciales de acceso</string>
+    <string name="username_label">IDENTIFICADOR</string>
+    <string name="password_label">CLAVE DE ACCESO</string>
+    <string name="document_label">DOCUMENTO ID</string>
+    <string name="role_label">ROL ASIGNADO</string>
+    <string name="login_button">INICIAR CONEXIÓN</string>
+    <string name="register_button">ENVIAR SOLICITUD</string>
+    <string name="back_button">VOLVER</string>
+    <string name="restricted_access_title">ACCESO RESTRINGIDO</string>
+    <string name="loading_text">INICIANDO CONEXIÓN</string>
+    <string name="securing_channel">Estableciendo canal seguro</string>
+    <string name="no_available_role">Puesto no disponible</string>
+</resources>

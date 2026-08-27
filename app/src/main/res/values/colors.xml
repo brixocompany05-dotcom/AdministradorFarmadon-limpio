@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- ============================================================ -->
+    <!-- COLORES LEGACY (no tocar, codigo Kotlin los referencia)      -->
+    <!-- ============================================================ -->
+    <color name="black">#FF000000</color>
+    <color name="verdebotones">#0AA25D</color>
+    <color name="grisboton">#BABABA</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="colorazul">#2196F3</color>
+    <color name="grisclaro">#808080</color>
+    <color name="verdeFuerte">#1B8F5A</color>
+
+    <!-- ============================================================ -->
+    <!-- TOKENS SEMANTICOS                                             -->
+    <!-- Cambiar aqui = cambia toda la app. Para tema oscuro futuro,   -->
+    <!-- crear values-night/colors.xml con los mismos nombres.         -->
+    <!-- ============================================================ -->
+
+
+    <color name="emerald_500">#10B981</color>
+    <color name="gray_400">#9CA3AF</color>
+    <color name="surface_white">#FFFFFF</color>
+    <color name="border_subtle">#F3F4F6</color>
+
+    <!-- Brand: verdes Farmadon -->
+    <color name="brand_green">#10B981</color>
+    <color name="brand_green_dark">#0E8F63</color>
+    <color name="brand_green_pressed">#14935C</color>
+    <color name="brand_green_emphasis">#137333</color>
+    <color name="brand_green_success">#15803D</color>
+    <color name="brand_green_soft">#36B37E</color>
+    <color name="brand_green_alt">#0AA25D</color>
+    <color name="brand_green_50">#ECFDF5</color>
+    <color name="brand_green_200">#A7F3D0</color>
+
+    <color name="brixo_navy">#020617</color>
+    <color name="brixo_navy_surface">#07133A</color>
+    <color name="brixo_blue">#155EEF</color>
+    <color name="brixo_cyan">#00DDF2</color>
+    <color name="brixo_violet">#8B2CFF</color>
+    <color name="brixo_surface_soft">#EEF4FF</color>
+
+    <!-- Texto: del mas oscuro al mas claro -->
+    <color name="text_primary_pure">#111111</color>
+    <color name="text_primary">#0F172A</color>
+    <color name="text_primary_alt">#111827</color>
+    <color name="text_primary_almost">#1A1C1E</color>
+    <color name="text_primary_dark">#1F2937</color>
+    <color name="text_primary_navy">#0D1730</color>
+    <color name="text_secondary_strong">#374151</color>
+    <color name="text_secondary_slate">#475569</color>
+    <color name="text_secondary_alt">#5B6680</color>
+    <color name="text_secondary">#667085</color>
+    <color name="text_secondary_gray">#6B7280</color>
+    <color name="text_secondary_indigo">#6E7B8F</color>
+    <color name="text_secondary_blue">#8F9BB3</color>
+    <color name="text_tertiary">#94A3B8</color>
+    <color name="text_tertiary_alt">#9AA3B2</color>
+    <color name="text_tertiary_muted">#98A2B3</color>
+    <color name="text_disabled">#9AA0A6</color>
+
+    <!-- Superficies -->
+
+    <color name="surface_subtle">#F8FAFB</color>
+    <color name="surface_subtle_blue">#F8FAFC</color>
+    <color name="surface_neutral">#F6F7FB</color>
+
+    <!-- Bordes y divisores -->
+
+    <color name="border_neutral">#E5E7EB</color>
+    <color name="border_blue">#E8EEF3</color>
+    <color name="divider">#EEF1F4</color>
+    <color name="divider_alt">#EEF2F7</color>
+
+    <!-- Estados -->
+    <color name="state_error">#DC2626</color>
+    <color name="state_warning">#B45309</color>
+    <color name="state_warning_dark">#856404</color>
+</resources>

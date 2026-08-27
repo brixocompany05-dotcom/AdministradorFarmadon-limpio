@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- ÁREA GLOBAL BRIXO (Solo Lectura para Farmadon) ---
+    match /compartido/ecosistema/{document=**} {
+      allow read: if request.auth != null;
+    }
+    match /brixo/panel/historialdetiemposolicitudes/{autoId} {
+      allow create: if true;
+      allow read, update, delete: if false;
+    }
+    match /brixo/clientes_restringidos/lista_negra/{doc} {
+      allow get: if false;
+      allow list: if false;
+      allow write: if false;
+    }
+    match /brixo/existencia/{document=**} {
+      allow get: if true;
+      allow list, write: if false;
+    }
+    match /brixo/verificacion/{document=**} {
+      allow get: if true;
+      allow list, write: if false;
+    }
+    match /processed_requests/{requestId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
+    // --- ÁREA OPERATIVA FARMADON — AISLAMIENTO ESTRICTO POR FARMACIA (R1) ---
+    // FarmadonPaths: farmacias/{farmaciaId}/sucursales/{sucursalId}/{inventario,movimientos,...}
+    // farmaciaId == uid del dueño (clienteId). Solo su farmacia.
+    // R1 + lógica real: dueño (uid==farmaciaId) O colaborador miembro en usuarios/{uid}
+    // Así el cajero/almacenero entra a su farmacia sin pisar otra.
+    match /farmaciapp/app/farmacias/{farmaciaId} {
+      allow read, write: if request.auth != null && (
+        request.auth.uid == farmaciaId ||
+        exists(/databases/$(database)/documents/farmaciapp/app/farmacias/$(farmaciaId)/usuarios/$(request.auth.uid))
+      );
+    }
+    match /farmaciapp/app/farmacias/{farmaciaId}/{path=**} {
+      allow read, write: if request.auth != null && (
+        request.auth.uid == farmaciaId ||
+        exists(/databases/$(database)/documents/farmaciapp/app/farmacias/$(farmaciaId)/usuarios/$(request.auth.uid))
+      );
+    }
+
+    // --- LEGACY / SOPORTE (mantener compatibilidad) ---
+    match /farmaciapp/app/usuarios_farmacia/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /farmaciapp/app/solicitudes/{solId} {
+      allow create: if request.auth == null;
+      allow get: if true;
+      allow list: if false;
+      allow update: if request.auth == null;
+      allow delete: if false;
+    }
+    match /farmaciapp/app/correos/{hash} {
+      allow get: if true;
+      allow create: if true;
+      allow list: if false;
+      allow update, delete: if false;
+    }
+    match /farmaciapp/app/sesiones/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /farmaciapp/app/documentos/{doc} {
+      allow read: if request.auth != null;
+    }
+    match /farmaciapp/app/clientes/{clienteId} {
+      allow get: if request.auth != null;
+      allow list: if false;
+      allow write: if request.auth != null;
+    }
+
+    // Health ping para NetworkHealthMonitor (documento ligero, sin PII)
+    match /_health/ping {
+      allow read, write: if true;
+    }
+    match /_health/{doc} {
+      allow read, write: if false;
+    }
+
+    // Defensa en profundidad: denegado por defecto
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,50 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Tema principal -->
+    <style name="Theme.AppFarmadon" parent="Theme.Material3.Light.NoActionBar">
+
+
+        <item name="android:statusBarColor">#F5F7FB</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#071F1C</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:fontFamily">@font/inter_regular</item>
+        <item name="fontFamily">@font/inter_regular</item>
+
+        <item name="colorPrimary">#2F8E7C</item>
+        <item name="colorSecondary">#2F8E7C</item>
+        <item name="colorPrimaryContainer">#A7D8CD</item>
+
+        <!-- ESTA ES LA CLAVE -->
+        <item name="colorSecondaryContainer">#48000000</item>
+
+    </style>
+
+
+    <!-- Splash -->
+    <style name="Theme.App.Splash"
+        parent="Theme.SplashScreen">
+
+        <item name="windowSplashScreenBackground">#000000</item>
+
+        <item name="windowSplashScreenAnimatedIcon">
+            @android:color/transparent
+        </item>
+
+        <item name="windowSplashScreenIconBackgroundColor">
+            @android:color/transparent
+        </item>
+
+        <item name="postSplashScreenTheme">
+            @style/Theme.AppFarmadon
+        </item>
+
+    </style>
+
+
+    <style name="CircleAppearance">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+</resources>

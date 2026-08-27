@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "24421622024",
+    "firebase_url": "https://brixopaneladministrativo1-default-rtdb.firebaseio.com",
+    "project_id": "brixopaneladministrativo1",
+    "storage_bucket": "brixopaneladministrativo1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:24421622024:android:70be31356e1ce0afa5ccbd",
+        "android_client_info": {
+          "package_name": "com.app.administradorfarmadon"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDavZ-phioMRQqaUaRWN5Ca9Md6NHfuuCY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:24421622024:android:30a3aa0d7f2da4dda5ccbd",
+        "android_client_info": {
+          "package_name": "com.brixo.panel"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDavZ-phioMRQqaUaRWN5Ca9Md6NHfuuCY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
