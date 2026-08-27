@@ -87,6 +87,8 @@ class InventarioViewModel(
     private var textoBusquedaActual: String = ""
     private var busquedaRequestId: Long = 0L
     private var cargaSucursalGeneration: Long = 0L
+    private var conteoGlobalProductos: Int = 0
+    private var conteoGlobalActivos: Int = 0
 
     // Filtrado base SIN búsqueda (búsqueda es 100% server, no depende de los 50 cargados)
     // Debounce 300ms para filtros locales suaves, pero búsqueda tiene su propio debounce 300 server
@@ -416,6 +418,19 @@ class InventarioViewModel(
             )
         }
         jobPagina?.cancel()
+        viewModelScope.launch(Dispatchers.IO) {
+            val metricas = repository.obtenerMetricasGlobales(farmaciaId, sucursalId)
+            if (metricas.totalProductos > 0) {
+                conteoGlobalProductos = metricas.totalProductos
+                conteoGlobalActivos = metricas.totalActivos
+                _uiState.update { current ->
+                    current.copy(
+                        totalProductsCount = maxOf(current.totalProductsCount, metricas.totalProductos),
+                        activeProductsCount = maxOf(current.activeProductsCount, metricas.totalActivos)
+                    )
+                }
+            }
+        }
         jobPagina = repository.observarInventarioPaginado(
             farmaciaId,
             sucursalId,
@@ -587,11 +602,11 @@ class InventarioViewModel(
                 ultimoDoc = ultimoDoc, ultimoDocumento = ultimoDoc,
                 productsList = combinada, listaAcumulada = combinada,
                 categories = cats, categoriesWithCounts = catsWithCounts,
-                totalProductsCount = if (it.isEnBusqueda) it.totalProductsCount else combinada.size,
+                totalProductsCount = if (it.isEnBusqueda) it.totalProductsCount else maxOf(conteoGlobalProductos, combinada.size),
                 totalInventoryValue = calculator.calculateTotalValue(combinada),
                 lowStockCount = calculator.calculateLowStockCount(combinada),
                 nearExpiryCount = calculator.calculateNearExpiryCount(combinada),
-                activeProductsCount = calculator.calculateActiveProductsCount(combinada),
+                activeProductsCount = if (it.isEnBusqueda) it.activeProductsCount else maxOf(conteoGlobalActivos, calculator.calculateActiveProductsCount(combinada)),
                 estadoCarga = if (it.isEnBusqueda) it.estadoCarga else estado,
                 errorMessage = null, isRealtimeConnected = true
             )

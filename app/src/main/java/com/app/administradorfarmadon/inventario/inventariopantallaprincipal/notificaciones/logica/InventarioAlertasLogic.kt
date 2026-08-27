@@ -49,13 +49,13 @@ object InventarioAlertasLogic {
                         valorReferencia = "Mín: ${p.minStock} uds"
                     )
                 )
-            } else if (p.minStock > 0 && p.stock < p.minStock) {
+            } else if (p.minStock > 0 && p.stock <= p.minStock) {
                 alertas.add(
                     AlertaProducto(
                         productId = p.id,
                         productName = p.name,
                         tipo = TipoAlerta.STOCK_BAJO,
-                        mensaje = "Stock por debajo del mínimo",
+                        mensaje = if (p.stock == p.minStock) "Stock en nivel mínimo (${p.minStock} uds)" else "Stock por debajo del mínimo",
                         severidad = Severidad.ALTA,
                         valorActual = "${p.stock} uds",
                         valorReferencia = "Mín: ${p.minStock} uds"

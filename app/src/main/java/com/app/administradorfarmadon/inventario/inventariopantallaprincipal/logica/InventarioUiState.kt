@@ -1,5 +1,6 @@
 package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica
 
+import androidx.compose.runtime.Immutable
 import com.google.firebase.firestore.DocumentSnapshot
 
 /**
@@ -34,6 +35,7 @@ sealed interface InventarioBusquedaEstado {
     data class Exito(val resultados: List<PharmProduct>) : InventarioBusquedaEstado
 }
 
+@Immutable
 data class InventarioUiState(
     // Estado honesto central — gobierna toda la pantalla
     val estadoCarga: InventarioCargaEstado = InventarioCargaEstado.Cargando,

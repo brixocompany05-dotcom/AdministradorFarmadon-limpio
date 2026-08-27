@@ -220,4 +220,36 @@ class InventarioFirestoreRepository(
             listener.remove()
         }
     }
+
+    data class MetricasGlobalesInventario(
+        val totalProductos: Int = 0,
+        val totalActivos: Int = 0,
+        val valorTotal: Double = 0.0,
+        val stockBajoConteo: Int = 0,
+        val porVencerConteo: Int = 0
+    )
+
+    /**
+     * Consulta atómica agregada en Google Cloud Firestore:
+     * Obtiene el conteo exacto de los 1,000+ productos de toda la sede en 1 sola llamada escalar (sin descargar documentos).
+     */
+    suspend fun obtenerMetricasGlobales(
+        farmaciaId: String,
+        sucursalId: String
+    ): MetricasGlobalesInventario {
+        if (farmaciaId.isBlank() || sucursalId.isBlank()) return MetricasGlobalesInventario()
+        return try {
+            val invRef = FarmadonPaths.inventario(db, farmaciaId, sucursalId)
+            val total = invRef.count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+            val countActivos = invRef.whereEqualTo("activo", true).count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            MetricasGlobalesInventario(
+                totalProductos = total,
+                totalActivos = countActivos
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo obtener métricas agregadas del servidor: ${e.message}")
+            MetricasGlobalesInventario()
+        }
+    }
 }

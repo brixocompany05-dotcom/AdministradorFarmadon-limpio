@@ -164,7 +164,16 @@ class EditarProductoRepository(
                 val codigosSecundariosActuales = (snapshot.get("codigosSecundarios") as? List<*>)?.mapNotNull { it?.toString() }?.toMutableList() ?: mutableListOf()
                 val codNuevoLimpio = CodigoBarraHelper.limpiar(codigoBarras)
 
-                // BLINDAJE ATÓMICO: si cambia el código, verifica que el nuevo no tenga dueño dentro del candado
+                val nombreAnterior = snapshot.getString("nombre") ?: ""
+                val empaqueAnterior = snapshot.getString("empaque") ?: ""
+                val medidaAnterior = snapshot.getString("medidaConcentracion") ?: snapshot.getString("concentracion") ?: ""
+                val claveFichaAnterior = CodigoBarraHelper.claveFicha(nombreAnterior, empaqueAnterior, medidaAnterior)
+                val claveFichaNueva = CodigoBarraHelper.claveFicha(nombre.trim(), empFinal, medidaConcentracion.trim())
+
+                // BLINDAJE ATÓMICO: si cambia la ficha o el código, verifica que los nuevos no tengan dueño dentro del candado
+                if (claveFichaNueva != claveFichaAnterior) {
+                    CodigoBarraHelper.verificarFichaUnicidadEnTransaccion(tx, db, clienteId, claveFichaNueva)
+                }
                 if (codNuevoLimpio.isNotBlank() && codNuevoLimpio != codAnterior) {
                     CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codNuevoLimpio, productoId)
                 }
@@ -226,7 +235,15 @@ class EditarProductoRepository(
 
                 tx.update(docRef, updates)
 
-                // Mantener índice atómico sincronizado
+                // Mantener índice atómico de fichas sincronizado
+                if (claveFichaNueva != claveFichaAnterior) {
+                    if (claveFichaAnterior.isNotBlank()) {
+                        CodigoBarraHelper.borrarIndiceFichaEnTransaccion(tx, db, clienteId, claveFichaAnterior)
+                    }
+                    CodigoBarraHelper.crearIndiceFichaEnTransaccion(tx, db, clienteId, claveFichaNueva, productoId)
+                }
+
+                // Mantener índice atómico de códigos sincronizado
                 if (codAnterior.isNotBlank() && codAnterior != codNuevoLimpio) {
                     CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codAnterior)
                 }

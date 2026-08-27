@@ -7,11 +7,11 @@ class InventoryMetricsCalculator {
     }
 
     fun calculateLowStockCount(products: List<PharmProduct>): Int {
-        return products.count { it.status == "Stock bajo" }
+        return products.count { it.status == "Stock bajo" || it.status == "Agotado" || (it.minStock > 0 && it.stock <= it.minStock) }
     }
 
     fun calculateNearExpiryCount(products: List<PharmProduct>): Int {
-        val hoy = System.currentTimeMillis()
+        val hoy = com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs()
         return products.count { p ->
             p.status == "Por vencer" || p.status == "Vencido" ||
             (p.expiryTimestamp in 1L until hoy) || // vencidos por timestamp

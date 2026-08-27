@@ -233,7 +233,7 @@ fun InventarioScreen(
         snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
             .collect { lastIndex ->
                 val total = uiState.pagedProducts.size
-                if (lastIndex != null && total > 0 && lastIndex >= total - 4 && !uiState.isLoadingMore && !uiState.isLoading && !uiState.endOfListReached) {
+                if (lastIndex != null && total > 0 && lastIndex >= total - 8 && !uiState.isLoadingMore && !uiState.isLoading && !uiState.endOfListReached) {
                     viewModel.cargarMas()
                 }
             }
@@ -578,7 +578,11 @@ fun InventarioScreen(
                                 ) 
                             }
                         } else {
-                            items(items = uiState.pagedProducts, key = { it.id }) { product ->
+                            items(
+                                items = uiState.pagedProducts,
+                                key = { it.id },
+                                contentType = { "product_row" }
+                            ) { product ->
                                 ProductRow(
                                     product = product, s = s, cols = layoutState.cols, isCompact = isCompactMode,
                                     isSelected = product.id == selectedProductId,

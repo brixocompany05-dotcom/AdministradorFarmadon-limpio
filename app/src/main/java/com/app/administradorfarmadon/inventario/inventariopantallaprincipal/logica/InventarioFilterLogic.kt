@@ -48,8 +48,8 @@ object InventarioFilterLogic {
             clasificaciones.any { c ->
                 when (c) {
                     "venta_libre" -> p.clasificacionControl == "VENTA_LIBRE"
-                    "receta" -> p.clasificacionControl in listOf("RX", "RX_RETENCION") || p.controlReceta
-                    "controlado" -> p.clasificacionControl in listOf("RX_RETENCION", "ESTUPEFACIENTES")
+                    "receta" -> p.clasificacionControl in listOf("RX", "RX_RETENCION", "RECETA_MEDICA") || p.controlReceta
+                    "controlado" -> p.clasificacionControl in listOf("RX_RETENCION", "ESTUPEFACIENTES", "CONTROLADO")
                     "refrigerado" -> p.requiereRefrigeracion
                     else -> false
                 }
@@ -116,7 +116,7 @@ object InventarioFilterLogic {
             lista = lista.filter { it.stock > 0 }
         }
         if (filtros.requiereReceta) {
-            lista = lista.filter { it.controlReceta || it.clasificacionControl in listOf("RX", "RX_RETENCION") }
+            lista = lista.filter { it.controlReceta || it.clasificacionControl in listOf("RX", "RX_RETENCION", "RECETA_MEDICA", "CONTROLADO") }
         }
         if (filtros.soloRefrigerados) {
             lista = lista.filter { it.requiereRefrigeracion }

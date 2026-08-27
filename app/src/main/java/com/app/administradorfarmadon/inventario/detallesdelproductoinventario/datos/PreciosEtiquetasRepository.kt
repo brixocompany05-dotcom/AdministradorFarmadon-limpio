@@ -413,11 +413,19 @@ class PreciosEtiquetasRepository(
                     // No bloqueamos duro aquí para no dejar ciego al empleado con prueba vacía sin creador registrado (legados)
                 }
 
-                // Limpia índices de códigos para que no queden fantasmas
+                // Limpia índices de códigos y ficha para que no queden fantasmas
                 val codigo = CodigoBarraHelper.limpiar(CodigoBarraHelper.leerCodigo(snap))
                 val codigosSec = (snap.get("codigosSecundarios") as? List<*>)?.mapNotNull { it?.toString()?.let { c -> CodigoBarraHelper.limpiar(c) } } ?: emptyList()
                 if (codigo.isNotBlank()) CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codigo)
                 codigosSec.forEach { c -> if (c.isNotBlank()) CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, c) }
+
+                val nombreSnap = snap.getString("nombre") ?: ""
+                val empaqueSnap = snap.getString("empaque") ?: ""
+                val medidaSnap = snap.getString("medidaConcentracion") ?: snap.getString("concentracion") ?: ""
+                val claveFichaSnap = CodigoBarraHelper.claveFicha(nombreSnap, empaqueSnap, medidaSnap)
+                if (claveFichaSnap.isNotBlank()) {
+                    CodigoBarraHelper.borrarIndiceFichaEnTransaccion(tx, db, clienteId, claveFichaSnap)
+                }
 
                 // Borra el Kardex (movimientos) del producto para no dejar fantasmas huérfanos que apunten a una ficha inexistente
                 for (movDoc in movimientosAEliminar.documents) {

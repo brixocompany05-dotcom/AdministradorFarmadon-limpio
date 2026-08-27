@@ -46,19 +46,44 @@ object CodigoBarraHelper {
     fun indiceFichaRef(db: FirebaseFirestore, clienteId: String, sucursalId: String, clave: String): com.google.firebase.firestore.DocumentReference =
         FarmadonPaths.indicesFichas(db, clienteId, sucursalId).document(clave.hashCode().toString() + "_" + clave.take(80).replace("/", "-").replace("|", "_"))
 
-    fun verificarFichaUnicidadEnTransaccion(tx: Transaction, db: FirebaseFirestore, clienteId: String, claveFicha: String) {
+    fun verificarFichaUnicidadEnTransaccion(
+        tx: Transaction,
+        db: FirebaseFirestore,
+        clienteId: String,
+        claveFicha: String,
+        sucursalId: String = SessionManager.sucursalIdEfectiva
+    ) {
         if (claveFicha.isBlank()) return
-        val ref = indiceFichaRef(db, clienteId, SessionManager.sucursalIdEfectiva, claveFicha)
+        val ref = indiceFichaRef(db, clienteId, sucursalId, claveFicha)
         val doc = tx.get(ref)
         if (doc.exists()) {
             throw IllegalArgumentException("Ya tienes registrado un producto con esa misma presentación (nombre + empaque + medida).")
         }
     }
 
-    fun crearIndiceFichaEnTransaccion(tx: Transaction, db: FirebaseFirestore, clienteId: String, claveFicha: String, productoId: String) {
+    fun crearIndiceFichaEnTransaccion(
+        tx: Transaction,
+        db: FirebaseFirestore,
+        clienteId: String,
+        claveFicha: String,
+        productoId: String,
+        sucursalId: String = SessionManager.sucursalIdEfectiva
+    ) {
         if (claveFicha.isBlank()) return
-        val ref = indiceFichaRef(db, clienteId, SessionManager.sucursalIdEfectiva, claveFicha)
+        val ref = indiceFichaRef(db, clienteId, sucursalId, claveFicha)
         tx.set(ref, mapOf("productoId" to productoId, "clave" to claveFicha, "creadoEn" to com.google.firebase.firestore.FieldValue.serverTimestamp()))
+    }
+
+    fun borrarIndiceFichaEnTransaccion(
+        tx: Transaction,
+        db: FirebaseFirestore,
+        clienteId: String,
+        claveFicha: String,
+        sucursalId: String = SessionManager.sucursalIdEfectiva
+    ) {
+        if (claveFicha.isBlank()) return
+        val ref = indiceFichaRef(db, clienteId, sucursalId, claveFicha)
+        tx.delete(ref)
     }
 
     fun indiceRef(db: FirebaseFirestore, clienteId: String, sucursalId: String, codigoLimpio: String): DocumentReference =

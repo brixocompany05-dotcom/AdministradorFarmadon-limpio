@@ -1,7 +1,9 @@
 package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica
 
+import androidx.compose.runtime.Immutable
 import com.google.firebase.firestore.DocumentSnapshot
 
+@Immutable
 data class PharmProduct(
     val id: String,
     val name: String,

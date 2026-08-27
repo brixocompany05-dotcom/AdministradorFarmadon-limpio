@@ -46,7 +46,7 @@ class CrearProductoGeneralViewModel(
 
         if (esCodigoNumerico && !_uiState.value.formularioDesplegado) {
             viewModelScope.launch {
-                val sucursalId = SessionManager.sucursalId
+                val sucursalId = SessionManager.sucursalIdEfectiva
                 val existente = repository.buscarProductoPorCodigoBarras(cid, valorSanitizado.trim(), sucursalId)
                 if (existente != null) {
                     _uiState.update {
@@ -262,7 +262,7 @@ class CrearProductoGeneralViewModel(
         if (limpio.length >= 6) {
             verificarCodigoJob = viewModelScope.launch {
                 delay(300)
-                val sucursalId = SessionManager.sucursalId
+                val sucursalId = SessionManager.sucursalIdEfectiva
                 val existente = repository.buscarProductoPorCodigoBarras(cid, limpio, sucursalId)
                 _uiState.update { state ->
                     if (existente != null) {
@@ -399,7 +399,7 @@ class CrearProductoGeneralViewModel(
         } else s.tipoProducto
 
         val cidFinal = s.clienteId.ifBlank { SessionManager.clienteIdGarantizado }
-        val sucursalIdFinal = SessionManager.sucursalId
+        val sucursalIdFinal = SessionManager.sucursalIdEfectiva
         val producto = ProductoInventario(
             clienteId = cidFinal,
             nombre = nombreSanitizado,
