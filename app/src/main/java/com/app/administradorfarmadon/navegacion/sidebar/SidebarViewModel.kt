@@ -101,7 +101,7 @@ class SidebarViewModel : ViewModel() {
     private val _vencida = MutableStateFlow(false)
     val vencida: StateFlow<Boolean> = _vencida.asStateFlow()
 
-    // ÚLTIMA VERDAD VIVA de la puerta de vigencia — la reevalúa el latido
+    // íšLTIMA VERDAD VIVA de la puerta de vigencia —” la reevalúa el latido
     // periódico para que el gate maestro TICTAQUE: una sesión abierta cruzando
     // la medianoche ahora se bloquea sola (antes operaba indefinidamente sin
     // eventos del snapshot).
@@ -209,7 +209,7 @@ class SidebarViewModel : ViewModel() {
             }
 
             // Coordinación en tiempo real (vida real): el usuario fue eliminado
-            // o se le revocó el acceso → su sesión activa debe terminar ya.
+            // o se le revocó el acceso ──†’ su sesión activa debe terminar ya.
             val existe = snapshot != null && snapshot.exists()
             val acceso = if (existe) FirestoreFieldUtils.parseBoolean(snapshot?.get("acceso")) else false
             if (!existe || !acceso) {
@@ -303,7 +303,7 @@ class SidebarViewModel : ViewModel() {
     private fun iniciarLoopLatidoPeriodico(clienteId: String) {
         latidoJob?.cancel()
         latidoJob = viewModelScope.launch {
-            // SINCRONIZACIÓN DE HORA DEL GATE (C4 sellado): mide el offset contra
+            // SINCRONIZACIí“N DE HORA DEL GATE (C4 sellado): mide el offset contra
             // Firestore al arrancar y lo refresca cada 30 latidos (~1 hora).
             // Sin esto, `HoraServidor.ahoraMs()` es reloj local disfrazado.
             var latidosDesdeSincronizacion = 0
@@ -325,7 +325,7 @@ class SidebarViewModel : ViewModel() {
      * Mide la diferencia entre este dispositivo y el reloj de Firestore
      * (mismo patrón del módulo de inventario) e instala el offset en
      * [com.app.administradorfarmadon.compartido.logica.HoraServidor].
-     * Falla en silencio logueado — degradación honesta a reloj local.
+     * Falla en silencio logueado —” degradación honesta a reloj local.
      */
     private suspend fun sincronizarOffsetDelGate() {
         repeat(2) { intento ->
@@ -353,7 +353,7 @@ class SidebarViewModel : ViewModel() {
     }
 
     /**
-     * REEVALUACIÓN DE LA PUERTA MAESTRA — misma fórmula doble cerradura del
+     * REEVALUACIí“N DE LA PUERTA MAESTRA —” misma fórmula doble cerradura del
      * listener, ejecutada cada latido: el cruce de medianoche con sesión abierta
      * ya no opera indefinidamente. Sin escuchas nuevas, cero costo extra.
      */
@@ -376,13 +376,13 @@ class SidebarViewModel : ViewModel() {
         ultimoLatidoEmitidoMs = ahora
 
         val uid = auth.currentUser?.uid ?: ""
-        // HORA SERVIDOR: la actividad que BrixoPanel lee es negocio, no decoración —
+        // HORA SERVIDOR: la actividad que BrixoPanel lee es negocio, no decoración —”
         // jamás se ancla al reloj del dispositivo.
         val now = com.google.firebase.Timestamp(
             Date(com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs())
         )
         val sucIdEfectiva = _sucursalIdEfectiva.value.ifBlank { "principal" }
-        // ACTIVIDAD POR SEDE: mapa en el doc farmacia — permite a BrixoPanel saber
+        // ACTIVIDAD POR SEDE: mapa en el doc farmacia —” permite a BrixoPanel saber
         // CUÁL sucursal concreta está operando (incluida Principal), con merge
         // seguro multi-dispositivo (cada tablet pisa solo su propia llave).
         val updates = mapOf(
@@ -404,7 +404,7 @@ class SidebarViewModel : ViewModel() {
         }
 
         // 3. Latido de la Sede/Sucursal activa en este dispositivo
-        // (compat con el detalle del panel que lee la subcolección — la llave
+        // (compat con el detalle del panel que lee la subcolección —” la llave
         // granular del mapa farm-level de arriba es la fuente nueva).
         val sucId = _sucursalIdEfectiva.value
         if (sucId.isNotBlank() && sucId != "todas" && sucId != "principal") {
@@ -545,11 +545,11 @@ class SidebarViewModel : ViewModel() {
             _planNombre.value = planNombreDoc
         }
 
-        // Moneda viva por cliente (B4 — per-client). Actualiza SessionManager sin relogin.
+        // Moneda viva por cliente (B4 —” per-client). Actualiza SessionManager sin relogin.
         try {
             val codigoVivo = snap.getString("monedaOperativa")?.takeIf { it.isNotBlank() } ?: snap.getString("monedaCodigo") ?: "PEN"
             val simboloVivo = snap.getString("simboloMoneda")?.takeIf { it.isNotBlank() } ?: when (codigoVivo) {
-                "USD" -> "$"; "EUR" -> "€"; "COP" -> "$"; "CLP" -> "$"; "ARS" -> "$"; "VES" -> "Bs."; else -> "S/"
+                "USD" -> "$"; "EUR" -> "──‚¬"; "COP" -> "$"; "CLP" -> "$"; "ARS" -> "$"; "VES" -> "Bs."; else -> "S/"
             }
             if (codigoVivo != com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.monedaCodigo ||
                 simboloVivo != com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.monedaSimbolo) {
@@ -657,13 +657,13 @@ class SidebarViewModel : ViewModel() {
             ultimaFechaFinVigencia = subDoc?.get("fechaFin")
             ultimaEtiquetaEstado = subDoc?.getString("estado")?.uppercase() ?: ""
 
-            // Vigencia — DOBLE CERRADURA con BRIXO (pacto entre repos):
+            // Vigencia —” DOBLE CERRADURA con BRIXO (pacto entre repos):
             // bloquea el RELOJ LOCAL sobre fechaFin (instantáneo, sin red)
             // O la ETIQUETA OFICIAL escrita por BrixoPanel (estado == "vencida",
             // aplicada automáticamente al superar la vigencia / corte admin).
             // Se desbloquea solo cuando AMBOS dicen activo: renovación,
             // pago validado y reactivación sobrescriben ambos dentro de sus
-            // transacciones. Único valor reconocido por diseño: "vencida".
+            // transacciones. íšnico valor reconocido por diseño: "vencida".
             val bloqueada = subDoc != null && (
                 esSuscripcionVencida(subDoc.get("fechaFin")) ||
                     subDoc.getString("estado") == "vencida"
@@ -765,14 +765,14 @@ class SidebarViewModel : ViewModel() {
                     com.app.administradorfarmadon.modulos.domain.ModuloResuelto(
                         modulo = "inventario",
                         nombre = "Inventario & Stock",
-                        categoria = "OPERACIÓN",
+                        categoria = "OPERACIí“N",
                         orden = 10,
                         icono = "inventory2"
                     ),
                     com.app.administradorfarmadon.modulos.domain.ModuloResuelto(
                         modulo = "inventario_compras",
                         nombre = "Compras y Proveedores",
-                        categoria = "OPERACIÓN",
+                        categoria = "OPERACIí“N",
                         orden = 20,
                         icono = "proveedores"
                     )
@@ -780,8 +780,14 @@ class SidebarViewModel : ViewModel() {
             }
         }
 
-        val itemsFiltrados = modulosBase.filter { moduloResuelto ->
-            // RAÍZ: permisos por USUARIO con fallback fino por módulo.
+        val itemsFiltrados = modulosBase
+            .filter { moduloResuelto ->
+                // Sucursales se administra SOLO desde Configuración → Sucursales y Sedes;
+                // no se muestra en el sidebar para no duplicar caminos.
+                moduloResuelto.modulo != "sucursales"
+            }
+            .filter { moduloResuelto ->
+            // RAíZ: permisos por USUARIO con fallback fino por módulo.
             // Si usuario tiene entrada explícita para ese módulo, usa esa.
             // Si no, cae al rol. Si ambos vacíos, ve todo lo del plan (dueño).
             if (permisosUsuario.containsKey(moduloResuelto.modulo)) {

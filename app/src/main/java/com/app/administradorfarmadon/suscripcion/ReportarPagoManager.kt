@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.suscripcion
+﻿package com.app.administradorfarmadon.suscripcion
 
 import android.content.Intent
 import android.net.Uri

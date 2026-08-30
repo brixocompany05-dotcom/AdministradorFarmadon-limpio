@@ -13,8 +13,29 @@ import kotlinx.coroutines.tasks.await
  * - Centraliza la búsqueda de duplicados fuera de transacción (3 índices + sufijo fracción).
  * - Provee el índice atómico dentro de transacción para blindaje real sin carrera.
  *
- * Regla de negocio: un código limpio pertenece a un solo producto de la sede activa.
+ * Regla de negocio: un código limpio pertenece a un solo producto de la SEDE ACTIVA.
  * Los códigos derivados -B10 / -U1 se resuelven a su base para evitar que la caja cobre mal.
+ *
+ * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+ * CONTRATO DE AISLAMIENTO DE Cí“DIGOS (LEER ANTES DE TOCAR ESTE ARCHIVO)
+ * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+ * 1. La unicidad de códigos es POR SUCURSAL, no por farmacia. Cada tienda tiene
+ *    su propia libreta (índice) y el mismo código puede existir en otra tienda de
+ *    la misma dueña APUNTANDO AL MISMO PRODUCTO. ESO ES CORRECTO Y ESPERADO.
+ *
+ * 2. TODA búsqueda/escritura de código debe usar SIEMPRE la sucursal activa
+ *    (SessionManager.sucursalIdEfectiva, valor por defecto de este helper).
+ *    NUNCA hacer una consulta "de toda la farmacia" para resolver un código:
+ *    la caja escanea en su propia tienda y debe descontar el stock de su tienda.
+ *
+ * 3. PROHIBIDO cambiar esto a "único para toda la farmacia". Hacerlo impediría
+ *    registrar el mismo producto (mismo código) en una segunda tienda, rompiendo
+ *    el flujo real de una cadena de farmacias. El diseño actual es el correcto.
+ *
+ * 4. Si algún día existe el módulo de VENTAS/CAJA, su búsqueda por código de barras
+ *    DEBE pasar por este helper (o usar FarmadonPaths.indicesCodigos con la
+ *    sucursalId activa). Bajo ningún concepto consultar el índice sin sucursalId.
+ * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
  */
 object CodigoBarraHelper {
 
@@ -25,7 +46,7 @@ object CodigoBarraHelper {
         raw.replace(REGEX_LIMPIEZA, "").uppercase().trim()
 
     /**
-     * ÚNICA forma de leer el código de barras de un documento de inventario
+     * íšNICA forma de leer el código de barras de un documento de inventario
      * (mismo orden canónico que ProductoParser). Si el día de mañana cambia
      * el nombre del campo, se corrige aquí 1 vez y todas las pantallas
      * respiran igual. Prohibido copiar esta cadena fuera de este Helper.

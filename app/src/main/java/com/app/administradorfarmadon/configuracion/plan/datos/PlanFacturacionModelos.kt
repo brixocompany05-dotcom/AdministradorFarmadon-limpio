@@ -49,7 +49,7 @@ data class PlanFacturacionInfo(
     val maxSucursales: Int = 1,
     val sucursalesActivas: Int = 0,
     val features: List<String> = emptyList(),
-    // Moneda viva del contrato (B4 — per-client). Si BrixoPanel cambia país/moneda
+    // Moneda viva del contrato (B4 —” per-client). Si BrixoPanel cambia país/moneda
     // solo para este cliente, Farmadon la refleja sin relogin.
     val monedaCodigo: String = "PEN",
     val monedaSimbolo: String = "S/",

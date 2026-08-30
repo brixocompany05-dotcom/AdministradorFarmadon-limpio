@@ -158,11 +158,11 @@ object FechaVencimientoHelper {
 
     /**
      * Fuente única para resolver un lote por su número.
-     * Busca en orden: llave actual → llave legada → scan por campo numero (ignora mayúsculas/espacios).
+     * Busca en orden: llave actual ──†’ llave legada ──†’ scan por campo numero (ignora mayúsculas/espacios).
      * Retorna Pair(claveReal, dataMutable) o null si no existe. Robusto y sin repetición.
      */
     fun resolverLote(
-        lotesMap: MutableMap<Any?, Any?>, numero: String
+        lotesMap: Map<*, *>, numero: String
     ): Pair<String, MutableMap<String, Any>>? {
         if (numero.isBlank()) return null
         val cleanKey = llaveLote(numero)
@@ -216,7 +216,7 @@ object FechaVencimientoHelper {
     }
 
     fun timestampDeVencimiento(vencimiento: String): Long {
-        if (vencimiento.isBlank() || vencimiento == "—") return 0L
+        if (vencimiento.isBlank() || vencimiento == "—”") return 0L
         return try {
             val v = vencimiento.trim()
             val yearMonth = when {

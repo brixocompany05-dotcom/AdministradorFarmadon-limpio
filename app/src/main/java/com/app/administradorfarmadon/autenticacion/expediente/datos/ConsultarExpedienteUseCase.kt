@@ -17,7 +17,7 @@ sealed class ResultadoExpediente {
         val camposACorregir: List<String> = emptyList(),
         val mensajeBrixo: String? = null,
         // Sello de corrección respondida: camposACorregir NO se borra al enviarse
-        // la corrección (BrixoPanel lo usa para la tabla antes→después), así que
+        // la corrección (BrixoPanel lo usa para la tabla antes──†’después), así que
         // la UI necesita distinguir "hay observación pendiente" de "ya corregí".
         val correccionYaRespondida: Boolean = false
     ) : ResultadoExpediente()

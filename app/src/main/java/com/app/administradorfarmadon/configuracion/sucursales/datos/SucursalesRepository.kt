@@ -4,15 +4,18 @@ import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import android.util.Log
 import com.app.administradorfarmadon.base_datos.PlanSuscripcion
 import com.app.administradorfarmadon.compartido.datos.EcosistemaPaths
+import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import java.util.UUID
 
 data class InfoPlanCliente(
     val planId: String = "",
@@ -139,7 +142,7 @@ class SucursalesRepository(
         awaitClose { listener.remove() }
     }
 
-    suspend fun guardarSucursal(clienteId: String, sucursal: Sucursal) {
+    suspend fun guardarSucursal(clienteId: String, sucursal: Sucursal, pagosSucursalNueva: Set<String>? = null) {
         if (clienteId.isBlank()) throw IllegalArgumentException("ID de farmacia inválido.")
 
         // CONTRATO CONGELADO (B4): maxSuclusales está en la suscripción, no en el
@@ -239,6 +242,30 @@ class SucursalesRepository(
 
                 // 1. Escribir documento en subcolección
                 tx.set(docRef, data)
+
+                // 1b. CONTRATO DE MÉTODOS DE PAGO DE LA SEDE NUEVA (B4 — queda fijo al nacer):
+                //     se crean SOLO las instancias de los tipos elegidos al crear la sede.
+                //     La sede principal puede luego activar/desactivar aquí, pero las demás
+                //     sedes ya creadas conservan su contrato sin pisarse entre sí.
+                if (pagosSucursalNueva != null) {
+                    val instancias = pagosSucursalNueva.sorted().associate { tipoId ->
+                        UUID.randomUUID().toString() to mapOf(
+                            "farmaciaId" to clienteId,
+                            "sucursalId" to sucursalId,
+                            "tipoId" to tipoId,
+                            "activa" to true,
+                            "datos" to emptyMap<String, String>()
+                        )
+                    }
+                    if (instancias.isNotEmpty()) {
+                        tx.set(
+                            FarmadonPaths.sucursal(db, clienteId, sucursalId)
+                                .collection("catalogos").document("metodosPago"),
+                            mapOf("instancias" to instancias),
+                            SetOptions.merge()
+                        )
+                    }
+                }
 
                 // 2. Array resumen = ESPEJO de la subcolección real (mismo tamaño, mismo id).
                 //    Fuente de verdad: la subcolección. El array nunca miente porque

@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.componentes_maestros.ui
+﻿package com.app.administradorfarmadon.inventario.componentes_maestros.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -24,7 +24,10 @@ import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 @Composable
 fun DeletedProductOverlay(
     show: Boolean,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    eliminadoPor: String = "",
+    fechaEliminacion: String = "",
+    motivoEliminacion: String = ""
 ) {
     if (!show) return
 
@@ -61,7 +64,18 @@ fun DeletedProductOverlay(
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    text = "Este registro ya no existe en el sistema. Es probable que haya sido eliminado por otro administrador.",
+                    text = if (eliminadoPor.isNotBlank() || fechaEliminacion.isNotBlank()) {
+                        buildString {
+                            if (eliminadoPor.isNotBlank()) append("Eliminado por $eliminadoPor")
+                            if (fechaEliminacion.isNotBlank()) {
+                                if (isNotEmpty()) append(" • ")
+                                append(fechaEliminacion)
+                            }
+                            if (motivoEliminacion.isNotBlank()) {
+                                append("\nMotivo: $motivoEliminacion")
+                            }
+                        }
+                    } else "Este registro ya no existe en el sistema. Es probable que haya sido eliminado por otro administrador.",
                     style = FDType.Body.copy(
                         color = Color.White.copy(alpha = 0.6f),
                         fontSize = 14.sp

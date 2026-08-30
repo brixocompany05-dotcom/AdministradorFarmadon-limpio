@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.configuracion.usuarios.logica
+﻿package com.app.administradorfarmadon.configuracion.usuarios.logica
 
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 import com.app.administradorfarmadon.configuracion.usuarios.datos.RolFarmacia

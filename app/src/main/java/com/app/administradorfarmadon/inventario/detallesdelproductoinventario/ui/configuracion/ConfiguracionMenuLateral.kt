@@ -25,7 +25,7 @@ import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.InterPremium
 
 /**
- * Menú lateral quiet 10/10 — lista silenciosa tipo Ajustes iPad, una sola jerarquía,
+ * Menú lateral quiet 10/10 —” lista silenciosa tipo Ajustes iPad, una sola jerarquía,
  * selección fondo tenue + borde izquierdo, geometría s, WindowInsets respetados, imePadding seguro.
  */
 @Composable
@@ -35,6 +35,7 @@ fun ConfiguracionMenuLateral(
     ubicacionActual: String,
     stockMinimoActual: Double,
     diasVencimientoActual: Int,
+    fefoAutomaticoActual: Boolean,
     isActivo: Boolean,
     codigoActual: String = "",
     unidadStock: String = "Unidad",
@@ -74,6 +75,7 @@ fun ConfiguracionMenuLateral(
                     diasVencimientoActual in 30..60 -> FDColors.Warning
                     else -> FDColors.Success
                 }
+                SeccionConfiguracion.CONSUMO_FEFO -> if (fefoAutomaticoActual) FDColors.Success else FDColors.Warning
                 SeccionConfiguracion.ESTADO_OPERATIVO -> if (isActivo) FDColors.Success else FDColors.Error
                 SeccionConfiguracion.CODIGO_BARRAS -> if (codigoActual.isBlank()) FDColors.Warning else FDColors.Success
             }
@@ -90,6 +92,7 @@ fun ConfiguracionMenuLateral(
                     if (n <= 0) "Sin umbral configurado" else "$n ${if (n == 1) sing else plural} al mínimo"
                 }
                 SeccionConfiguracion.ALERTA_VENCIMIENTO -> "$diasVencimientoActual días antes de vencer"
+                SeccionConfiguracion.CONSUMO_FEFO -> if (fefoAutomaticoActual) "FEFO automático activo" else "Selección manual de lote"
                 SeccionConfiguracion.ESTADO_OPERATIVO -> if (isActivo) "Se puede vender en mostrador" else "Pausado · oculto para venta"
                 SeccionConfiguracion.CODIGO_BARRAS -> if (codigoActual.isNotBlank()) codigoActual.uppercase() else "Pendiente de asignar"
             }

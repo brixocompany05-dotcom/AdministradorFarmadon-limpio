@@ -124,7 +124,7 @@ fun AlertaFlotanteBanner(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Ícono con aura sutil
+                    // ícono con aura sutil
                     Box(
                         modifier = Modifier
                             .size(38.dp)

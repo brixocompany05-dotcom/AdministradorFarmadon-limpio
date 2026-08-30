@@ -282,7 +282,7 @@ fun CardEstadoExpediente(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp).clip(androidx.compose.foundation.shape.CircleShape).background(colorEstado))
                 Spacer(Modifier.width(8.dp))
-                Text("SOLICITUD • ${exp.ruc}", style = FDType.Label.copy(letterSpacing = 1.sp), color = FDColors.TextTertiary)
+                Text("SOLICITUD —¢ ${exp.ruc}", style = FDType.Label.copy(letterSpacing = 1.sp), color = FDColors.TextTertiary)
             }
             Text(exp.estado.uppercase(), style = FDType.Heading3.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold), color = colorEstado)
             val textoExplicativo = when {
@@ -297,7 +297,7 @@ fun CardEstadoExpediente(
             // Botón solo si la observación está VIVA: pedida y sin respuesta del
             // cliente. Tras enviar la corrección, camposACorregir sigue lleno en el
             // servidor (BrixoPanel lo necesita) pero aquí ya no debe ofrecerse
-            // "CORREGIR SOLICITUD" — sería una pantalla fantasma.
+            // "CORREGIR SOLICITUD" —” sería una pantalla fantasma.
             val observacionViva = (exp.camposACorregir.isNotEmpty() || exp.estado.equals("observada", ignoreCase = true)) &&
                     !exp.correccionYaRespondida
             if (observacionViva) {
@@ -321,7 +321,7 @@ fun CardEstadoExpediente(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("IR A INICIAR SESIÓN", style = FDType.Label.copy(fontWeight = FontWeight.Bold))
+                    Text("IR A INICIAR SESIí“N", style = FDType.Label.copy(fontWeight = FontWeight.Bold))
                 }
             }
         }

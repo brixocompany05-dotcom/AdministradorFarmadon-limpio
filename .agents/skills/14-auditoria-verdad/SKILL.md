@@ -1,112 +1,85 @@
 ---
 name: auditoria-verdad
-description: >-
-  Auditoría de VERDAD (cero pérdida) — revisión profunda de un módulo completo,
-  pie a cabeza: que ninguna acción apunte mal a Firebase (farmaciaId/sucursalId
-  correctos), que ningún dato se pierda o sobrescriba en silencio, que nada nazca
-  falso o por defecto, y que cada acción sea coherente con el resto del negocio
-  (efecto dominó sobre stock/kardex/comprobantes/suscripción).
-  Se invoca con: "hazle auditoría de verdad a [módulo]" o "revisión cero-pérdida".
+description: Audita una funcionalidad o módulo de extremo a extremo para descubrir huecos, datos falsos, pérdidas, consecuencias cruzadas y caminos no cubiertos. Úsala cuando el cambio tenga impacto real o se solicite una auditoría profunda.
 ---
 
-# AUDITORÍA DE VERDAD (CERO PÉRDIDA · v1.0)
+# AUDITORÍA DE VERDAD E IMPACTO
 
-> **PROPÓSITO:** responder con evidencia línea-en-mano, nunca con suposición:
-> ¿cada acción escribe DONDE DEBE, CONSERVA lo que debe conservar, BORRA solo lo
-> nombrado, NACE sin falsedades, y es COHERENTE con el resto del ecosistema?
-> Frase de cierre esperada: *bien o nada — jamás inventar, jamás perder en silencio.*
-> Aquí el dinero es doble: los SOLES de la venta Y el STOCK/KARDEX que la venta mueve.
+## Propósito
 
----
+No aceptar una solución solo porque compila, se ve bien o funciona en el camino feliz.
+Reconstruir cómo vive dentro del sistema real y buscar activamente qué podría estar mal,
+qué se puede perder, qué queda viejo y qué otros procesos o personas se ven afectados.
 
-## LAS 6 FASES OBLIGATORIAS (en orden, sin saltos)
+La auditoría no es un ritual para cada cambio pequeño. Su profundidad debe corresponder
+al impacto: una modificación local puede tener una revisión breve; una acción que toca
+datos, dinero, inventario, permisos, sucursales o varios módulos exige auditoría completa.
 
-### FASE 0 · MAPA (antes de juzgar)
-Inventario completo del módulo: archivos + líneas, TODAS las rutas Firestore
-(vía `FarmadonPaths` y paths propios), estados UI, escuchas (nacen/mueren),
-multi-sucursal (¿dónde entra `sucursalIdEfectiva`?), tests existentes.
-Prohibido opinar sobre código no leído.
+## Fases de análisis
 
-### FASE 1 · FALSIDAD
-Barrido de mentiras clásicas:
-- Defaults inventados (`?: "Producto general"`, `"SIN CATEGORÍA"`, precios 0.0 por defecto).
-- Reloj local (`System.currentTimeMillis`, `Calendar.getInstance`, `nowIso`)
-  tocando DINERO real: comprobantes/IGV, kardex, lotes (vencimientos), cuenta corriente.
-- Etiquetas guardadas usadas como verdad cuando existe calculador en vivo.
-- Errores tragados que convierten "falló" en "vacío", "cero" o "sin movimientos".
+### 1. Mapa real
 
-### FASE 2 · PUNTERÍA
-Para cada acción de negocio: ¿escribe en las colecciones EXACTAS correctas y de
-la SUCURSAL correcta? ¿Los espejos atómicos se cumplen (ej.: producto + kardex +
-lote en la misma transacción)? ¿Locks de idempotencia presentes y con TTL?
-¿El aislamiento por farmacia (R7/Límite 1) queda implícito en cada ruta?
+Leer los archivos y seguir la acción completa: entrada, pantalla, lógica, persistencia,
+escuchas, rutas, estados y resultado. Identificar fuentes de verdad, actores, módulos
+afectados y qué ocurre al cambiar de contexto.
 
-### FASE 3 · PÉRDIDA
-Campo por campo por acción:
-- ¿Qué SOBREESCRIBE? ¿Usa set() completo donde debía update() nombrado?
-- ¿El KARDEX y los historiales son APPEND desde snapshot fresco de la tx (no caché)?
-- ¿Los borrados son campo-nombre-por-campo-nombre, jamás documentos enteros sin rastro
-  (el patrón del proyecto: papelera/`listaeliminado` + auditoría)?
-- ¿Alguna decisión lee de StateFlow/caché de pantalla donde debía leer del SERVIDOR?
-- Toda acción deja auditoría permanente cuando su documento puede morir u overwritearse.
+### 2. Supuestos y falsedad
 
-### FASE 4 · NACIMIENTO
-El pipeline de creación del recurso central del módulo (un producto con su lote
-inicial, una venta con su comprobante, el registro de un postulante hacia BRIXO):
-ningún dato falso ni por defecto; fuentes verificadas en jerarquía explícita;
-lo obligatorio obliga (aborta con mensaje humano nombrando qué falta);
-nada se pierde en silencio; imposible sobrescribir algo ya existente.
+Buscar valores por defecto que inventan información, datos congelados, relojes incorrectos,
+errores convertidos en vacío o éxito, identificadores tomados de un contexto equivocado y
+estados que no representan lo que ocurrió.
 
-### FASE 5 · COHERENCIA CRUZADA (efecto dominó)
-Matriz acción × entidades ajenas: ¿debería tocarlas? Ejemplos reales de dominó
-aquí: vender mueve stock + kardex + comprobante JUNTOS; recibir mercadería ajusta
-lote y kardex sin tocar precio pactado; cambiar régimen de precios no reescribe
-comprobantes históricos. Regla de oro: **una regla de negocio, todos sus caminos,
-mismo candado** (si una vía bloquea stock negativo, TODAS la bloquean).
-Incluye despertar limpio (sin campos residuales) y decisiones deliberadas
-documentadas con su lógica.
+### 3. Puntería y conservación
 
----
+Verificar que cada lectura y escritura llegue al lugar correcto, conserve la pertenencia
+del negocio y no pise información ajena. Revisar campo por campo qué se modifica, qué se
+conserva, qué se deriva, qué se elimina y qué rastro debe permanecer.
 
-## LOS 4 CAMINOS + DATOS HOSTILES (gate obligatorio POR CADA ACCIÓN nueva)
+### 4. Consecuencia cruzada
 
-Toda acción importante se valida al menos por:
+Seguir el efecto dominó: qué cambia en otras pantallas, procesos, saldos, existencias,
+historiales, límites, reportes y usuarios. Una regla del negocio debe mantenerse igual en
+todos sus caminos, no solo en el botón principal.
 
-| Camino | Pregunta |
-|---|---|
-| **Feliz** | ¿Funciona de punta a punta? |
-| **Error** | ¿Algo falla — qué ve el usuario y qué queda intacto? |
-| **Repetición** | ¿Vuelve a ejecutar (doble toque, reintento tras corte)? ¿Duplica o llega a "ya procesado"? |
-| **Interrupción** | ¿Muere la app/red a mitad? ¿Qué estado queda y cómo se recupera? |
+### 5. Tiempo y verdad vigente
 
-**DATOS MANIPULADOS — jamás asumir que la UI envía verdad:** valores modificados,
-IDs incorrectos o inexistentes, documentos eliminados, referencias rotas, datos
-antiguos, campos faltantes, tipos inesperados. El sistema debe fallar de forma
-controlada con mensaje humano.
+Preguntar qué pasa si el dato cambia mientras alguien mira, si cambia de sede o cuenta, si
+la respuesta llega tarde o si otra persona modifica lo mismo. La pantalla no puede pintar
+la respuesta de un contexto anterior como si perteneciera al nuevo.
 
-**MISIÓN ANTI-FALSO-POSITIVO:** una función puede compilar, guardar correcto y
-mostrar la UI correcta… y estar MAL DISEÑADA (ej.: notificación que reaparece al
-volver a la pantalla; venta que descuenta stock dos veces). El trabajo es descubrir
-cómo comportarse mal aunque aparentemente funcione. Si alguno de los 4 caminos
-queda sin comportamiento definido, la funcionalidad está INCOMPLETA.
+### 6. Caminos no felices
 
----
+Definir qué ve la persona y qué queda guardado en cada caso:
 
-## PUERTA DE SALIDA (sin esto NO está terminada)
+- camino normal;
+- error de validación o persistencia;
+- repetición o doble ejecución;
+- interrupción, abandono o cierre;
+- información incompleta, eliminada, antigua o inesperada;
+- dos personas actuando al mismo tiempo.
 
-- [ ] Compila según `gradle-windows-execution`: `.\gradlew.bat :app:compileDebugKotlin` (protocolo anti-bloqueo, salida a `build.log`)
-- [ ] Suite verde de los módulos tocados (tests nuevos SOLO si nació lógica pura crítica)
-- [ ] Barrido anti-residuos final (grep de defaults/relojes eliminados = cero matches)
-- [ ] **LAS 8 PREGUNTAS DE LA VIDA REAL respondidas por cada acción nueva**
-      (viven en `cerebro-pensamiento` §6: quién no puede · ya tiene/tuvo · resultado
-      exacto antes de confirmar · salida visible · carrera/reintento · rastro
-      permanente · números dictados por el sistema · inmunidad al futuro del catálogo)
-- [ ] Veredicto de socio: hallazgos por severidad + qué quedó protegido + honestidad del después
-      (incluye lo que Farmadon NO controla —contrato con BrixoPanel/BRIXO— y deudas conscientes del dueño)
+### 7. Después de la confirmación
 
-## FRONTERAS
+No terminar en “éxito”. Verificar quién necesita saberlo, qué dato debe actualizarse,
+qué acción queda disponible, qué responsabilidad nace, qué rastro se consulta mañana y
+qué pasa si el usuario vuelve después.
 
-- Los FLUJOS de usuario y bocetos siguen siendo de `09-cerebro-comunicacion`.
-- La robustez genérica sigue siendo de `04-cerebro-robustez`; la frescura de `cerebro-frescura`;
-  Firebase mecánico de `firebase-android`.
-- Esta skill manda en el ORDEN DE AUDITORÍA y en el estándar cero-pérdida/cero-falsedad.
+## Modo crítico
+
+Antes de aprobar, asumir que la propuesta puede estar incompleta. Buscar huecos de lógica,
+trabajo manual escondido, estados imposibles, decisiones a ciegas, información perdida,
+contradicciones y dependencias no declaradas. Si aparece una solución más simple que
+protege mejor el resultado, proponerla.
+
+## Evidencia y salida
+
+El resultado debe separar hechos comprobados, riesgos, decisiones y deuda consciente. Para
+cualquier hallazgo indicar: dónde ocurre, qué persona lo experimenta, qué daño produce,
+cómo se previene y cómo se comprueba. No declarar “todo bien” si falta revisar un camino.
+
+La pregunta de cierre es:
+
+> Si esto funcionara durante un día completo, con cambios, interrupciones y personas
+> distintas, ¿seguiría siendo lógico, útil, vigente y fácil de usar?
+
+Si la respuesta no es claramente sí, la auditoría aún no terminó.

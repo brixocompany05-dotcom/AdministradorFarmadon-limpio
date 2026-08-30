@@ -298,7 +298,7 @@ fun SucursalesScreen(
                     .border(s.borderWidth, if (panelAbierto) FDColors.Primary.copy(alpha = 0.4f) else colores.cardBorde, RoundedCornerShape(s.radiusCard * 0.75f))
             ) {
                 if (panelAbierto) {
-                    SucursalFormularioPanel(state, viewModel::onFieldChanged, viewModel::onActivaChanged, { mostrarSelectorMapa = true }, { viewModel.guardarSucursal() }, { viewModel.solicitarEliminar() }, { viewModel.solicitarCerrarPanel() }, s)
+                    SucursalFormularioPanel(state, viewModel::onFieldChanged, viewModel::onActivaChanged, viewModel::onPagoSeleccionadoChanged, { mostrarSelectorMapa = true }, { viewModel.guardarSucursal() }, { viewModel.solicitarEliminar() }, { viewModel.solicitarCerrarPanel() }, s)
                 } else {
                     EmptyDetailPlaceholder(colores, s)
                 }

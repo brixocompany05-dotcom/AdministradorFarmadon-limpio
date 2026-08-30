@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -32,8 +33,6 @@ import com.app.administradorfarmadon.inventario.crearproductogeneral.logica.Crea
 import com.app.administradorfarmadon.inventario.crearproductogeneral.ui.CrearProductoGeneralScreen
 import com.app.administradorfarmadon.inventario.editarproductosinventario.logica.EditarProductoViewModel
 import com.app.administradorfarmadon.inventario.editarproductosinventario.ui.EditarProductoScreen
-import com.app.administradorfarmadon.inventario.ingresarstockproductos.logica.StockEntryViewModel
-import com.app.administradorfarmadon.inventario.ingresarstockproductos.ui.StockEntryScreen
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.InventarioScreen
 import com.app.administradorfarmadon.navegacion.sidebar.FarmadonSidebar
 import com.app.administradorfarmadon.navegacion.sidebar.SidebarTheme
@@ -48,6 +47,7 @@ import com.app.administradorfarmadon.configuracion.usuarios.ui.UsuariosScreen
 import com.app.administradorfarmadon.configuracion.plan.ui.GestionPlanScreen
 import com.app.administradorfarmadon.configuracion.plan.ui.PlanFacturacionScreen
 import com.app.administradorfarmadon.configuracion.ui.ConfiguracionScreen
+import com.app.administradorfarmadon.configuracion.metodospago.ui.MetodosPagoScreen
 import com.app.administradorfarmadon.notificaciones.suscripcion.logica.AlertaSuscripcionViewModel
 import com.app.administradorfarmadon.notificaciones.suscripcion.ui.AlertaFlotanteBanner
 
@@ -126,6 +126,8 @@ fun ContenedorAplicacion(
     }
 
     var isInventoryDetailOpen by remember { mutableStateOf(false) }
+    var isFocusModeActive by remember { mutableStateOf(false) }
+    val shouldBlur by remember { derivedStateOf { isFocusModeActive } }
 
     LaunchedEffect(currentAuthUid) {
         if (currentAuthUid.isNotBlank()) {
@@ -194,6 +196,7 @@ fun ContenedorAplicacion(
             modifier = Modifier
                 .fillMaxSize()
                 .background(TokensFarmadon.colores.fondoBase)
+                .then(if (shouldBlur) Modifier.blur(12.dp) else Modifier)
         ) {
             FarmadonSidebar(
                 currentRoute = currentRoute,
@@ -233,7 +236,8 @@ fun ContenedorAplicacion(
                     .fillMaxSize()
                     .background(TokensFarmadon.colores.fondoBase)
                     .safeDrawingPadding(),
-                onInventoryDetailStateChanged = { isInventoryDetailOpen = it }
+                onInventoryDetailStateChanged = { isInventoryDetailOpen = it },
+                onFocusModeChanged = { isFocusModeActive = it }
             )
         }
 
@@ -321,7 +325,7 @@ fun ContenedorAplicacion(
                                 // Solo el comprobante observado lleva al flujo de pago/subsanación
                                 com.app.administradorfarmadon.notificaciones.suscripcion.datos.TipoAlertaSuscripcion.COMPROBANTE_OBSERVADO ->
                                     com.app.administradorfarmadon.suscripcion.ReportarPagoManager.abrirDialogoManual()
-                                // Todo lo demás promete VER EL PLAN → llevar al plan de verdad
+                                // Todo lo demás promete VER EL PLAN ──†’ llevar al plan de verdad
                                 else -> navController.navigate("config_plan")
                             }
                         }
@@ -356,7 +360,8 @@ private fun AppNavHost(
     navController: NavHostController,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
-    onInventoryDetailStateChanged: (Boolean) -> Unit = {}
+    onInventoryDetailStateChanged: (Boolean) -> Unit = {},
+    onFocusModeChanged: (Boolean) -> Unit = {}
 ) {
     NavHost(
         navController = navController,
@@ -370,39 +375,8 @@ private fun AppNavHost(
                 onNavigateToEditarProducto = { productId ->
                     navController.navigate("editar_producto/$productId")
                 },
-                onNavigateToIngresarStock = { productId ->
-                    navController.navigate("ingresar_stock/$productId")
-                },
-                onDetailStateChanged = onInventoryDetailStateChanged
-            )
-        }
-
-        composable(
-            route = "ingresar_stock/{productId}?loteNumero={loteNumero}",
-            arguments = listOf(
-                androidx.navigation.navArgument("productId") { type = androidx.navigation.NavType.StringType },
-                androidx.navigation.navArgument("loteNumero") {
-                    type = androidx.navigation.NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                }
-            )
-        ) { backStackEntry ->
-            val productId = backStackEntry.arguments?.getString("productId") ?: ""
-            val loteNumero = backStackEntry.arguments?.getString("loteNumero")
-            val vm: StockEntryViewModel = viewModel()
-            LaunchedEffect(productId, loteNumero) {
-                if (!loteNumero.isNullOrBlank()) {
-                    vm.inicializarConLoteNumero(productId, loteNumero)
-                } else {
-                    vm.inicializar(productId)
-                }
-            }
-            StockEntryScreen(
-                productId = productId,
-                viewModel = vm,
-                onNavigateBack = { navController.popBackStack() },
-                onSuccess = { navController.popBackStack() }
+                onDetailStateChanged = onInventoryDetailStateChanged,
+                onFocusModeChanged = onFocusModeChanged
             )
         }
 
@@ -436,7 +410,7 @@ private fun AppNavHost(
         composable("ventas_dia")   { PantallaEnConstruccion("Ventas del Día") { navController.popBackStack() } }
         composable("ventas_devoluciones") { PantallaEnConstruccion("Devoluciones") { navController.popBackStack() } }
 
-        // --- DISPENSACIÓN ---
+        // --- DISPENSACIí“N ---
         composable("dispensacion_recetas") { PantallaEnConstruccion("Recetas Médicas") { navController.popBackStack() } }
         composable("dispensacion_controlados") { PantallaEnConstruccion("Medicamentos Controlados") { navController.popBackStack() } }
         composable("dispensacion_adulto") { PantallaEnConstruccion("Atención Adulto Mayor") { navController.popBackStack() } }
@@ -473,12 +447,13 @@ private fun AppNavHost(
         composable("reportes_inventario") { PantallaEnConstruccion("Reportes de Inventario") { navController.popBackStack() } }
         composable("reportes_fiscal") { PantallaEnConstruccion("Reportes DIGEMID / SUNAT") { navController.popBackStack() } }
 
-        // --- CONFIGURACIÓN ---
+        // --- CONFIGURACIí“N ---
         val pantallaConfiguracion: @Composable () -> Unit = {
             ConfiguracionScreen(
                 onNavigateToSucursales = { navController.navigate("config_sucursales") },
                 onNavigateToPlan = { navController.navigate("config_plan") },
                 onNavigateToUsuarios = { navController.navigate("config_usuarios") },
+                onNavigateToMetodosPago = { navController.navigate("config_metodos_pago") },
                 onLogout = {
                     FirebaseAuth.getInstance().signOut()
                     onLogout()
@@ -487,6 +462,7 @@ private fun AppNavHost(
         }
         composable("config_farmacia") { pantallaConfiguracion() }
         composable("configuracion") { pantallaConfiguracion() }
+        composable("config_metodos_pago") { MetodosPagoScreen(onBack = { navController.popBackStack() }) }
         
         val pantallaSucursales: @Composable () -> Unit = {
             val vm: SucursalesViewModel = viewModel()
@@ -517,7 +493,7 @@ private fun AppNavHost(
         composable("config_plan") { pantallaPlan() }
         composable("plan") { pantallaPlan() }
 
-        // --- MÓDULOS DEL CATÁLOGO (rutas por código canónico) ---
+        // --- Mí“DULOS DEL CATÁLOGO (rutas por código canónico) ---
         // El sidebar navega por código de módulo (plan/rol/overrides en tiempo
         // real). Cada módulo sin pantalla propia aún llega a un placeholder
         // honesto. "inventario", "compras", "sucursales" y "usuarios" ya tienen pantalla real arriba.
@@ -692,7 +668,7 @@ private fun PantallaSuscripcionVencida(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = if (modalidadPausa == "PROGRAMADA" && pausadoHastaTexto.isNotBlank())
-                                    "Periodo: $pausadoDesdeTexto — $pausadoHastaTexto"
+                                    "Periodo: $pausadoDesdeTexto —” $pausadoHastaTexto"
                                 else "Pausado desde: $pausadoDesdeTexto",
                                 style = TokensFarmadon.tipografia.titulo3,
                                 color = TokensFarmadon.colores.textoPrincipal
@@ -717,7 +693,7 @@ private fun PantallaSuscripcionVencida(
                         }
 
                         Text(
-                            text = "🛡️ Tus días contratados están congelados y no se consumen mientras dure la pausa.",
+                            text = "Tus días contratados están congelados y no se consumen mientras dure la pausa.",
                             style = TokensFarmadon.tipografia.cuerpoPequeno,
                             color = TokensFarmadon.colores.textoSecundario
                         )

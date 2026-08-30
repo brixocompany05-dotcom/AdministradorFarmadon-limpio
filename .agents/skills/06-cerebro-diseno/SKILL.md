@@ -1,250 +1,1470 @@
 ---
 name: cerebro-diseno
-description: Lógica visual profesional, jerarquía natural y diseño sin estorbos para que el personal de la farmacia opere rápido, sin errores y con orgullo. Optimizado para SaaS en Tablet Horizontal.
+description: Software Enterprise/SaaS diseñado para pantallas grandes (Tablet/Desktop). Prioriza patrones Anti-Mobile, navegación lateral, workspaces, densidad útil y productividad con mouse/teclado.
 ---
 
-1. Principio supremo
+# SKILL — ENTERPRISE LARGE-SCREEN UI
+
+## Anti-Mobile · Tablet · Desktop · SaaS · Jetpack Compose
+
+---
+
+# 1. MISIÓN
+
+Esta aplicación es un **software Enterprise/SaaS diseñado para pantallas grandes**.
+
+La interfaz debe sentirse como un sistema profesional de gestión empresarial, no como una aplicación móvil ampliada.
+
+Jetpack Compose es únicamente la tecnología de implementación.
+
+**Android NO define el patrón UX.**
+
+La interfaz debe priorizar:
+
+1. Contexto continuo
+2. Productividad
+3. Densidad de información útil
+4. Claridad
+5. Velocidad operativa
+6. Navegación visible
+7. Mouse
+8. Teclado
+9. Touch
+10. Accesibilidad
+11. Consistencia
+12. Escalabilidad
+
+---
+
+# 2. REGLA ABSOLUTA ANTI-MOBILE
+
+Cuando exista un patrón típico de aplicaciones móviles y exista un patrón equivalente para pantalla grande:
+
+> **EL PATRÓN LARGE-SCREEN TIENE PRIORIDAD.**
+
+No se debe implementar un patrón móvil simplemente porque exista un componente Material/Compose para hacerlo.
+
+### Flujo obligatorio
+
+```text
+NECESIDAD DEL USUARIO
+        ↓
+PATRÓN UX
+        ↓
+PATRÓN LARGE-SCREEN
+        ↓
+COMPONENTE COMPOSE
+```
+
+Nunca:
+
+```text
+"Existe AlertDialog()"
+        ↓
+"Entonces uso AlertDialog()"
+```
+
+---
+
+# 3. TABLA MAESTRA DE PROHIBICIONES Y SUSTITUTOS
+
+Esta tabla es normativa.
+
+| ❌ Patrón móvil que NO debe utilizarse como patrón principal | ✅ Sustituto Large-Screen                |
+| ----------------------------------------------------------- | --------------------------------------- |
+| `BottomNavigation`                                          | **Sidebar / Navigation Rail**           |
+| `NavigationBar` inferior                                    | **Sidebar persistente**                 |
+| `ModalNavigationDrawer`                                     | **Persistent Sidebar**                  |
+| Hamburger menu como navegación principal                    | **Sidebar visible**                     |
+| `ModalBottomSheet`                                          | **Side Sheet / Side Panel**             |
+| `BottomSheet` para edición                                  | **Edit Side Panel**                     |
+| `AlertDialog` para formularios                              | **Side Panel / Workspace**              |
+| `Dialog` para detalles complejos                            | **Detail Pane**                         |
+| `Dialog` para filtros                                       | **Filter Side Panel**                   |
+| `Dialog` para selección grande                              | **Searchable Selection Panel**          |
+| `Dialog` para crear entidades complejas                     | **Create Workspace / Side Panel**       |
+| `FAB` para acción empresarial principal                     | **Primary Action Button**               |
+| FAB con múltiples acciones                                  | **Toolbar / Action Group**              |
+| `Toast` para feedback importante                            | **Inline Feedback / Notification**      |
+| `Snackbar` como sistema de notificaciones                   | **Notification Center / Inline Status** |
+| Snackbar para error importante                              | **Error State / Inline Error**          |
+| Spinner global bloqueando pantalla                          | **Skeleton / Local Loading**            |
+| ProgressBar sin contexto                                    | **Operation Status**                    |
+| `LazyColumn` como lista visual de registros empresariales   | **Data Table / Structured List**        |
+| Card para cada registro                                     | **Table Row / Data Row**                |
+| Lista → pantalla detalle                                    | **Master–Detail**                       |
+| Pantalla completa de detalle                                | **Detail Pane**                         |
+| Pantalla completa para editar algo contextual               | **Side Panel**                          |
+| Formulario de una columna                                   | **Responsive Form Grid**                |
+| Dropdown con cientos de elementos                           | **Searchable ComboBox**                 |
+| Botón "Filtros" como única forma de filtrar                 | **Filter Bar**                          |
+| `FilterBottomSheet`                                         | **Filter Side Panel**                   |
+| Swipe como única forma de acción                            | **Row Actions / Context Menu**          |
+| Long Press como única interacción                           | **Right Click / Context Menu**          |
+| Icon-only para acciones poco obvias                         | **Icon + Label / Tooltip**              |
+| Full-width button innecesario                               | **Compact Action Group**                |
+| Pull-to-refresh como única actualización                    | **Refresh Action**                      |
+| Carrusel para información importante                        | **Grid / Multi-column Layout**          |
+| Wizard móvil                                                | **Stepper / Workflow Workspace**        |
+| Pantallas apiladas innecesariamente                         | **Workspace / Split View**              |
+| Bottom action buttons                                       | **Toolbar / Sticky Action Bar**         |
+| Una sola columna en pantalla amplia                         | **Responsive Multi-column Layout**      |
+| Modal para propiedades                                      | **Inspector Panel**                     |
+| Modal para información relacionada                          | **Detail Panel / Tabs**                 |
+| Menú escondido para acciones frecuentes                     | **Toolbar**                             |
+| Loading de toda la aplicación                               | **Section-level Loading**               |
+| Empty screen sin explicación                                | **Actionable Empty State**              |
+| "Error" sin recuperación                                    | **Recovery Error State**                |
+| Información temporal importante                             | **Persistent Activity / Notification**  |
+| Touch como única interacción                                | **Touch + Mouse + Keyboard**            |
+| Navegación sin focus                                        | **Keyboard Focus Navigation**           |
+
+---
+
+# 4. NAVEGACIÓN
+
+## ❌ PROHIBIDO
+
+Usar navegación inferior como arquitectura principal:
+
+```text
+┌───────────────────────────┐
+│                           │
+│       CONTENIDO           │
+│                           │
+├───────────────────────────┤
+│ Inicio Inventario Caja    │
+└───────────────────────────┘
+```
+
+## ✅ OBLIGATORIO
+
+Utilizar navegación lateral.
+
+```text
+┌──────────────┬─────────────────────────────────────┐
+│              │                                     │
+│ Inicio       │                                     │
+│ Inventario   │             WORKSPACE               │
+│ Compras      │                                     │
+│ Proveedores  │                                     │
+│ Caja         │                                     │
+│ Reportes     │                                     │
+│ Configuración│                                     │
+└──────────────┴─────────────────────────────────────┘
+```
+
+La navegación debe ser:
+
+* persistente
+* visible
+* jerárquica
+* consistente
+
+---
 
-No preguntar "¿cómo adapto esta pantalla móvil a tablet?". Preguntar: "Si esta app hubiera nacido para esta pantalla, ¿cómo estaría organizada?"
+# 5. SIDEBAR
+
+El Sidebar debe poder contener:
+
+* logo
+* organización
+* módulos
+* submódulos
+* sección activa
+* badges
+* indicadores
+* configuración
+* cuenta
 
-Reconstruir la composición desde cero cuando haga falta. No conservar una estructura móvil solo porque ya existe el código.
+Debe permitir estado:
 
-Prueba del "móvil estirado": si al reducir mentalmente la pantalla a un teléfono la estructura sigue viéndose igual, es una UI móvil adaptada → rediseñar.
+```text
+Expanded
+Collapsed
+```
 
-Señales de alerta (no convertir automáticamente):
+Pero el colapso no debe destruir la usabilidad.
+
+---
 
-columna → columna más ancha
-card móvil → card gigante
-formulario vertical → mismo formulario con más espacio
-botón móvil → botón enorme
-bottom sheet → panel gigante
-FAB → acción principal
-lista de cards → lista interminable
-espacio vacío usado como decoración, no como estructura
-2. Composición espacial
+# 6. DIALOG
 
-Pensar en zonas de trabajo, no en componentes sueltos:
+## ❌ PROHIBIDO COMO CONTENEDOR GENERAL
 
-┌────────────┬──────────────────────────────────────────┐
-│ Navegación │             Área de trabajo               │
-│            │  ┌────────────────┬───────────────┐       │
-│            │  │ Lista / datos  │ Contexto/detalle│      │
-│            │  └────────────────┴───────────────┘       │
-└────────────┴──────────────────────────────────────────┘
+No utilizar Dialog para:
 
-Orden mental: espacio → relaciones → jerarquía → flujo → componentes (nunca al revés).
+* formularios largos
+* edición compleja
+* creación compleja
+* detalle completo
+* gestión de lotes
+* filtros complejos
+* selección masiva
+* workflows
 
-Toda pantalla necesita:
+Ejemplo prohibido:
 
-Punto de entrada — dónde estoy, qué veo, qué puedo hacer.
-Área principal — el trabajo real.
-Contexto — información relacionada visible cuando aporta.
-Acciones — asociadas visualmente al objeto que modifican.
-Respiración — espacio que separa jerarquías, no que rellena el monitor.
-3. Jerarquía visual
-Nivel 1  Qué estoy haciendo
-Nivel 2  Qué información necesito
-Nivel 3  Qué puedo modificar
-Nivel 4  Qué acciones puedo ejecutar
-Nivel 5  Información secundaria
+```text
+┌─────────────────────────────┐
+│ Editar producto             │
+│                             │
+│ Nombre                      │
+│ Categoría                   │
+│ Proveedor                   │
+│ Presentación                │
+│ Precio                      │
+│ Stock                       │
+│ Lote                        │
+│ ...                         │
+│                             │
+│ Cancelar       Guardar      │
+└─────────────────────────────┘
+```
 
-Regla: si todo llama la atención, nada tiene jerarquía. Evitar botones/títulos/cards/colores todos con el mismo peso.
+## ✅ SUSTITUTO
 
-Una sola acción primaria por pantalla; el resto son secundarias o terciarias. Nunca [GUARDAR] [CANCELAR] [ELIMINAR] [EXPORTAR] con igual peso visual.
+Utilizar:
 
-Regla de no competencia: en una misma zona no deben competir dos títulos principales, dos acciones principales, ni varios elementos de énfasis a la vez. Debe existir una lectura natural: primero → después → finalmente.
+* Side Panel
+* Detail Pane
+* Inspector
+* Workspace
+* Split View
 
-4. Estética profesional (referencia tipo Apple)
+---
 
-Buscar: precisión, calma, simplicidad, consistencia, profundidad sutil, buena proporción, controles discretos. No copiar literalmente macOS/iPadOS; usar como referencia conceptual.
+# 7. EXCEPCIÓN DEL DIALOG
 
-Evitar exceso de: glassmorphism, sombras, bordes, gradientes, colores, iconos, cards, elementos gigantes, decoración sin función.
+Dialog está permitido únicamente cuando:
 
-La sofisticación viene de: proporción + espaciado + tipografía + jerarquía + alineación + consistencia — no de efectos visuales.
+* la interacción es corta
+* requiere atención inmediata
+* es una confirmación crítica
+* el contenido es pequeño
+* mantenerlo como superficie modal mejora la seguridad
 
-Profundidad con propósito (no todo necesita sombra/borde/fondo):
+Ejemplo válido:
 
-Nivel 0  Fondo
-Nivel 1  Área de trabajo
-Nivel 2  Panel
-Nivel 3  Control / elemento interactivo
-Nivel 4  Popover / overlay
-5. Alineación y proporción
+```text
+Eliminar lote
 
-Los elementos deben formar líneas visuales compartiendo ejes (títulos, campos, columnas, acciones). La alineación invisible es una de las principales fuentes de sensación profesional.
+¿Eliminar el lote A-123?
 
-Nunca agrandar un componente solo porque hay más espacio. Un botón, campo o card no crece porque la pantalla es más grande. El espacio extra se usa para: mostrar más contexto, crear columnas, comparar información, separar zonas, reducir navegación — no para inflar controles.
+[Cancelar] [Eliminar]
+```
 
-Horizontalidad sobre verticalidad cuando la tarea se beneficie:
+No convertir una excepción en el patrón general.
 
-Móvil:                          Pantalla grande:
-Proveedor                       Proveedor   Fecha      Factura   Estado
-[________]                      [______]    [______]   [______]  [____]
-Fecha
-[________]
+---
 
-Pero las columnas deben representar relaciones reales entre datos, no aplicarse por estética.
+# 8. SIDE PANEL
 
-6. Patrones de contenido
+Usar Side Panel para:
 
-Formularios: agrupar por sección (ej. "Información general", "Condiciones"), no una card por campo ni una fila completa por input si cabe una composición más eficiente.
+* edición contextual
+* creación sencilla
+* filtros
+* propiedades
+* configuración
+* detalles
 
-Tablas vs. cards: si el usuario necesita comparar registros, usar tabla. No convertir cada fila en una card.
+Debe mantener visible el contexto principal.
 
-Maestro + detalle: cuando el usuario selecciona algo y necesita revisar/editar, usar layout de lista + detalle en la misma pantalla en vez de forzar navegación completa (lista → abrir → detalle → volver → repetir).
+---
 
-Contexto continuo: antes de abrir una pantalla nueva, preguntar si el usuario necesita seguir viendo lo anterior. Si sí, preferir split view, panel lateral, edición inline o popover contextual en vez de navegación completa por costumbre móvil.
+# 9. DETAIL PANE
 
-Acciones contextuales: deben vivir cerca de lo que modifican (ej. Producto   Stock   Precio   [Editar]), no aisladas al fondo de la pantalla.
+Usar Detail Pane cuando el usuario selecciona un elemento.
 
-Barra de acciones: para operaciones importantes o formularios extensos, usar una barra persistente (Cancelar | Guardar cambios) en vez de depender de un FAB solo porque hay espacio.
+```text
+┌─────────────────────┬──────────────────────────────┐
+│ Productos           │ Paracetamol 500 mg           │
+│                     │                              │
+│ Paracetamol ←       │ Información                  │
+│ Amoxicilina         │ Lotes                        │
+│ Ibuprofeno          │ Movimientos                  │
+└─────────────────────┴──────────────────────────────┘
+```
 
-Modales: no usarlos como solución universal. Antes de abrir uno, preguntar si realmente necesita interrumpir al usuario. Preferir inline feedback, popover, banner o panel lateral cuando sea posible.
+---
 
-7. Navegación
+# 10. MASTER–DETAIL
 
-Preferir: Navigation Rail, Permanent Navigation Drawer, Sidebar, Toolbar estructurada. Evitar: Bottom Navigation, navegación solo por gestos, menús escondidos, cualquier cosa que obligue a abandonar el contexto.
+Cuando exista:
 
-8. Densidad y responsive real
+```text
+Lista + detalle
+```
 
-Densidad = tarea, no capricho:
+considerar Master–Detail antes de crear navegación a otra pantalla.
 
-Densa → comparar muchos datos
-Media → lectura + edición
-Aireada → concentración o decisión
+Debe preservar:
 
-Responsive real cambia la composición, no solo escala tamaños (width = screenWidth no es responsive):
+* búsqueda
+* filtros
+* selección
+* contexto
 
-Espacio reducido:   Lista → Detalle (navegación)
-Espacio suficiente: Lista | Detalle (split)
-Espacio amplio:     Navegación | Lista | Detalle
-9. Interacción y estados
+---
 
-La UI debe funcionar bien con touch, mouse, teclado y stylus: hover, pressed, focus visible, selección, Tab/Enter/Escape, tooltips, targets adecuados. Nunca depender solo de swipe, long press o gestos invisibles.
+# 11. SPLIT VIEW
 
-Todo control importante necesita estados: default, hover, pressed, focused, disabled, loading, success, error.
+Usar cuando dos o más áreas deben permanecer visibles simultáneamente.
 
-Toda pantalla necesita estados: loading, vacío, error, sin resultados, guardando, guardado, datos incompletos, conflicto, selección, edición.
-
-10. Consistencia del sistema
-
-Toda pantalla comparte: escala tipográfica, radios, espacios, controles, estados, iconos, niveles de superficie, jerarquía de color. No diseñar cada pantalla como una app distinta.
-
-Elementos equivalentes se comportan igual: misma escala, posición relativa, estados y jerarquía para botones o tablas similares. El usuario aprende el sistema una sola vez.
-
-11. "Menos, pero mejor"
-
-Antes de añadir algo, preguntar:
-
-¿Este elemento ayuda al usuario?
-¿Esta card agrupa información o solo la encierra?
-¿Este botón es realmente necesario?
-¿Esta sección tiene una responsabilidad clara?
-
-Si la respuesta es no → eliminar. La interfaz profesional se logra quitando, no agregando.
-
-12. Proceso de diseño (antes del código)
-
-Antes de tocar Compose, definir mentalmente:
-
-Qué intenta hacer el usuario.
-Qué información necesita y cuál puede ocultarse.
-Qué debe compararse.
-Cuál es la acción principal y cuáles las secundarias.
-Qué estructura espacial representa mejor ese trabajo.
-Cómo se comporta en distintos tamaños de pantalla.
-Qué estados tendrá.
-
-Solo después: layout → componentes → implementación en Compose. Nunca empezar por "¿qué componente de Compose uso?".
-
-13. Sistema de diseño: tipografía, color y botones
-
-Definir esto una sola vez como tokens y reutilizarlo en toda la app. Nunca improvisar tamaños o colores pantalla por pantalla.
-
-Tipografía (escala jerárquica)
-Uso	Tamaño (sp)	Peso	Ejemplo Compose
-Título de pantalla (H1)	28–32	Bold / SemiBold	titleLarge
-Título de sección (H2)	20–22	SemiBold	titleMedium
-Subtítulo / encabezado de card	16–18	Medium	titleSmall
-Texto de cuerpo	14–16	Regular	bodyLarge / bodyMedium
-Texto secundario / descripción	12–13	Regular	bodySmall
-Etiqueta de campo (label)	12–13	Medium	labelMedium
-Texto de botón	14–15	SemiBold	labelLarge
-Hint / placeholder de textfield	14	Regular, color atenuado (~60% opacidad)	bodyMedium con onSurfaceVariant
-Caption / metadatos (fecha, id)	11–12	Regular	labelSmall
-
-Reglas:
-
-Máximo 3 pesos de fuente en toda la app (Regular, Medium, SemiBold/Bold). No usar Light ni Black salvo casos muy puntuales.
-La jerarquía se construye con tamaño + peso + color, no solo con tamaño.
-El texto de cuerpo nunca baja de 13sp (legibilidad en escritorio/tablet).
-Interlineado (line-height) generoso en párrafos: 1.4–1.6x el tamaño de fuente.
-Botones (tamaño, geometría y simetría)
-Tipo	Altura	Padding horizontal	Radio de esquina	Ancho
-Primario (filled)	40–44dp	20–24dp	8–10dp	Ajustado al texto, no full-width salvo mobile/modal angosto
-Secundario (outlined/tonal)	40–44dp	20–24dp	8–10dp	Igual altura que el primario, misma línea base
-Terciario (text button)	36–40dp	12–16dp	8dp	Ajustado al texto
-Icon button	36–40dp cuadrado	—	50% (circular) o 8dp	Simétrico (ancho = alto)
-FAB (solo si aplica)	56dp	—	16dp	Cuadrado/circular simétrico
-
-Reglas de geometría:
-
-Botones en una misma fila comparten la misma altura exacta, aunque tengan distinto texto o icono.
-El radio de esquina es el mismo en todos los botones del mismo tipo (no mezclar 4dp, 8dp y 12dp en la misma pantalla).
-Icon buttons son siempre simétricos (mismo ancho y alto); nunca rectangulares.
-El icono dentro de un botón mide 18–20dp y va separado del texto por 8dp.
-Espaciado entre botones agrupados: 8–12dp.
-Nunca estirar un botón a lo ancho completo en pantallas grandes solo porque hay espacio (ver regla de proporción, sección 5).
-Color por rol (no por nombre de color)
-
-Definir los colores como roles semánticos, no como "azul" o "rojo" sueltos, para que todo el sistema sea consistente:
-
-Rol	Uso	Ejemplo (Material 3)
-primary	Acción principal, botón primario, elementos de marca	Color de marca
-onPrimary	Texto/icono sobre primary	Blanco o contraste alto
-secondary	Acciones secundarias, chips, controles menos prioritarios	Tono neutro o complementario
-success	Confirmaciones, estados "guardado", "activo"	Verde
-warning	Alertas no críticas, datos por revisar	Ámbar/naranja
-error	Errores, validaciones fallidas, acciones destructivas	Rojo
-background	Fondo general de la pantalla	Neutro muy claro / oscuro según tema
-surface	Fondo de cards, paneles, sheets	Un tono por encima del background
-surfaceVariant	Fondo de textfields, filas alternas de tabla	Neutro sutil, distinto de surface
-outline	Bordes de inputs, separadores	Gris bajo contraste
-onSurface	Texto principal sobre superficies	Casi negro / casi blanco
-onSurfaceVariant	Texto secundario, hints, placeholders	Gris medio
-
-Reglas de uso:
-
-Botón de acción primaria → fondo primary, texto onPrimary.
-Botón secundario → borde o fondo tenue con secondary/surfaceVariant, texto onSurface.
-Alerta/error (validación, banner de error) → fondo error al 10–15% de opacidad, texto/icono en error sólido. Nunca rojo saturado como fondo completo de un banner.
-Éxito (guardado, confirmación) → mismo patrón que error pero con success: fondo tenue, icono/texto sólido.
-Advertencia → mismo patrón con warning.
-Cabeceras de pantalla/sección → fondo surface o background, texto onSurface con mayor peso tipográfico, sin necesidad de color de marca salvo que sea un elemento clave.
-TextField → fondo surfaceVariant, borde outline (o sin borde si el fondo ya distingue el campo), texto onSurface, hint en onSurfaceVariant con opacidad reducida.
-Estados de foco → borde o contorno con primary al enfocar un input.
-Nunca usar más de 1 color de acento (primary) + colores semánticos (success/warning/error) en una misma pantalla. Todo lo demás son neutros.
-Mantener el mismo mapeo de rol → color en modo claro y oscuro (cambia el valor, no el significado del rol).
-14. Checklist de validación final
- ¿Se ve diseñada para pantalla grande desde cero, o es una UI móvil estirada?
- ¿Hay una acción primaria clara y el resto subordinadas?
- ¿El usuario compara información sin navegar de más?
- ¿Se usó tabla en vez de cards para comparar registros?
- ¿Las acciones están cerca de lo que modifican?
- ¿Funciona bien con mouse, teclado, touch y stylus?
- ¿Las alineaciones y proporciones son consistentes (nada agrandado sin motivo)?
- ¿Hay exceso de cards, bordes, sombras o colores?
- ¿El espacio vacío mejora la comprensión o solo llena la pantalla?
- ¿Se usan máximo 3 pesos tipográficos y la escala definida en la sección 13?
- ¿Los botones del mismo tipo comparten altura, radio y espaciado (simetría geométrica)?
- ¿Los colores se aplican por rol semántico (primary/success/warning/error) y no sueltos?
- ¿Alertas de éxito/error/advertencia usan fondo tenue + color sólido, no saturado completo?
- ¿Textfields, hints y cabeceras siguen el mismo mapeo de color en toda la app?
-
-Pregunta final: ¿esto parece software profesional diseñado para una estación de trabajo, o una app móvil que hicieron más grande? Si parece móvil, rediseñar la composición.
-
-Regla final
-
-No diseñar componentes: diseñar experiencias. No llenar espacio: organizarlo. No escalar interfaces móviles: replantearlas. No decorar para parecer profesional: crear orden hasta que lo sea.
-
-Objetivo: calma + precisión + contexto + productividad + sofisticación.
+Ejemplo:
+
+```text
+Sidebar
+   +
+Lista
+   +
+Detalle
+```
+
+No introducir Split View simplemente para llenar espacio.
+
+---
+
+# 12. FAB
+
+## ❌ PROHIBIDO COMO ACCIÓN PRINCIPAL EMPRESARIAL
+
+No:
+
+```text
+                         (+)
+```
+
+para:
+
+* nuevo producto
+* nueva compra
+* nueva orden
+* nuevo proveedor
+
+## ✅ SUSTITUTO
+
+```text
+Inventario
+
+[+ Nuevo producto]
+```
+
+El usuario debe saber exactamente qué hará.
+
+---
+
+# 13. TOOLBAR
+
+Las acciones principales y secundarias deben organizarse.
+
+```text
+Inventario
+
+🔍 Buscar...     Filtros     Importar     Exportar     + Nuevo
+```
+
+Jerarquía:
+
+```text
+Primary
+Secondary
+Tertiary
+Destructive
+```
+
+No dar la misma importancia visual a todo.
+
+---
+
+# 14. TABLE
+
+Para información empresarial estructurada:
+
+```text
+Producto       Código     Stock    Precio     Estado
+──────────────────────────────────────────────────────
+Paracetamol    PAR500     120      S/2.50     Activo
+Amoxicilina    AMX500      42      S/4.20     Activo
+Ibuprofeno     IBU400      18      S/3.80     Bajo
+```
+
+Debe poder soportar cuando corresponda:
+
+* selección
+* multi-select
+* ordenamiento
+* filtros
+* paginación
+* acciones
+* estados
+* columnas configurables
+* sticky header
+
+---
+
+# 15. CARDS
+
+## ❌ PROHIBIDO
+
+Convertir todos los registros en Cards.
+
+```text
+┌──────────────┐
+│ Producto     │
+│ Stock        │
+│ Precio       │
+└──────────────┘
+```
+
+repetido 50 veces.
+
+## ✅ UTILIZAR CARD PARA
+
+* KPI
+* resumen
+* agrupación
+* sección
+* información destacada
+
+Para datos repetitivos y comparables:
+
+**Table / Row.**
+
+---
+
+# 16. FORMULARIOS
+
+## ❌ PROHIBIDO
+
+Formularios enormes de una sola columna cuando existe espacio.
+
+## ✅ OBLIGATORIO
+
+Responsive Grid.
+
+```text
+Nombre                Código
+[____________]        [___________]
+
+Categoría             Presentación
+[____________]        [___________]
+
+Proveedor             Laboratorio
+[____________]        [___________]
+```
+
+Utilizar 2–4 columnas cuando sea apropiado.
+
+No dividir campos que deberían permanecer juntos.
+
+---
+
+# 17. COMBOBOX
+
+Para pocas opciones puede utilizarse Select.
+
+Para grandes cantidades:
+
+```text
+Proveedor
+
+🔍 Buscar...
+
+Droguería ABC
+Distribuidora XYZ
+Farmacéutica Lima
+```
+
+Nunca obligar al usuario a recorrer listas enormes.
+
+---
+
+# 18. FILTER BAR
+
+Filtros frecuentes visibles:
+
+```text
+Categoría [Todas]
+Stock [Todos]
+Proveedor [Todos]
+Vencimiento [Todos]
+```
+
+Los filtros avanzados pueden abrir un:
+
+**Filter Side Panel.**
+
+---
+
+# 19. SEARCH
+
+La búsqueda debe estar integrada en el Workspace cuando sea una función frecuente.
+
+```text
+🔍 Buscar producto, código o laboratorio...
+```
+
+No obligar a abrir otra pantalla únicamente para buscar.
+
+---
+
+# 20. GLOBAL SEARCH
+
+Para sistemas grandes puede existir búsqueda global.
+
+Debe permitir localizar:
+
+* productos
+* proveedores
+* compras
+* clientes
+* documentos
+* lotes
+* órdenes
+
+Los resultados deben estar agrupados por tipo.
+
+---
+
+# 21. TABS
+
+Usar Tabs para información relacionada.
+
+```text
+[Información] [Lotes] [Movimientos] [Compras]
+```
+
+No usar Tabs como navegación principal.
+
+---
+
+# 22. ACCORDION
+
+Usar para información secundaria o avanzada.
+
+No esconder información crítica dentro de múltiples niveles de expansión.
+
+---
+
+# 23. CONTEXT MENU
+
+Acciones secundarias:
+
+```text
+⋮
+
+Ver
+Editar
+Duplicar
+Reabastecer
+Historial
+────────────
+Desactivar
+```
+
+No utilizar Context Menu para acciones que el usuario necesita constantemente.
+
+---
+
+# 24. RIGHT CLICK
+
+El sistema debe aprovechar mouse.
+
+Right click puede mostrar:
+
+* acciones contextuales
+* navegación
+* copiar
+* editar
+* abrir detalle
+* acciones de fila
+
+Debe existir una alternativa equivalente para touch/teclado.
+
+---
+
+# 25. HOVER
+
+Hover puede revelar:
+
+* acciones secundarias
+* tooltip
+* información auxiliar
+* estado de fila
+
+Pero:
+
+> Nunca esconder información esencial únicamente mediante hover.
+
+---
+
+# 26. KEYBOARD
+
+Toda interfaz Enterprise debe considerar teclado.
+
+Soportar cuando corresponda:
+
+```text
+Tab
+Shift + Tab
+Enter
+Escape
+Arrow Keys
+Space
+Ctrl + K
+Ctrl + N
+```
+
+No introducir shortcuts arbitrarios.
+
+---
+
+# 27. FOCUS
+
+Todos los elementos interactivos deben tener estado Focus visible.
+
+El usuario debe saber dónde está el foco del teclado.
+
+---
+
+# 28. LOADING
+
+## ❌ PROHIBIDO
+
+Bloquear toda la aplicación:
+
+```text
+████████████████
+    Loading...
+████████████████
+```
+
+para una operación local.
+
+## ✅ SUSTITUTOS
+
+* Skeleton
+* Section Loading
+* Table Loading
+* Panel Loading
+* Button Loading
+* Operation Status
+
+La aplicación debe conservar contexto.
+
+---
+
+# 29. SKELETON
+
+Cuando se conoce la estructura del contenido:
+
+```text
+████████████████████
+████████
+████████████████
+```
+
+Debe aproximarse a la estructura real.
+
+---
+
+# 30. OPERATION STATUS
+
+Operaciones largas deben mostrar:
+
+```text
+Importando productos
+
+342 / 1,200
+
+██████████████░░░░
+
+[Cancelar]
+```
+
+Después:
+
+```text
+✓ Importación completada
+
+1,200 procesados
+1,184 correctos
+16 requieren revisión
+```
+
+---
+
+# 31. TOAST
+
+## ❌ PROHIBIDO
+
+Usar Toast para:
+
+* errores importantes
+* operaciones críticas
+* información que debe revisarse posteriormente
+* resultados empresariales
+
+## ✅ SUSTITUTO
+
+* Inline Feedback
+* Status
+* Notification Center
+* Activity
+---
+
+# 32. SNACKBAR
+
+Snackbar puede existir para feedback breve, pero no debe ser el sistema principal de comunicación.
+
+Para información importante utilizar:
+
+**Inline Status / Notification / Activity.**
+
+---
+
+# 33. NOTIFICATION CENTER
+
+Información que debe permanecer consultable:
+
+```text
+🔔 3
+
+Notificaciones
+
+● Stock bajo
+● Compra recibida
+● Lote próximo a vencer
+```
+
+---
+
+# 34. EMPTY STATE
+
+Nunca dejar una pantalla vacía.
+
+Debe explicar:
+
+```text
+No hay productos
+
+Todavía no has registrado productos.
+
+[+ Nuevo producto]
+```
+
+---
+
+# 35. ERROR STATE
+
+Nunca:
+
+```text
+Error
+```
+
+Debe existir recuperación:
+
+```text
+No pudimos cargar el inventario.
+
+Comprueba la conexión e inténtalo nuevamente.
+
+[Reintentar]
+```
+
+---
+
+# 36. CONFIRMATION
+
+Las confirmaciones deben explicar consecuencias.
+
+Debe responder:
+
+* ¿qué estoy haciendo?
+* ¿qué será afectado?
+* ¿es reversible?
+* ¿qué ocurrirá?
+
+---
+
+# 37. INLINE EDITING
+
+Para modificaciones pequeñas:
+
+```text
+Precio: S/ 2.50   ✎
+```
+
+Puede convertirse en:
+
+```text
+[ S/ 2.50 ] [✓] [×]
+```
+
+No abrir un formulario completo para una modificación trivial.
+
+---
+
+# 38. BULK ACTIONS
+
+Para múltiples registros:
+
+```text
+24 seleccionados
+
+[Exportar] [Actualizar] [Asignar] [Desactivar]
+```
+
+Las acciones deben ser contextuales a la selección.
+
+---
+
+# 39. PAGINATION
+
+Para datasets grandes:
+
+```text
+1–50 de 1,284
+
+‹ 1 2 3 ... 26 ›
+```
+
+Permitir tamaño de página cuando sea útil.
+
+---
+
+# 40. STICKY TOOLBAR
+
+Cuando el usuario trabaja con formularios largos o tablas:
+
+```text
+┌──────────────────────────────────────┐
+│ Acciones / estado                    │
+└──────────────────────────────────────┘
+```
+
+puede permanecer visible.
+
+No usar sticky únicamente por estética.
+
+---
+
+# 41. STICKY TABLE HEADER
+
+En tablas largas, conservar los encabezados visibles cuando el contexto lo requiera.
+
+---
+
+# 42. DENSIDAD
+
+La interfaz Enterprise debe tener densidad configurable cuando sea útil:
+
+```text
+Cómoda
+Estándar
+Compacta
+```
+
+Nunca sacrificar legibilidad por densidad.
+
+---
+
+# 43. GRID RESPONSIVE
+
+La UI debe reaccionar al espacio disponible.
+
+No utilizar dimensiones fijas basadas en teléfonos.
+
+No asumir:
+
+```text
+412dp
+```
+
+como referencia de composición.
+
+El layout debe calcular:
+
+* columnas
+* paneles
+* sidebar
+* detalle
+* inspector
+* densidad
+
+según el espacio disponible.
+
+---
+
+# 44. PANEL INSPECTOR
+
+Para propiedades de un elemento seleccionado:
+
+```text
+┌─────────────────────────────┐
+│ Inspector                   │
+│                             │
+│ Paracetamol 500 mg          │
+│                             │
+│ Código                      │
+│ PAR500                      │
+│                             │
+│ Categoría                   │
+│ Analgésicos                 │
+│                             │
+│ Estado                      │
+│ ● Activo                    │
+│                             │
+│ [Editar]                    │
+└─────────────────────────────┘
+```
+
+Ideal para herramientas administrativas.
+
+---
+
+# 45. ACTIVITY / HISTORY
+
+Las entidades relevantes deben poder mostrar:
+
+```text
+Actividad
+
+10:42  Stock actualizado
+10:35  Lote agregado
+09:51  Precio modificado
+```
+
+Cuando corresponda incluir:
+
+* usuario
+* fecha
+* hora
+* acción
+* cambio
+
+---
+
+# 46. AUDIT
+
+Las operaciones empresariales importantes deben conservar trazabilidad cuando el dominio lo requiera.
+
+Ejemplo:
+
+```text
+Precio
+
+Antes: S/ 2.30
+Después: S/ 2.50
+Usuario: Administrador
+Fecha: 29/08/2026 10:42
+```
+
+---
+
+# 47. STEPPER
+
+Para workflows complejos:
+
+```text
+① Producto
+② Presentación
+③ Inventario
+④ Confirmación
+```
+
+En pantalla grande preferir Stepper lateral cuando aporte contexto.
+
+---
+
+# 48. WORKSPACE
+
+Una aplicación Enterprise debe pensar en términos de Workspaces.
+
+Ejemplo:
+
+```text
+Sidebar
+   ↓
+Inventario Workspace
+   ↓
+Lista + Detalle + Acciones
+```
+
+El Workspace mantiene:
+
+* contexto
+* filtros
+* navegación
+* estado
+* selección
+
+---
+
+# 49. SCROLL
+
+Evitar una única superficie de scroll gigante.
+
+Cuando corresponda, separar:
+
+```text
+Sidebar scroll
+Lista scroll
+Detalle scroll
+```
+
+Cada área debe desplazarse independientemente cuando tenga sentido.
+
+---
+
+# 50. RESIZABLE PANELS
+
+Cuando exista una necesidad real:
+
+```text
+Lista │ Detalle
+      ↕
+```
+
+permitir ajustar tamaños.
+
+No introducir resize solo por apariencia.
+
+---
+
+# 51. DASHBOARD
+
+Un dashboard debe utilizar el espacio grande para mostrar información simultánea.
+
+Ejemplo:
+
+```text
+┌─────────────┬─────────────┬─────────────┐
+│ Ventas      │ Compras     │ Stock       │
+│ S/24,320    │ S/12,430    │ 8,240       │
+└─────────────┴─────────────┴─────────────┘
+
+┌──────────────────────────┬────────────────┐
+│ Ventas                   │ Alertas        │
+│                          │                │
+│        gráfico           │ Stock bajo     │
+│                          │ Vencimientos   │
+└──────────────────────────┴────────────────┘
+```
+
+---
+
+# 52. KPI
+
+Un KPI debe mostrar:
+
+* valor
+* significado
+* periodo
+* comparación cuando aporte valor
+
+No utilizar tarjetas gigantes.
+
+---
+
+# 53. CAROUSEL
+
+No utilizar Carousel para información administrativa importante.
+
+Preferir:
+
+* Grid
+* columnas
+* tabla
+* paneles simultáneos
+
+El usuario no debería deslizar para descubrir información esencial cuando existe espacio suficiente para mostrarla.
+
+---
+
+# 54. FULL-WIDTH
+
+No utilizar botones gigantes ocupando toda la pantalla.
+
+Incorrecto:
+
+```text
+┌───────────────────────────────┐
+│          GUARDAR              │
+└───────────────────────────────┘
+```
+
+Preferido:
+
+```text
+[Cancelar] [Guardar producto]
+```
+
+---
+
+# 55. ICONOS
+
+Los iconos complementan acciones.
+
+No convertir toda la aplicación en icon-only UI.
+
+Cuando una acción no sea obvia:
+
+```text
+✎ Editar
+```
+
+o utilizar Tooltip.
+
+---
+
+# 56. RESPONSIVE
+
+Responsive significa:
+
+> **Adaptar la composición al espacio.**
+
+No significa:
+
+> Convertir la aplicación en Mobile UI.
+
+Ejemplo:
+
+```text
+Espacio amplio:
+Sidebar + Lista + Detalle + Inspector
+
+Espacio medio:
+Sidebar + Lista + Detalle
+
+Espacio menor:
+Sidebar + Workspace
+```
+
+La estructura debe seguir siendo Large-Screen.
+
+---
+
+# 57. TOUCH + MOUSE + KEYBOARD
+
+Toda interacción importante debe tener equivalencia:
+
+```text
+Touch
+Mouse
+Keyboard
+```
+
+Ejemplo:
+
+```text
+Touch → seleccionar
+Mouse → click
+Keyboard → Enter
+```
+
+No depender de:
+
+* swipe
+* long press
+* gestos ocultos
+
+como única interacción.
+
+---
+
+# 58. ACCESIBILIDAD
+
+Todos los componentes deben contemplar:
+
+* contenido semántico
+* focus
+* navegación por teclado
+* contraste
+* tamaño razonable
+* labels
+* estados
+* feedback
+
+No depender exclusivamente del color.
+
+---
+
+# 59. NO ABUSAR DEL ESPACIO
+
+Large Screen no significa:
+
+```text
+████████████████████████
+                        
+
+        UNA CARD
+        
+                        
+
+████████████████████████
+```
+
+El espacio debe servir para mostrar:
+
+* más contexto
+* más información relacionada
+* mejor comparación
+* más acciones visibles
+* mejor organización
+
+---
+
+# 60. NO ABUSAR DE COMPONENTES
+
+Enterprise no significa agregar componentes por todas partes.
+
+No introducir:
+
+* Card sin propósito
+* Panel sin contenido
+* Tab innecesario
+* Modal innecesario
+* Tooltip innecesario
+* Accordion innecesario
+* Animación innecesaria
+
+Cada componente debe resolver una necesidad.
+
+---
+
+# 61. REGLA DE DECISIÓN
+
+Antes de implementar una interacción:
+
+```text
+¿Es navegación principal?
+→ Sidebar
+
+¿Es navegación secundaria?
+→ Tabs / local navigation
+
+¿Es una lista de datos?
+→ Data Table / Structured List
+
+¿Es lista + detalle?
+→ Master–Detail
+
+¿Es detalle?
+→ Detail Pane
+
+¿Son propiedades?
+→ Inspector
+
+¿Es edición contextual?
+→ Side Panel
+
+¿Es formulario complejo?
+→ Workspace / Side Panel amplio
+
+¿Es confirmación crítica pequeña?
+→ Dialog
+
+¿Son filtros frecuentes?
+→ Filter Bar
+
+¿Son filtros avanzados?
+→ Filter Panel
+
+¿Es una acción principal?
+→ Primary Button
+
+¿Son acciones secundarias?
+→ Toolbar / Context Menu
+
+¿Es una operación masiva?
+→ Multi-select + Bulk Actions
+
+¿Es una operación larga?
+→ Operation Status
+
+¿Está cargando contenido?
+→ Skeleton / Local Loading
+
+¿Es un error?
+→ Error State + Recovery
+
+¿Está vacío?
+→ Empty State
+
+¿Es información persistente?
+→ Notification / Activity
+
+¿Es información relacionada?
+→ Tabs / Sections
+
+¿Es selección de muchas entidades?
+→ Searchable ComboBox
+
+¿Es una modificación pequeña?
+→ Inline Editing
+```
+
+---
+
+# 62. CHECKLIST OBLIGATORIO ANTES DE CREAR UI
+
+Antes de implementar cualquier pantalla, comprobar:
+
+```text
+[ ] ¿La navegación principal es lateral?
+[ ] ¿El usuario conserva contexto?
+[ ] ¿Se aprovecha correctamente el espacio horizontal?
+[ ] ¿Existe una razón para usar un Dialog?
+[ ] ¿Podría ser Side Panel?
+[ ] ¿Podría ser Detail Pane?
+[ ] ¿Podría ser Master–Detail?
+[ ] ¿Los datos deberían ser una Table?
+[ ] ¿El formulario aprovecha Grid?
+[ ] ¿Los filtros frecuentes están visibles?
+[ ] ¿Las acciones principales están en Toolbar?
+[ ] ¿El usuario puede trabajar con mouse?
+[ ] ¿El usuario puede trabajar con teclado?
+[ ] ¿Touch también funciona?
+[ ] ¿Los estados tienen feedback claro?
+[ ] ¿Los errores permiten recuperación?
+[ ] ¿Las operaciones largas muestran progreso contextual?
+[ ] ¿El Empty State explica qué hacer?
+[ ] ¿Se conserva búsqueda/filtro/selección?
+[ ] ¿Se evitó navegación innecesaria?
+[ ] ¿Se evitó un componente móvil por comodidad?
+```
+
+---
+
+# 63. REGLA PARA EL AGENTE DE IA
+
+Cuando el agente esté a punto de utilizar:
+
+```text
+AlertDialog
+Dialog
+ModalBottomSheet
+BottomNavigation
+NavigationBar
+ModalNavigationDrawer
+FloatingActionButton
+Toast
+Snackbar
+Swipe
+LongPress
+Card list
+Single-column form
+Full-screen detail
+PullRefresh
+Global spinner
+```
+
+debe **detenerse y evaluar la tabla Anti-Mobile de esta skill**.
+
+No debe asumir que el componente es apropiado simplemente porque funciona técnicamente.
+
+Debe seleccionar primero el patrón Large-Screen equivalente.
+
+---
+
+# 64. PRINCIPIO DE PRIORIDAD
+
+Cuando exista conflicto entre:
+
+```text
+Material default
+```
+
+y:
+
+```text
+Enterprise Large-Screen UX
+```
+
+debe prevalecer:
+
+**Enterprise Large-Screen UX.**
+
+Cuando exista conflicto entre:
+
+```text
+facilidad de implementación
+```
+
+y:
+
+```text
+claridad/productividad/consistencia
+```
+
+no elegir la solución más fácil automáticamente.
+
+La arquitectura UX debe permanecer correcta.
+
+---
+
+# 65. DEFINICIÓN DE ÉXITO
+
+La aplicación terminada debe sentirse como:
+
+```text
+Software empresarial
+        +
+SaaS moderno
+        +
+Workspace profesional
+        +
+Alta densidad útil
+        +
+Contexto continuo
+        +
+Mouse
+        +
+Teclado
+        +
+Touch
+```
+
+No como:
+
+```text
+Aplicación móvil
+        +
+más ancho
+        +
+componentes gigantes
+```
+
+---
+
+# 66. PRINCIPIO FINAL
+
+**NO DISEÑAR PARA EL COMPONENTE.**
+
+Diseñar para la tarea.
+
+La secuencia correcta siempre es:
+
+```text
+USUARIO
+   ↓
+TAREA
+   ↓
+CONTEXTO
+   ↓
+INFORMACIÓN NECESARIA
+   ↓
+PATRÓN UX
+   ↓
+COMPONENTE LARGE-SCREEN
+   ↓
+JETPACK COMPOSE
+```
+
+La tecnología debe adaptarse al diseño.
+
+El diseño no debe degradarse para acomodarse a los componentes disponibles.

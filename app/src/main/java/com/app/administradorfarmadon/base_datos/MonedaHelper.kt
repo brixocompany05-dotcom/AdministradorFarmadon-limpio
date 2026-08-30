@@ -20,7 +20,7 @@ object MonedaHelper {
     /**
      * Normaliza una cadena monetaria eliminando el símbolo de moneda, espacios
      * y convirtiendo coma decimal a punto, sin convertir a número.
-     * Útil cuando se necesita el texto limpio (ej. para guardar en Firebase).
+     * íštil cuando se necesita el texto limpio (ej. para guardar en Firebase).
      */
     fun normalizarTexto(texto: String): String {
         return texto

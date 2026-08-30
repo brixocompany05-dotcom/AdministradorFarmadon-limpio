@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.configuracion.sucursales.ui.componentes
+﻿package com.app.administradorfarmadon.configuracion.sucursales.ui.componentes
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween

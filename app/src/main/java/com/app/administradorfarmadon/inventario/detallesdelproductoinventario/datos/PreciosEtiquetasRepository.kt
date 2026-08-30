@@ -34,8 +34,8 @@ import java.util.UUID
  */
 
 /**
- * Precios, etiquetas y configuración — presentaciones, etiquetas y logística.
- * Extraído de ProductDetailFirestoreRepository (1.268 líneas) — responsabilidad única.
+ * Precios, etiquetas y configuración —” presentaciones, etiquetas y logística.
+ * Extraído de ProductDetailFirestoreRepository (1.268 líneas) —” responsabilidad única.
  */
 class PreciosEtiquetasRepository(
     private val db: FirebaseFirestore = FarmadonFirestore.db
@@ -47,7 +47,8 @@ class PreciosEtiquetasRepository(
         productId: String,
         unidadBase: String,
         presentaciones: List<PresentacionProducto>,
-        usuarioEmail: String
+        usuarioEmail: String,
+        presentacionesOriginales: List<PresentacionProducto> = emptyList()
     ): Result<Unit> {
         // R1: el tenant de la sesión es el clienteId de la farmacia (RUC), no el uid de auth.
         if (clienteId != SessionManager.clienteIdGarantizado) return Result.failure(SecurityException("Aislamiento entre farmacias: el registro no pertenece a tu farmacia."))
@@ -96,7 +97,7 @@ class PreciosEtiquetasRepository(
 
             // El precio referencial del producto = precio de la presentación de mayor contenido
             // (la "caja completa", no la primera en la lista que puede variar según orden).
-            // Si ninguna presentación tiene precio, queda 0.0 → aparece "Sin precio" en la lista.
+            // Si ninguna presentación tiene precio, queda 0.0 ──†’ aparece "Sin precio" en la lista.
             val presPrincipal = presentaciones.maxByOrNull { it.cantidad } ?: presentaciones.firstOrNull()
             val precioVentaPrincipal = presPrincipal?.let {
                 Math.round(it.precioventa * 100.0) / 100.0
@@ -105,6 +106,24 @@ class PreciosEtiquetasRepository(
             db.runTransaction { tx ->
                 val snapshot = tx.get(productRef)
                 if (!snapshot.exists()) throw Exception("El producto no existe.")
+
+                // Candado antí-pisada: si alguien cambió precios mientras editabas, avisa sin mentir
+                if (presentacionesOriginales.isNotEmpty()) {
+                    val snapshotPrevias = snapshot.get("presentaciones") as? List<Map<String, Any>> ?: emptyList()
+                    val originalesMap = presentacionesOriginales.associateBy { it.presentacionId }
+                    for (snapPres in snapshotPrevias) {
+                        val id = snapPres["presentacionId"] as? String ?: continue
+                        val precioEnServidor = (snapPres["precioventa"] as? Number)?.toDouble() ?: 0.0
+                        val precioOriginal = originalesMap[id]?.precioventa ?: continue
+                        if (kotlin.math.abs(precioEnServidor - precioOriginal) > 0.01) {
+                            val nombrePres = snapPres["nombre"] as? String ?: "presentación"
+                            throw IllegalStateException("Este precio ya no es vigente. '$nombrePres' ahora está en S/ ${String.format(java.util.Locale.US, "%.2f", precioEnServidor)} (otro usuario lo cambió mientras editabas, tú partiste de S/ ${String.format(java.util.Locale.US, "%.2f", precioOriginal)}). Cierra este diálogo y vuelve a abrir la pestaña Precios para ver el valor fresco antes de guardar.")
+                        }
+                    }
+                    if (snapshotPrevias.size != presentacionesOriginales.size) {
+                        throw IllegalStateException("Alguien añadió o quitó presentaciones mientras editabas. Cierra y vuelve a abrir la pestaña Precios para ver la lista fresca.")
+                    }
+                }
 
                 val presentacionesPrevias = snapshot.get("presentaciones") as? List<Map<String, Any>> ?: emptyList()
                 val cambiosDetectados = mutableListOf<Map<String, Any>>()
@@ -220,7 +239,9 @@ class PreciosEtiquetasRepository(
         activo: Boolean,
         diasAlertaVencimiento: Int = 90,
         usuarioEmail: String,
-        nuevoCodigo: String? = null
+        nuevoCodigo: String? = null,
+        ubicacionSecundaria: String = "",
+        fefoAutomatico: Boolean = true
     ): Result<Unit> {
         if (clienteId.isBlank() || productId.isBlank()) {
             return Result.failure(IllegalArgumentException("Identificador de farmacia o producto no válido."))
@@ -236,7 +257,7 @@ class PreciosEtiquetasRepository(
             val catalogoUbicacionesRef = tiendaRef.collection("catalogos").document("ubicaciones")
             val codigoLimpioTx = nuevoCodigo?.let { CodigoBarraHelper.limpiar(it) } ?: ""
 
-            // Validación rápida fuera de transacción (UX) — el blindaje real está DENTRO del candado atómico
+            // Validación rápida fuera de transacción (UX) —” el blindaje real está DENTRO del candado atómico
             if (codigoLimpioTx.isNotBlank()) {
                 val dupOutside = CodigoBarraHelper.buscarDuplicadoOutside(db, clienteId, codigoLimpioTx, productId)
                 if (dupOutside != null) {
@@ -250,21 +271,41 @@ class PreciosEtiquetasRepository(
                     throw IllegalStateException("El producto fue eliminado o ya no existe.")
                 }
                 // 1. Actualizar el producto en inventario
+                var ubicacionSecundariaLimpia = ubicacionSecundaria.trim()
+                if (ubicacionSecundariaLimpia.equals(ubicacionLimpia, ignoreCase = true)) ubicacionSecundariaLimpia = ""
                 val updateMap = mutableMapOf<String, Any>(
                     "ubicacion" to ubicacionLimpia,
+                    "ubicacionSecundaria" to ubicacionSecundariaLimpia,
                     "stockMinimo" to stockMinimoLimpio,
                     "stockMinimoBase" to stockMinimoLimpio,
                     "diasAlertaVencimiento" to diasAlertaLimpio,
+                    "fefoAutomatico" to fefoAutomatico,
                     "activo" to activo,
                     "estado" to (if (activo) "ACTIVO" else "PAUSADO"),
                     "actualizadoEn" to FieldValue.serverTimestamp(),
                     "actualizadoPor" to usuarioEmail
                 )
 
+                // Candado de coherencia FEFO:
+                // - Al apagar, se conserva como principal el lote que FEFO venía consumiendo (el que vence antes con stock).
+                // - Al encender, se limpia la prioridad manual para que la venta siga FEFO sin excepciones.
+                val fefoPrevio = snapshot.getBoolean("fefoAutomatico") ?: true
+                if (fefoPrevio && !fefoAutomatico) {
+                    val loteFefo = loteFefoPrincipalId(snapshot.get("lotes"))
+                    if (loteFefo != null) {
+                        updateMap["lotePrioritarioId"] = loteFefo
+                        updateMap["lotePrioritarioPor"] = usuarioEmail
+                    }
+                }
+                if (fefoAutomatico) {
+                    updateMap["lotePrioritarioId"] = ""
+                    updateMap["lotePrioritarioPor"] = ""
+                }
+
                 if (nuevoCodigo != null) {
                     val codLimpio = CodigoBarraHelper.limpiar(nuevoCodigo)
                     val codPrevio = CodigoBarraHelper.limpiar(CodigoBarraHelper.leerCodigo(snapshot))
-                    // BLINDAJE ATÓMICO: verifica que el nuevo código no tenga dueño dentro del candado
+                    // BLINDAJE ATí“MICO: verifica que el nuevo código no tenga dueño dentro del candado
                     if (codLimpio.isNotBlank() && codLimpio != codPrevio) {
                         CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codLimpio, productId)
                     }
@@ -310,6 +351,13 @@ class PreciosEtiquetasRepository(
                         com.google.firebase.firestore.SetOptions.merge()
                     )
                 }
+                if (ubicacionSecundariaLimpia.isNotBlank()) {
+                    tx.set(
+                        catalogoUbicacionesRef,
+                        mapOf("lista" to FieldValue.arrayUnion(ubicacionSecundariaLimpia)),
+                        com.google.firebase.firestore.SetOptions.merge()
+                    )
+                }
 
                 // 3. Registrar auditoría
                 val auditRef = tiendaRef.collection("auditoria").document()
@@ -321,6 +369,7 @@ class PreciosEtiquetasRepository(
                         "ubicacion" to ubicacionLimpia,
                         "stockMinimo" to stockMinimoLimpio,
                         "diasAlertaVencimiento" to diasAlertaLimpio,
+                        "fefoAutomatico" to fefoAutomatico,
                         "activo" to activo,
                         "usuarioEmail" to usuarioEmail,
                         "fecha" to FieldValue.serverTimestamp()
@@ -336,7 +385,34 @@ class PreciosEtiquetasRepository(
     }
 
     /**
-     * ELIMINACIÓN DEFINITIVA DE PRODUCTO DE PRUEBA.
+     * Lote que FEFO consumiría primero: el de vencimiento más cercano con stock disponible.
+     * Devuelve su loteId (o número como respaldo) para conservarlo como principal al apagar FEFO.
+     */
+    private fun loteFefoPrincipalId(lotesRaw: Any?): String? {
+        val lotes = lotesRaw as? Map<*, *> ?: return null
+        var mejor: Pair<String, Int>? = null
+        lotes.values.forEach { v ->
+            if (v is Map<*, *>) {
+                val cantidad = (v["cantidad"] as? Number)?.toDouble() ?: 0.0
+                if (cantidad > 0.0) {
+                    val vencimiento = v["vencimiento"] as? String ?: ""
+                    val dias = FechaVencimientoHelper.diasHastaVencer(vencimiento)
+                    if (dias != null) {
+                        val id = (v["loteId"] as? String)?.takeIf { it.isNotBlank() }
+                            ?: (v["numero"] as? String)?.takeIf { it.isNotBlank() }
+                            ?: ""
+                        if (id.isNotBlank() && (mejor == null || dias < mejor.second)) {
+                            mejor = id to dias
+                        }
+                    }
+                }
+            }
+        }
+        return mejor?.first
+    }
+
+    /**
+     * ELIMINACIí“N DEFINITIVA DE PRODUCTO DE PRUEBA.
      * Solo si: stock 0 en todos los lotes, sin ventas, con motivo auditado.
      * Lógica sin hueco: primero debes anular todos los lotes (lo hace el empleado),
      * luego el admin puede borrar la ficha. Si hay ventas, se bloquea y se sugiere Pausar.
@@ -362,8 +438,7 @@ class PreciosEtiquetasRepository(
             val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
             val productRef = tiendaRef.collection("inventario").document(productId)
 
-            // Pre-check fuera de transacción: si tiene ventas, no se borra (pausar es lo correcto)
-            // Evita índice compuesto: trae pocos docs y filtra en memoria
+            // Pre-checks profesionales fuera de transacción (rápidos, sin índice compuesto)
             val movSnap = tiendaRef.collection("movimientos")
                 .whereEqualTo("productoId", productId)
                 .limit(10)
@@ -376,8 +451,50 @@ class PreciosEtiquetasRepository(
             if (tieneVentas) {
                 return Result.failure(IllegalStateException("No se puede eliminar: tiene ventas registradas. Usa 'Pausar' para ocultar de caja sin borrar historial."))
             }
+            // Facturas donde aparece (no ANULADA)
+            val facturasSnap = tiendaRef.collection("compras_facturas").limit(30).get().await()
+            val enFacturaViva = facturasSnap.documents.any { doc ->
+                val estado = doc.getString("estadoPago") ?: ""
+                if (estado.equals("ANULADA", true)) return@any false
+                @Suppress("UNCHECKED_CAST")
+                val items = doc.get("items") as? List<Map<String, Any>> ?: emptyList()
+                items.any { it["productoId"] == productId }
+            }
+            if (enFacturaViva) {
+                return Result.failure(IllegalStateException("No se puede eliminar: aparece en facturas de compra vigentes. Anula o regulariza esas facturas primero, o usa 'Pausar'."))
+            }
+            // Pedidos con saldo pendiente
+            val pedidosSnap = tiendaRef.collection("pedidos_compra").limit(30).get().await()
+            val enPedidoPendiente = pedidosSnap.documents.any { doc ->
+                val estado = doc.getString("estado") ?: ""
+                if (estado == "CANCELADO" || estado == "RECIBIDO" || estado == "COMPLETADA_AJUSTE") return@any false
+                @Suppress("UNCHECKED_CAST")
+                val items = doc.get("items") as? List<Map<String, Any>> ?: emptyList()
+                items.any { (it["productoId"] as? String) == productId && ((it["cantidad"] as? Number)?.toInt() ?: 0) > ((it["cantidadRecibida"] as? Number)?.toInt() ?: 0) }
+            }
+            if (enPedidoPendiente) {
+                return Result.failure(IllegalStateException("No se puede eliminar: está en pedidos de compra pendientes. Cancela o completa esos pedidos primero."))
+            }
+            // Carrito reposición
+            val carritoSnap = tiendaRef.collection("carrito_reposicion").limit(20).get().await()
+            val enCarrito = carritoSnap.documents.any { doc ->
+                val items = doc.get("items") as? Map<*, *> ?: return@any false
+                items.containsKey(productId) || doc.data?.values?.any { it.toString().contains(productId) } == true
+            }
+            if (enCarrito) {
+                return Result.failure(IllegalStateException("No se puede eliminar: está en el carrito de reposición de alguien. Vacía el carrito primero."))
+            }
+            // Reclamos / Canjes abiertos
+            val reclamosSnap = tiendaRef.collection("reclamos_proveedores").whereEqualTo("productoId", productId).limit(5).get().await()
+            if (!reclamosSnap.isEmpty) {
+                return Result.failure(IllegalStateException("No se puede eliminar: tiene reclamos a proveedor abiertos. Ciérralos primero."))
+            }
+            val canjesSnap = tiendaRef.collection("canjes_proveedores").whereEqualTo("productoId", productId).limit(5).get().await()
+            if (!canjesSnap.isEmpty) {
+                return Result.failure(IllegalStateException("No se puede eliminar: tiene canjes abiertos. Ciérralos primero."))
+            }
 
-            // Trae TODOS los movimientos del producto (sin límite) para borrarlos en el candado atómico y no dejar Kardex huérfano
+            // Trae TODOS los movimientos para archivarlos (no borrarlos) en el candado atómico
             val movimientosAEliminar = tiendaRef.collection("movimientos")
                 .whereEqualTo("productoId", productId)
                 .get()
@@ -403,7 +520,7 @@ class PreciosEtiquetasRepository(
                 val creadoPorSnap = snap.getString("creadoPor") ?: snap.getString("creadoPorUid") ?: snap.getString("auditCreatedByEmail") ?: ""
                 val esCreador = creadoPorSnap.isNotBlank() && (creadoPorSnap == uid || creadoPorSnap.equals(usuarioEmail, ignoreCase = true))
                 val rolSnap = snap.getString("rolCreador") ?: ""
-                // Si no es creador, se permite solo si no hay lotes (producto nunca usado) — el servidor ya verifica sin ventas
+                // Si no es creador, se permite solo si no hay lotes (producto nunca usado) —” el servidor ya verifica sin ventas
                 if (!esCreador && totalLotes == 0.0) {
                     // Producto sin lotes y sin ventas: cualquier personal de la farmacia puede borrar su propia prueba vacía
                     // Si no eres creador pero el producto no tiene lotes, igual se permite si nadie lo usó (evita falsedad bloqueo)
@@ -427,29 +544,22 @@ class PreciosEtiquetasRepository(
                     CodigoBarraHelper.borrarIndiceFichaEnTransaccion(tx, db, clienteId, claveFichaSnap)
                 }
 
-                // Borra el Kardex (movimientos) del producto para no dejar fantasmas huérfanos que apunten a una ficha inexistente
-                for (movDoc in movimientosAEliminar.documents) {
-                    tx.delete(movDoc.reference)
-                }
-
-                tx.delete(productRef)
-
-                // Auditoría ordenada y sin basura: solo valiosa, en subcolección dedicada (no cuello de botella)
-                val productoNombreVal = snap.getString("nombre") ?: ""
-                val codigoVal = CodigoBarraHelper.leerCodigo(snap)
-                val labVal = snap.getString("laboratorio") ?: snap.getString("proveedorBaseNombre") ?: ""
-                val catVal = snap.getString("categoriaNombre") ?: snap.getString("categoriaPrincipal") ?: ""
-                // Ruta ordenada: auditorias/inventario/productos/listaeliminado/{id}
-                val auditRef = tiendaRef.collection("auditorias").document("inventario").collection("productos").document("listaeliminado").collection("items").document()
+                // Archiva el Kardex en auditoría (no se borra) para preservar historia DIGEMID — R13 bien o nada
+                val auditRefPre = tiendaRef.collection("auditorias").document("inventario").collection("productos").document("listaeliminado").collection("items").document()
+                // Primero crear auditoría para tener ID y luego archivar kardex debajo
+                val productoNombrePre = snap.getString("nombre") ?: ""
+                val codigoPre = CodigoBarraHelper.leerCodigo(snap)
+                val labPre = snap.getString("laboratorio") ?: snap.getString("proveedorBaseNombre") ?: ""
+                val catPre = snap.getString("categoriaNombre") ?: snap.getString("categoriaPrincipal") ?: ""
                 tx.set(
-                    auditRef,
+                    auditRefPre,
                     hashMapOf(
                         "evento" to "ELIMINACION_PRODUCTO_DEFINITIVA",
                         "productoId" to productId,
-                        "productoNombre" to productoNombreVal,
-                        "codigoBarras" to codigoVal,
-                        "laboratorio" to labVal,
-                        "categoria" to catVal,
+                        "productoNombre" to productoNombrePre,
+                        "codigoBarras" to codigoPre,
+                        "laboratorio" to labPre,
+                        "categoria" to catPre,
                         "stockAlEliminar" to stockTotal,
                         "lotesAlEliminar" to lotesMap.size,
                         "motivo" to motivo.trim(),
@@ -458,9 +568,18 @@ class PreciosEtiquetasRepository(
                         "fecha" to FieldValue.serverTimestamp()
                     )
                 )
-                // Compatibilidad: también en auditoria legacy para no romper dashboards viejos
-                val auditLegacy = tiendaRef.collection("auditoria").document(auditRef.id)
-                tx.set(auditLegacy, hashMapOf("refAuditoriaNueva" to auditRef.path, "evento" to "ELIMINACION_PRODUCTO_DEFINITIVA", "productoId" to productId, "fecha" to FieldValue.serverTimestamp()))
+                for (movDoc in movimientosAEliminar.documents) {
+                    val movData = movDoc.data?.toMutableMap() ?: mutableMapOf()
+                    movData["archivadoDe"] = movDoc.reference.path
+                    movData["archivadoEn"] = FieldValue.serverTimestamp()
+                    tx.set(auditRefPre.collection("kardexArchivado").document(movDoc.id), movData)
+                    tx.delete(movDoc.reference)
+                }
+
+                tx.delete(productRef)
+                // Compatibilidad legacy (usa el mismo ID de auditoría ya creada)
+                val auditLegacy = tiendaRef.collection("auditoria").document(auditRefPre.id)
+                tx.set(auditLegacy, hashMapOf("refAuditoriaNueva" to auditRefPre.path, "evento" to "ELIMINACION_PRODUCTO_DEFINITIVA", "productoId" to productId, "fecha" to FieldValue.serverTimestamp()))
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {

@@ -202,10 +202,10 @@ fun PestanaCuentasPorPagar(
     procesandoPago: Boolean,
     onSeleccionarFactura: (String) -> Unit,
     onCambiarFiltroEstado: (String) -> Unit,
-    onRevertirPago: (String, String, String) -> Unit = { _, _, _ -> },
     onAbrirDialogoAbono: (FacturaCompra) -> Unit = {},
-    onAnularAbono: (facturaId: String, abonoId: String) -> Unit = { _, _ -> },
-    onAbrirDialogoProrroga: (FacturaCompra) -> Unit = {}
+    onAbrirDialogoNotaCredito: (FacturaCompra) -> Unit = {},
+    onAbrirDialogoProrroga: (FacturaCompra) -> Unit = {},
+    onAbrirDialogoAnular: (FacturaCompra) -> Unit = {}
 ) {
     val s = recordarMedidaAdaptativa()
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
@@ -736,9 +736,9 @@ fun PestanaCuentasPorPagar(
                         simboloMoneda = simboloMoneda,
                         procesandoPago = procesandoPago,
                         onAbrirDialogoAbono = onAbrirDialogoAbono,
-                        onAnularAbono = onAnularAbono,
                         onAbrirDialogoProrroga = onAbrirDialogoProrroga,
-                        onRevertirPago = onRevertirPago
+                        onAbrirDialogoNotaCredito = onAbrirDialogoNotaCredito,
+                        onAbrirDialogoAnular = onAbrirDialogoAnular
                     )
                 }
             }
@@ -751,9 +751,9 @@ private fun DetalleFacturaLiquidacion(
     simboloMoneda: String,
     procesandoPago: Boolean,
     onAbrirDialogoAbono: (FacturaCompra) -> Unit,
-    onAnularAbono: (facturaId: String, abonoId: String) -> Unit,
     onAbrirDialogoProrroga: (FacturaCompra) -> Unit,
-    onRevertirPago: (String, String, String) -> Unit
+    onAbrirDialogoNotaCredito: (FacturaCompra) -> Unit,
+    onAbrirDialogoAnular: (FacturaCompra) -> Unit
 ) {
     val s = recordarMedidaAdaptativa()
     val infoVenc = calcularVencimientoHumano(factura)
@@ -898,7 +898,7 @@ private fun DetalleFacturaLiquidacion(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)) {
                         factura.abonos.sortedByDescending { it.fechaMs }.forEach { abono ->
-                            ItemAbonoRow(abono, simboloMoneda, onAnular = { onAnularAbono(factura.id, abono.id) })
+                            ItemAbonoRow(abono, simboloMoneda)
                         }
                     }
                 }
@@ -933,35 +933,22 @@ private fun DetalleFacturaLiquidacion(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 1.2f)
                 ) {
-                    if (esPagada && !esContado) {
-                        var showConfirmRevert by remember { mutableStateOf(false) }
-                        FDBotonSecundario(
-                            texto = "REVERTIR LIQUIDACIÓN",
-                            onClick = { showConfirmRevert = true },
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        if (showConfirmRevert) {
-                            AlertDialog(
-                                onDismissRequest = { showConfirmRevert = false },
-                                title = { Text("¿Revertir pago total?") },
-                                text = { Text("Se anularán todos los abonos registrados y la factura volverá a estar pendiente de pago. Esta acción no se puede deshacer.") },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        onRevertirPago(factura.id, factura.numeroFactura, factura.proveedorNombre)
-                                        showConfirmRevert = false
-                                    }) {
-                                        Text("REVERTIR TODO", color = FDColors.Error, fontWeight = FontWeight.Bold)
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = { showConfirmRevert = false }) { Text("CANCELAR") }
-                                }
+                    if (!factura.esAnulada) {
+                        if (!esContado) {
+                            FDBotonSecundario(
+                                texto = "NOTA DE CRÉDITO",
+                                onClick = { onAbrirDialogoNotaCredito(factura) },
+                                modifier = Modifier.weight(1f)
                             )
                         }
+                        FDBotonSecundario(
+                            texto = "ANULAR FACTURA",
+                            onClick = { onAbrirDialogoAnular(factura) },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
 
-                    if (!esPagada && !esContado) {
+                    if (!esPagada && !esContado && !factura.esAnulada) {
                         FDBotonPrimario(
                             texto = if (factura.totalAbonadoReal > 0) "REGISTRAR OTRO ABONO" else "REGISTRAR PAGO / ABONO",
                             onClick = { onAbrirDialogoAbono(factura) },
@@ -978,11 +965,9 @@ private fun DetalleFacturaLiquidacion(
 @Composable
 private fun ItemAbonoRow(
     abono: AbonoFactura,
-    simboloMoneda: String,
-    onAnular: () -> Unit
+    simboloMoneda: String
 ) {
     val s = recordarMedidaAdaptativa()
-    var showConfirmAnular by remember { mutableStateOf(false) }
 
     Surface(
         color = FDColors.Surface,
@@ -990,7 +975,8 @@ private fun ItemAbonoRow(
         border = BorderStroke(s.borderWidth * 0.6f, FDColors.Border),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -1019,36 +1005,30 @@ private fun ItemAbonoRow(
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 1.2f)) {
-                Text(
-                    text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", abono.monto),
-                    style = FDType.Numeric.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Black),
-                    color = FDColors.TextPrimary
-                )
+            Text(
+                text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", abono.monto),
+                style = FDType.Numeric.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Black),
+                color = FDColors.TextPrimary
+            )
+            }
 
-                IconButton(onClick = { showConfirmAnular = true }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.DeleteOutline, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall))
+            // PAGO MIXTO: se muestra el desglose real ("en este medio pagué tanto, en este otro tanto").
+            if (abono.pagos.size > 1) {
+                HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = s.separatorH * 0.7f)
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    abono.pagos.forEach { pago ->
+                        Text(
+                            text = "${pago.metodoPago.ifBlank { "Sin método" }} · $simboloMoneda " + String.format(Locale.US, "%.2f", pago.monto) +
+                                (if (pago.numeroOperacion.isNotBlank()) " · Op. ${pago.numeroOperacion}" else ""),
+                            style = FDType.BodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                            color = FDColors.TextSecondary
+                        )
+                    }
                 }
             }
         }
-    }
-
-    if (showConfirmAnular) {
-        AlertDialog(
-            onDismissRequest = { showConfirmAnular = false },
-            title = { Text("¿Anular este abono?") },
-            text = { Text("El monto de $simboloMoneda ${abono.monto} volverá a sumarse a la deuda pendiente de la factura.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onAnular()
-                    showConfirmAnular = false
-                }) {
-                    Text("SÍ, ANULAR", color = FDColors.Error, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConfirmAnular = false }) { Text("CANCELAR") }
-            }
-        )
     }
 }

@@ -30,7 +30,7 @@ fun DetailPresentacionesTable(product: MoldeProductos) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "PRESENTACIÓN COMERCIAL",
+                text = "PRESENTACIí“N COMERCIAL",
                 color = SaaSTextSecondary,
                 fontSize = 8.sp,
                 fontWeight = FontWeight.Bold,
@@ -60,7 +60,7 @@ fun DetailPresentacionesTable(product: MoldeProductos) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val nombrePresentacion = if (pres.cantidad > 0 && product.inventarioPerfilUnidadContenido.isNotBlank()) {
-                    "${pres.nombre} × ${ProductDetailMapper.formatoSinDecimalesInnecesarios(pres.cantidad.toDouble())} ${product.inventarioPerfilUnidadContenido}"
+                    "${pres.nombre} í— ${ProductDetailMapper.formatoSinDecimalesInnecesarios(pres.cantidad.toDouble())} ${product.inventarioPerfilUnidadContenido}"
                 } else pres.nombre
                 
                 Column(modifier = Modifier.weight(1f)) {

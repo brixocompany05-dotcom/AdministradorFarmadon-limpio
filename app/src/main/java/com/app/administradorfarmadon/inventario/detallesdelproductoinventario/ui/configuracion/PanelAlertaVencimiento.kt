@@ -81,7 +81,7 @@ fun PanelAlertaVencimiento(
             style = FDType.Body.copy(fontSize = 12.5.sp, color = FDColors.TextSecondary)
         )
 
-        // ── TARJETA DE ESTADO EN VIVO CON FECHA EXACTA DE ALERTA ──
+        // TARJETA DE ESTADO EN VIVO CON FECHA EXACTA DE ALERTA
         if (infoLoteCritico != null) {
             val enRiesgo = infoLoteCritico.diasRestantes <= diasVencimientoActual
             val colorBorde = if (enRiesgo) FDColors.Warning else FDColors.Success
@@ -118,7 +118,7 @@ fun PanelAlertaVencimiento(
                             text = if (enRiesgo)
                                 "LOTE EN ALERTA: ${infoLoteCritico.numeroLote}"
                             else
-                                "🟢 LOTE VIGENTE: ${infoLoteCritico.numeroLote}",
+                                "LOTE VIGENTE: ${infoLoteCritico.numeroLote}",
                             style = FDType.Heading3.copy(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
@@ -170,7 +170,7 @@ fun PanelAlertaVencimiento(
         // Chips de selección rápida con scroll horizontal
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "AVISAR CON ANTICIPACIÓN ANTES DE VENCER:",
+                text = "AVISAR CON ANTICIPACIí“N ANTES DE VENCER:",
                 style = FDType.Label.copy(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,

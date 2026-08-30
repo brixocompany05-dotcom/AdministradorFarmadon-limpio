@@ -60,7 +60,7 @@ enum class SortOption(val label: String, val column: InventarioSortColumn, val d
     ALFABETICO_AZ("Nombre (A-Z)", InventarioSortColumn.PRODUCTO, InventarioSortDirection.ASC)
 }
 
-// InventarioCargaEstado / InventarioBusquedaEstado viven en InventarioUiState.kt — fuente única.
+// InventarioCargaEstado / InventarioBusquedaEstado viven en InventarioUiState.kt —” fuente única.
 // Estados honestos: Cargando / Listo / Vacio / Error y Cargando / BusquedaVacía / Error (ver InventarioUiState.kt)
 
 data class InventarioUIStateLegacy(
@@ -75,7 +75,7 @@ data class InventarioUIStateLegacy(
     val lastLoadedKey: String? = null,
     val searchQuery: String = "",
     val selectedCategory: String = "Todos",
-    // Lista acumulada silenciosa — crece lote a lote (limit 50 interno), UI ve lista infinita
+    // Lista acumulada silenciosa —” crece lote a lote (limit 50 interno), UI ve lista infinita
     val productsList: List<PharmProduct> = emptyList(),
     val filteredProducts: List<PharmProduct> = emptyList(),
     // pagedProducts se mantiene por compatibilidad pero ya no gobierna la UI; la lista infinita es productsList filtrada
@@ -102,7 +102,7 @@ data class InventarioUIStateLegacy(
     
     // Rediseño 2026
     val activeProductsCount: Int = 0,
-    // Paginacion visible DEPRECADA — mantenida solo por compatibilidad, UI no muestra "Pagina X de Y"
+    // Paginacion visible DEPRECADA —” mantenida solo por compatibilidad, UI no muestra "Pagina X de Y"
     val currentPage: Int = 1,
     val itemsPerPage: Int = 10,
     val totalPages: Int = 1,
@@ -116,5 +116,5 @@ data class InventarioUIStateLegacy(
     val estadoCarga: InventarioCargaEstado = InventarioCargaEstado.Cargando
 )
 
-@Deprecated("Usar InventarioUiState — fuente única")
+@Deprecated("Usar InventarioUiState —” fuente única")
 typealias InventarioUIState = InventarioUIStateLegacy

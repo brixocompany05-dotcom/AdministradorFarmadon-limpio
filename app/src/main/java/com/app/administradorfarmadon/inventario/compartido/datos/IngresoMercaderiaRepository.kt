@@ -6,6 +6,7 @@ import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.app.administradorfarmadon.compartido.logica.HoraServidor
 import com.app.administradorfarmadon.compras.datos.ItemRecepcionEntrega
+import com.app.administradorfarmadon.compras.saldoafavor.datos.SaldoAFavorFirestore
 import com.app.administradorfarmadon.inventario.compartido.logica.CostoLoteCalculator
 import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
 import com.google.firebase.firestore.FieldValue
@@ -30,6 +31,37 @@ class IngresoMercaderiaRepository(
         private const val TAG = "IngresoMercaderiaRepository"
     }
 
+    private fun crearAbonoRecepcion(
+        idRecepcion: String,
+        monto: Double,
+        metodoPago: String,
+        pagos: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle>,
+        usuarioNombre: String,
+        usuarioEmail: String,
+        ahoraMs: Long,
+        fechaLegible: String
+    ): Map<String, Any> = mapOf(
+        "id" to "recepcion-$idRecepcion",
+        "fechaLegible" to fechaLegible,
+        "fechaMs" to ahoraMs,
+        "monto" to monto,
+        "metodoPago" to (pagos.firstOrNull()?.metodoPago ?: metodoPago.ifBlank { "Efectivo" }),
+        "numeroOperacion" to (pagos.firstOrNull()?.numeroOperacion ?: ""),
+        "pagos" to pagos.map { p ->
+            mapOf(
+                "metodoPago" to p.metodoPago,
+                "monto" to p.monto,
+                "numeroOperacion" to p.numeroOperacion
+            )
+        },
+        "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } },
+        "usuarioEmail" to usuarioEmail,
+        "notas" to if (pagos.isEmpty() && metodoPago.isBlank()) "Pago registrado junto con la recepción"
+                else "Pago registrado junto con la recepción: " + pagos.joinToString(" + ") { p ->
+                    "${p.metodoPago} ${String.format(java.util.Locale.US, "%.2f", p.monto)}"
+                }
+    )
+
     private fun obtenerIds(): Pair<String, String>? {
         val f = SessionManager.clienteIdGarantizado
         val s = SessionManager.sucursalIdEfectiva
@@ -47,6 +79,10 @@ class IngresoMercaderiaRepository(
         condicionPago: String = "Contado",
         fechaVencimientoPago: String = "",
         montoFactura: Double = 0.0,
+        montoPagadoEnRecepcion: Double = 0.0,
+        metodoPago: String = "",
+        pagosRecepcion: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle> = emptyList(),
+        saldoAFavorUsado: Double = 0.0,
         items: List<ItemRecepcionEntrega>,
         cerrarConAjuste: Boolean = false,
         usuarioEmail: String = "",
@@ -363,8 +399,56 @@ class IngresoMercaderiaRepository(
 
                 // ── 2. Factura inmutable ──
                 if (numFacturaLimpio.isNotBlank() && effectiveFacturaId != null && facturaRef != null && !facturaSnapExists) {
-                    val estadoPago = if (condicionPago.contains("Contado", ignoreCase = true)) "PAGADO" else "PENDIENTE"
                     val montoTotalDoc = if (montoFactura > 0) montoFactura else totalCostoCalculado
+
+                    // Pago mixto real de la recepción: porciones + saldo a favor.
+                    val pagosFinales = if (pagosRecepcion.isNotEmpty()) pagosRecepcion
+                        else if (montoPagadoEnRecepcion > 0.0) listOf(
+                            com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                                metodoPago = metodoPago.ifBlank { "Efectivo" },
+                                monto = montoPagadoEnRecepcion
+                            )
+                        ) else emptyList()
+                    val saldoUsado = saldoAFavorUsado.coerceAtLeast(0.0)
+                    val totalPagado = montoPagadoEnRecepcion.coerceAtLeast(0.0) + saldoUsado
+                    val estadoPago = when {
+                        totalPagado <= 0.01 -> if (condicionPago.contains("Contado", ignoreCase = true)) "PAGADA" else "PENDIENTE"
+                        totalPagado >= montoTotalDoc - 0.01 -> "PAGADA"
+                        else -> "ABONADO_PARCIAL"
+                    }
+
+                    val abonosNuevos = mutableListOf<Map<String, Any>>()
+                    if (montoPagadoEnRecepcion > 0.0) {
+                        abonosNuevos.add(crearAbonoRecepcion(
+                            idRecepcion = idempotenciaId.ifBlank { UUID.randomUUID().toString() },
+                            monto = montoPagadoEnRecepcion,
+                            metodoPago = metodoPago,
+                            pagos = pagosFinales,
+                            usuarioNombre = usuarioNombre,
+                            usuarioEmail = usuarioEmail,
+                            ahoraMs = ahoraMs,
+                            fechaLegible = fechaLegible
+                        ))
+                    }
+                    if (saldoUsado > 0.0) {
+                        abonosNuevos.add(mapOf(
+                            "id" to "saldo-${UUID.randomUUID().toString()}",
+                            "fechaLegible" to fechaLegible,
+                            "fechaMs" to ahoraMs,
+                            "monto" to saldoUsado,
+                            "metodoPago" to "Saldo a favor del proveedor",
+                            "numeroOperacion" to "",
+                            "pagos" to listOf(mapOf(
+                                "metodoPago" to "Saldo a favor del proveedor",
+                                "monto" to saldoUsado,
+                                "numeroOperacion" to ""
+                            )),
+                            "usuarioNombre" to (usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } }),
+                            "usuarioEmail" to usuarioEmail,
+                            "notas" to "Saldo a favor aplicado en la recepción"
+                        ))
+                    }
+
                     val facturaData = mapOf(
                         "id" to effectiveFacturaId,
                         "numeroFactura" to numFacturaLimpio,
@@ -377,6 +461,8 @@ class IngresoMercaderiaRepository(
                         "estadoPago" to estadoPago,
                         "montoTotal" to montoTotalDoc,
                         "montoAcumulado" to totalCostoCalculado,
+                        "montoPagado" to totalPagado,
+                        "abonos" to abonosNuevos,
                         "items" to itemsFacturaList,
                         "usuarioRegistroEmail" to usuarioEmail,
                         "creadoEl" to FieldValue.serverTimestamp(),
@@ -454,6 +540,30 @@ class IngresoMercaderiaRepository(
         }
     }
 
+    /**
+     * Lotes ACTUALES de cada producto (foto del estante para la anulación):
+     * productoId → { númeroLote → { cantidad, vencimiento, … } }.
+     * Si falla la lectura se retorna vacío: la anulación continúa sin inventario comparado.
+     */
+    suspend fun leerLotesDeProductos(productoIds: List<String>): Map<String, Map<String, Any>> {
+        val ids = obtenerIds() ?: return emptyMap()
+        val (farmaciaId, sucursalId) = ids
+        val resultado = mutableMapOf<String, Map<String, Any>>()
+        return try {
+            for (productoId in productoIds.distinct().filter { it.isNotBlank() }) {
+                val snap = FarmadonPaths.sucursal(db, farmaciaId, sucursalId)
+                    .collection("inventario").document(productoId).get().await()
+                @Suppress("UNCHECKED_CAST")
+                val lotes = snap.get("lotes") as? Map<String, Any> ?: continue
+                resultado[productoId] = lotes
+            }
+            resultado
+        } catch (e: Exception) {
+            Log.e(TAG, "Error leyendo lotes para anulación: ${e.message}", e)
+            emptyMap()
+        }
+    }
+
     // Compatibilidad para StockEntry simple (un solo producto) — delega al método principal con lista de 1
     suspend fun ingresarLoteSimple(
         productId: String,
@@ -519,7 +629,10 @@ class IngresoMercaderiaRepository(
         motivo: String,
         conDevolucion: Boolean,
         usuarioEmail: String = "",
-        usuarioNombre: String = ""
+        usuarioNombre: String = "",
+        respuestaPlata: String = "",
+        metodoDevolucion: String = "",
+        referenciaDevolucion: String = ""
     ): Result<Unit> {
         if (motivo.trim().isBlank()) return Result.failure(IllegalArgumentException("El motivo de anulación es obligatorio."))
         val ids = obtenerIds() ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
@@ -537,14 +650,43 @@ class IngresoMercaderiaRepository(
                 val estado = facturaSnap.getString("estadoPago") ?: ""
                 if (estado.equals("ANULADA", true)) throw IllegalStateException("La factura ya está anulada.")
                 if (motivo.trim().length < 5) throw IllegalArgumentException("El motivo debe tener al menos 5 caracteres.")
-                val abonos = facturaSnap.get("abonos") as? List<*> ?: emptyList<Any>()
-                val montoPagado = facturaSnap.getDouble("montoPagado") ?: 0.0
-                val totalAbonado = if (abonos.isNotEmpty()) {
-                    abonos.sumOf { (it as? Map<*, *>)?.let { m -> (m["monto"] as? Number)?.toDouble() ?: 0.0 } ?: 0.0 }
-                } else montoPagado
-                if (abonos.isNotEmpty() || totalAbonado > 0.01) throw IllegalStateException("La factura tiene ${if (abonos.isNotEmpty()) abonos.size else 1} abono(s) por S/ ${String.format(java.util.Locale.US, "%.2f", totalAbonado)}. Anúlalos primero en Cuentas por Pagar.")
                 val numeroFactura = facturaSnap.getString("numeroFactura") ?: facturaId
                 val pedidoId = facturaSnap.getString("pedidoId") ?: ""
+                val abonos = facturaSnap.get("abonos") as? List<*> ?: emptyList<Any>()
+                val montoPagado = facturaSnap.getDouble("montoPagado") ?: 0.0
+                val plataPagada = if (abonos.isNotEmpty()) {
+                    abonos.sumOf { (it as? Map<*, *>)?.let { m -> (m["monto"] as? Number)?.toDouble() ?: 0.0 } ?: 0.0 }
+                } else montoPagado
+                if (plataPagada > 0.01) {
+                    val respuesta = respuestaPlata.trim().uppercase()
+                    when (respuesta) {
+                        "SALDO_A_FAVOR" -> {
+                            val proveedorId = facturaSnap.getString("proveedorId") ?: ""
+                            if (proveedorId.isBlank()) {
+                                throw IllegalStateException("La factura no tiene proveedor vinculado; no se puede registrar el saldo a favor.")
+                            }
+                            SaldoAFavorFirestore.registrarIngresoEnTransaccion(
+                                tx = tx,
+                                refSaldo = SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorId),
+                                monto = plataPagada,
+                                tipo = "SALDO_A_FAVOR_ANULACION",
+                                documento = numeroFactura,
+                                motivo = "Saldo a favor por anulación de la factura $numeroFactura",
+                                usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                usuarioEmail = usuarioEmail,
+                                ahoraMs = ahoraMs,
+                                fechaLegible = fechaLegible
+                            )
+                        }
+                        "DEVOLUCION_RECIBIDA" -> {
+                            if (metodoDevolucion.trim().isBlank()) {
+                                throw IllegalStateException("Indica en qué medio te devolvieron el dinero (efectivo, transferencia, cheque u otro).")
+                            }
+                        }
+                        "PERDIDA" -> { /* Pérdida declarada: queda registrada en la factura con quién, cuándo y por qué. */ }
+                        else -> throw IllegalStateException("Indica qué pasa con el dinero ya pagado: saldo a favor, devolución recibida o pérdida.")
+                    }
+                }
                 @Suppress("UNCHECKED_CAST")
                 val itemsRaw = facturaSnap.get("items") as? List<Map<String, Any>> ?: emptyList()
                 if (itemsRaw.isEmpty() && conDevolucion) throw IllegalStateException("La factura no tiene productos para devolver.")
@@ -733,14 +875,27 @@ class IngresoMercaderiaRepository(
                 }
 
                 // Factura a ANULADA (inmutable, no se borra)
-                tx.update(facturaRef, mapOf(
+                val facturaAnulada = mutableMapOf<String, Any>(
                     "estadoPago" to "ANULADA",
                     "motivoAnulacion" to motivo.trim(),
                     "anuladoPorEmail" to usuarioEmail,
                     "anuladoPorNombre" to usuarioNombre,
                     "anuladoEl" to FieldValue.serverTimestamp(),
                     "actualizadoEl" to FieldValue.serverTimestamp()
-                ))
+                )
+                if (plataPagada > 0.01) {
+                    facturaAnulada["anulacionPlata"] = mapOf(
+                        "decision" to respuestaPlata.trim().uppercase(),
+                        "monto" to plataPagada,
+                        "metodoDevolucion" to metodoDevolucion.trim(),
+                        "referenciaDevolucion" to referenciaDevolucion.trim(),
+                        "fechaLegible" to fechaLegible,
+                        "fechaMs" to ahoraMs,
+                        "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
+                        "usuarioEmail" to usuarioEmail
+                    )
+                }
+                tx.update(facturaRef, facturaAnulada)
             }.await()
             Result.success(Unit)
         } catch (e: Exception) {

@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.configuracion.plan.ui.componentes
+﻿package com.app.administradorfarmadon.configuracion.plan.ui.componentes
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

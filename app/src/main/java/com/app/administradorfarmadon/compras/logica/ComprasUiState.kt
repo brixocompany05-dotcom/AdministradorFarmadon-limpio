@@ -2,6 +2,7 @@ package com.app.administradorfarmadon.compras.logica
 
 import com.app.administradorfarmadon.compras.datos.LoteExistenteVista
 import com.app.administradorfarmadon.compras.datos.PedidoCompra
+import com.app.administradorfarmadon.configuracion.metodospago.modelo.InstanciaPago
 import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 import com.app.administradorfarmadon.inventario.compartido.modelo.Proveedor
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.PharmProduct
@@ -39,6 +40,23 @@ data class PedidoProveedor(
 /** Mercadería YA pedida y en camino para un producto (órdenes ENVIADO o PARCIAL). */
 data class ProductoEnCamino(val unidades: Int, val ordenes: List<String>)
 
+/**
+ * Una línea de la factura leída EN VIVO para el diálogo de anulación (plan Anular Factura):
+ * entró según papel vs lo que existe HOY en el estante. La app cuenta; la persona solo mira.
+ */
+data class LineaAnulacionVista(
+    val productoId: String = "",
+    val productoNombre: String = "",
+    val loteNumero: String = "",
+    val vencimiento: String = "",
+    val entro: Double = 0.0,
+    val hoy: Double = 0.0,
+    val devuelve: Double = 0.0,
+    val noVuelve: Double = 0.0,
+    val loteExiste: Boolean = true,
+    val productoExiste: Boolean = true
+)
+
 data class ComprasUiState(
     val tabSeleccionada: String = "REPOSICION",
     val subTabProveedor: String = "RESUMEN",
@@ -46,8 +64,11 @@ data class ComprasUiState(
     val todosLosProductos: List<PharmProduct> = emptyList(),
     val proveedores: List<Proveedor> = emptyList(),
     val facturas: List<FacturaCompra> = emptyList(),
+    val metodosPago: List<InstanciaPago> = emptyList(),
     val pedidosGuardados: List<PedidoCompra> = emptyList(),
     val pedidosPorProveedor: Map<String, Map<String, Int>> = emptyMap(),
+    /** Quién aportó cada unidad del carrito (producto → usuario → cantidad). */
+    val contribuidoresCarrito: Map<String, Map<String, Map<String, Int>>> = emptyMap(),
     val proveedoresExpandidos: Set<String> = emptySet(),
     val pedidoEnRevision: PedidoProveedor? = null,
     val mostrarModalRevisionPedido: Boolean = false,
@@ -55,6 +76,7 @@ data class ComprasUiState(
     val pedidoParaConfirmarEnvio: PedidoProveedor? = null,
     val mostrarDialogoRecepcion: Boolean = false,
     val pedidoParaRecepcionar: PedidoCompra? = null,
+    val facturaRecepcionExistente: FacturaCompra? = null,
     val procesandoRecepcion: Boolean = false,
     val cargandoIndiceRecepcion: Boolean = false,
     val recepcionIntentoId: String = "",
@@ -72,9 +94,19 @@ data class ComprasUiState(
     val mostrarDialogoProveedor: Boolean = false,
     val proveedorEditando: Proveedor? = null,
     val mostrarDialogoAbono: Boolean = false,
-    val facturaParaAbonar: FacturaCompra? = null,
+    val facturaParaAbonarId: String? = null,
     val mostrarDialogoProrroga: Boolean = false,
-    val facturaParaProrroga: FacturaCompra? = null,
+    val facturaParaProrrogaId: String? = null,
+    // ── NOTA DE CRÉDITO / AJUSTE DE FACTURA (el papel se reduce con documento) ──
+    val mostrarDialogoNotaCredito: Boolean = false,
+    val facturaParaNotaCreditoId: String? = null,
+    val procesandoNotaCredito: Boolean = false,
+    // ── DIÁLOGO ANULAR FACTURA (plan Anular Factura: papel + producto + plata juntos) ──
+    val mostrarDialogoAnulacion: Boolean = false,
+    val facturaParaAnular: FacturaCompra? = null,
+    val procesandoAnulacion: Boolean = false,
+    val cargandoLineasAnulacion: Boolean = false,
+    val lineasAnulacion: List<LineaAnulacionVista> = emptyList(),
     val mensajeExito: String? = null,
     val mensajeError: String? = null,
     val errorEscucha: String? = null
@@ -97,7 +129,7 @@ data class ComprasUiState(
 
     fun enCaminoDe(p: PharmProduct): Int = enCaminoPorProducto[p.id]?.unidades ?: 0
 
-    /** Órdenes ENVIADO/PARCIAL por producto: escudo anti doble pedido. */
+    /** í“rdenes ENVIADO/PARCIAL por producto: escudo anti doble pedido. */
     val enCaminoPorProducto: Map<String, ProductoEnCamino>
         get() {
             val unidades = mutableMapOf<String, Int>()
@@ -116,7 +148,7 @@ data class ComprasUiState(
             return unidades.mapValues { (id, u) -> ProductoEnCamino(u, ordenes[id]?.toList() ?: emptyList()) }
         }
 
-    // ── OBTENER EL PROVEEDOR COMERCIAL (DISTINTO DEL LABORATORIO FABRICANTE) ──
+    // ──”€──”€ OBTENER EL PROVEEDOR COMERCIAL (DISTINTO DEL LABORATORIO FABRICANTE) ──”€──”€
     fun resolverProveedorProducto(p: PharmProduct): String {
         if (p.proveedor.isNotBlank()) return p.proveedor
         val match = proveedores.find { it.nombre.equals(p.laboratory, ignoreCase = true) }
@@ -125,12 +157,12 @@ data class ComprasUiState(
         return "Droguería General / Sin Asignar"
     }
 
-    // ── DEUDA CONTABLE VINCULADA POR PROVEEDOR ──
+    // ── DEUDA CONTABLE VINCULADA POR PROVEEDOR (las anuladas deben 0 por construcción) ──
     fun deudaPendienteProveedor(proveedor: Proveedor): Double {
         return facturas
             .filter {
                 (it.proveedorId == proveedor.id || it.proveedorNombre.equals(proveedor.nombre, ignoreCase = true)) &&
-                        !it.esTotalmentePagada
+                        !it.esAnulada && !it.esTotalmentePagada
             }
             .sumOf { it.saldoPendienteReal }
     }
@@ -139,11 +171,11 @@ data class ComprasUiState(
         return facturas
             .count {
                 (it.proveedorId == proveedor.id || it.proveedorNombre.equals(proveedor.nombre, ignoreCase = true)) &&
-                        !it.esTotalmentePagada
+                        !it.esAnulada && !it.esTotalmentePagada
             }
     }
 
-    // ── PRODUCTOS AGRUPADOS POR PROVEEDOR COMERCIAL ──
+    // ──”€──”€ PRODUCTOS AGRUPADOS POR PROVEEDOR COMERCIAL ──”€──”€
     val productosAgrupadosPorProveedor: Map<String, List<PharmProduct>>
         get() {
             val query = busquedaQuery.trim()
@@ -158,7 +190,7 @@ data class ComprasUiState(
             return filtrados.groupBy { resolverProveedorProducto(it) }
         }
 
-    // ── PEDIDOS ACTIVOS EN PREPARACIÓN (UN PEDIDO POR PROVEEDOR) ──
+    // ──”€──”€ PEDIDOS ACTIVOS EN PREPARACIí“N (UN PEDIDO POR PROVEEDOR) ──”€──”€
     val pedidosActivosPorProveedor: List<PedidoProveedor>
         get() {
             val resultado = mutableListOf<PedidoProveedor>()
@@ -194,7 +226,7 @@ data class ComprasUiState(
             return resultado.sortedByDescending { it.totalInversion }
         }
 
-    // ── 2. DIRECTORIO DE PROVEEDORES ──
+    // ──”€──”€ 2. DIRECTORIO DE PROVEEDORES ──”€──”€
     val proveedorSeleccionado: Proveedor?
         get() = proveedores.find { it.id == proveedorSeleccionadoId } ?: proveedores.firstOrNull()
 
@@ -227,7 +259,7 @@ data class ComprasUiState(
             }
         }
 
-    // ── 3. CUENTAS POR PAGAR (100% FINANCIERO) ──
+    // ──”€──”€ 3. CUENTAS POR PAGAR (100% FINANCIERO) ──”€──”€
     // "Hoy" según hora del servidor: las alertas de vencimiento jamás dependen del reloj del celular.
     private val hoy: Calendar get() = Calendar.getInstance().apply {
         timeInMillis = com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs()
@@ -251,7 +283,7 @@ data class ComprasUiState(
     }
 
     val facturasPendientes: List<FacturaCompra>
-        get() = facturas.filter { !it.esTotalmentePagada }
+        get() = facturas.filter { !it.esAnulada && !it.esTotalmentePagada }
 
     val facturasVencidas: List<FacturaCompra>
         get() = facturasPendientes.filter { esFacturaVencida(it) }

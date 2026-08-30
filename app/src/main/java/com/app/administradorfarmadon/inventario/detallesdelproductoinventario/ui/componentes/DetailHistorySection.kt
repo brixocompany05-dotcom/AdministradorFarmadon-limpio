@@ -55,7 +55,7 @@ internal fun HistoryRow(mov: MovimientoInventario, p: MoldeProductos) {
     val color = if (isAdd) SaaSSuccess else SaaSTextSecondary
     
     val delta = if (mov.cantidad == 0.0) {
-        "—"
+        "—”"
     } else {
         val qtyVisualCompleto = ProductDetailMapper.resumenStockVisual(p, kotlin.math.abs(mov.cantidad))
         val qtyFormat = qtyVisualCompleto.split(" (")[0]

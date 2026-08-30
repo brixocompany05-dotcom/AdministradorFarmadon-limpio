@@ -5,6 +5,8 @@ import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 import com.app.administradorfarmadon.inventario.compartido.modelo.ItemFacturaCompra
+import com.app.administradorfarmadon.inventario.compartido.modelo.RespuestaPlataAnulacion
+import com.app.administradorfarmadon.inventario.compartido.modelo.AjusteFactura
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -65,7 +67,9 @@ class FacturaCompraRepository(
                 if (snap.exists()) return mapearFactura(snap)
             }
             val q = col.whereEqualTo("numeroFactura", numLimpio).whereEqualTo("proveedorId", proveedorId).limit(1).get().await()
-            if (!q.isEmpty) mapearFactura(q.documents[0]) else buscarFacturaPorNumero(numLimpio)
+            // Con proveedor seleccionado, una ausencia es ausencia para ese proveedor.
+            // Nunca se cae a una factura del mismo número perteneciente a otra droguería.
+            if (!q.isEmpty) mapearFactura(q.documents[0]) else null
         } catch (e: Exception) {
             null
         }
@@ -74,8 +78,7 @@ class FacturaCompraRepository(
     fun observarFacturasRecientes(onErrorEscucha: ((String) -> Unit)? = null): Flow<List<FacturaCompra>> = callbackFlow {
         val clienteId = getClienteId()
         if (clienteId.isBlank()) {
-            trySend(emptyList())
-            close()
+            close(IllegalStateException("No hay una farmacia activa para cargar facturas."))
             return@callbackFlow
         }
 
@@ -85,8 +88,8 @@ class FacturaCompraRepository(
         val listener = ref.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 Log.e(TAG, "Error escuchando facturas: ${error.message}", error)
-                onErrorEscucha?.invoke(error.message ?: "Sin detalle del servidor")
-                trySend(emptyList())
+                onErrorEscucha?.invoke(error.message ?: error.toString())
+                close(error)
                 return@addSnapshotListener
             }
 
@@ -99,27 +102,6 @@ class FacturaCompraRepository(
 
         awaitClose {
             listener.remove()
-        }
-    }
-
-    suspend fun actualizarEstadoPagoFactura(facturaId: String, nuevoEstado: String): Result<Unit> {
-        val clienteId = getClienteId()
-        if (clienteId.isBlank() || facturaId.isBlank()) {
-            return Result.failure(IllegalStateException("No hay sesión activa o ID de factura no válido"))
-        }
-
-        return try {
-            val col = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva)
-            col.document(facturaId).update(
-                mapOf(
-                    "estadoPago" to nuevoEstado.uppercase(),
-                    "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                )
-            ).await()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error actualizando estado de factura $facturaId: ${e.message}", e)
-            Result.failure(e)
         }
     }
 
@@ -196,21 +178,86 @@ class FacturaCompraRepository(
             val abonosRaw = doc.get("abonos") as? List<*>
             val abonosList = abonosRaw?.mapNotNull { abMap ->
                 if (abMap is Map<*, *>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val pagosRaw = abMap["pagos"] as? List<Map<String, Any>>
+                    val pagosList = pagosRaw?.mapNotNull { p ->
+                        if (p is Map<*, *>) {
+                            com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                                metodoPago = p["metodoPago"] as? String ?: "",
+                                monto = (p["monto"] as? Number)?.toDouble() ?: 0.0,
+                                numeroOperacion = p["numeroOperacion"] as? String ?: ""
+                            )
+                        } else null
+                    } ?: emptyList()
+                    val metodoLegacy = abMap["metodoPago"] as? String ?: ""
+                    val opLegacy = abMap["numeroOperacion"] as? String ?: ""
                     com.app.administradorfarmadon.inventario.compartido.modelo.AbonoFactura(
                         id = abMap["id"] as? String ?: "",
                         fechaLegible = abMap["fechaLegible"] as? String ?: "",
                         fechaMs = (abMap["fechaMs"] as? Number)?.toLong() ?: 0L,
                         monto = (abMap["monto"] as? Number)?.toDouble() ?: 0.0,
-                        metodoPago = abMap["metodoPago"] as? String ?: "Transferencia",
-                        numeroOperacion = abMap["numeroOperacion"] as? String ?: "",
+                        metodoPago = metodoLegacy,
+                        numeroOperacion = opLegacy,
+                        pagos = if (pagosList.isNotEmpty()) pagosList
+                                else if (metodoLegacy.isNotBlank()) listOf(
+                                    com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                                        metodoPago = metodoLegacy,
+                                        monto = (abMap["monto"] as? Number)?.toDouble() ?: 0.0,
+                                        numeroOperacion = opLegacy
+                                    )
+                                ) else emptyList(),
                         usuarioNombre = abMap["usuarioNombre"] as? String ?: "",
                         usuarioEmail = abMap["usuarioEmail"] as? String ?: "",
-                        notas = abMap["notas"] as? String ?: ""
+                        notas = abMap["notas"] as? String ?: "",
+                        anulado = abMap["anulado"] == true,
+                        anuladoPorNombre = abMap["anuladoPorNombre"] as? String ?: "",
+                        anuladoPorEmail = abMap["anuladoPorEmail"] as? String ?: "",
+                        anuladoElLegible = abMap["anuladoElLegible"] as? String ?: "",
+                        motivoAnulacion = abMap["motivoAnulacion"] as? String ?: ""
                     )
                 } else null
             } ?: emptyList()
 
-            val totalFinal = if (itemsList.isNotEmpty()) itemsList.sumOf { it.costoTotal } else totalDoc
+            val ajustesRaw = doc.get("ajustesFactura") as? List<*>
+            val ajustesList = ajustesRaw?.mapNotNull { aMap ->
+                if (aMap is Map<*, *>) {
+                    AjusteFactura(
+                        id = aMap["id"] as? String ?: "",
+                        tipo = aMap["tipo"] as? String ?: "NOTA_CREDITO",
+                        numeroDocumento = aMap["numeroDocumento"] as? String ?: "",
+                        monto = (aMap["monto"] as? Number)?.toDouble() ?: 0.0,
+                        motivo = aMap["motivo"] as? String ?: "",
+                        fechaLegible = aMap["fechaLegible"] as? String ?: "",
+                        fechaMs = (aMap["fechaMs"] as? Number)?.toLong() ?: 0L,
+                        usuarioNombre = aMap["usuarioNombre"] as? String ?: "",
+                        usuarioEmail = aMap["usuarioEmail"] as? String ?: ""
+                    )
+                } else null
+            } ?: emptyList()
+
+            // El total del papel manda. Los items solo representan lo recibido hasta ahora.
+            // Una factura puede llegar parcialmente y no por eso cambia su total comercial.
+            val totalFinal = totalDoc.takeIf { it > 0.0 } ?: itemsList.sumOf { it.costoTotal }
+
+            // ── Campos de anulación (el papel anulado se lee igual que el vivo) ──
+            val motivoAnulacion = doc.getString("motivoAnulacion") ?: ""
+            val anuladoPorEmail = doc.getString("anuladoPorEmail") ?: ""
+            val anuladoPorNombre = doc.getString("anuladoPorNombre") ?: ""
+            val anuladoElLegible = doc.getTimestamp("anuladoEl")?.let { ts ->
+                val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+                sdf.format(ts.toDate())
+            } ?: ""
+            val anulacionPlataMap = doc.get("anulacionPlata") as? Map<*, *>
+            val anulacionPlata = if (anulacionPlataMap != null) RespuestaPlataAnulacion(
+                decision = anulacionPlataMap["decision"] as? String ?: "",
+                monto = (anulacionPlataMap["monto"] as? Number)?.toDouble() ?: 0.0,
+                metodoDevolucion = anulacionPlataMap["metodoDevolucion"] as? String ?: "",
+                referenciaDevolucion = anulacionPlataMap["referenciaDevolucion"] as? String ?: "",
+                fechaLegible = anulacionPlataMap["fechaLegible"] as? String ?: "",
+                fechaMs = (anulacionPlataMap["fechaMs"] as? Number)?.toLong() ?: 0L,
+                usuarioNombre = anulacionPlataMap["usuarioNombre"] as? String ?: "",
+                usuarioEmail = anulacionPlataMap["usuarioEmail"] as? String ?: ""
+            ) else null
 
             FacturaCompra(
                 id = id,
@@ -228,7 +275,13 @@ class FacturaCompraRepository(
                 items = itemsList,
                 usuarioRegistroEmail = usuario,
                 notas = notas,
-                fechaRegistro = fechaRegistroStr
+                fechaRegistro = fechaRegistroStr,
+                ajustesFactura = ajustesList,
+                motivoAnulacion = motivoAnulacion,
+                anuladoPorEmail = anuladoPorEmail,
+                anuladoPorNombre = anuladoPorNombre,
+                anuladoElLegible = anuladoElLegible,
+                anulacionPlata = anulacionPlata
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error mapeando factura ${doc.id}: ${e.message}")
@@ -241,9 +294,11 @@ class FacturaCompraRepository(
         monto: Double,
         metodoPago: String,
         numeroOperacion: String,
+        pagos: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle> = emptyList(),
         usuarioNombre: String,
         usuarioEmail: String,
-        notas: String
+        notas: String,
+        idempotenciaId: String = ""
     ): Result<Unit> {
         val clienteId = getClienteId()
         if (clienteId.isBlank() || facturaId.isBlank()) {
@@ -251,6 +306,17 @@ class FacturaCompraRepository(
         }
         if (monto <= 0.0) {
             return Result.failure(IllegalArgumentException("El monto a abonar debe ser mayor a 0."))
+        }
+        val pagosFinales = if (pagos.isNotEmpty()) pagos else listOf(
+            com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                metodoPago = metodoPago,
+                monto = monto,
+                numeroOperacion = numeroOperacion.trim().uppercase()
+            )
+        )
+        val sumaPagos = pagosFinales.sumOf { it.monto }
+        if (kotlin.math.abs(sumaPagos - monto) > 0.01) {
+            return Result.failure(IllegalArgumentException("La suma de los pagos ($sumaPagos) no coincide con el monto del abono ($monto)."))
         }
 
         return try {
@@ -260,16 +326,29 @@ class FacturaCompraRepository(
             val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
             val fechaLegible = sdf.format(java.util.Date(ahoraMs))
 
+            val idAbono = idempotenciaId.trim().ifBlank { java.util.UUID.randomUUID().toString() }
             val nuevoAbonoMap = mapOf(
-                "id" to java.util.UUID.randomUUID().toString(),
+                "id" to idAbono,
                 "fechaLegible" to fechaLegible,
                 "fechaMs" to ahoraMs,
                 "monto" to monto,
-                "metodoPago" to metodoPago,
-                "numeroOperacion" to numeroOperacion.trim().uppercase(),
+                "metodoPago" to pagosFinales.first().metodoPago,
+                "numeroOperacion" to pagosFinales.first().numeroOperacion,
+                "pagos" to pagosFinales.map { p ->
+                    mapOf(
+                        "metodoPago" to p.metodoPago,
+                        "monto" to p.monto,
+                        "numeroOperacion" to p.numeroOperacion
+                    )
+                },
                 "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
                 "usuarioEmail" to usuarioEmail,
-                "notas" to notas.trim()
+                "notas" to notas.trim(),
+                "anulado" to false,
+                "anuladoPorNombre" to "",
+                "anuladoPorEmail" to "",
+                "anuladoElLegible" to "",
+                "motivoAnulacion" to ""
             )
 
             db.runTransaction { tx ->
@@ -277,6 +356,15 @@ class FacturaCompraRepository(
                 if (!snap.exists()) throw IllegalStateException("La factura no existe.")
 
                 val fact = mapearFactura(snap) ?: throw IllegalStateException("No se pudo leer la factura.")
+                if (fact.esAnulada) throw IllegalStateException("No se puede registrar el abono: esta factura fue anulada en otra sesión.")
+
+                // Si la respuesta de Firebase se perdió, el mismo intento puede
+                // volver a llegar. El abono ya escrito significa éxito: no se suma
+                // otra vez ni se altera el saldo.
+                if (idempotenciaId.isNotBlank() && fact.abonos.any { it.id == idAbono }) {
+                    return@runTransaction
+                }
+
                 val saldoActual = fact.saldoPendienteReal
 
                 if (monto > (saldoActual + 0.01)) {
@@ -305,54 +393,102 @@ class FacturaCompraRepository(
         }
     }
 
-    suspend fun anularAbono(facturaId: String, abonoId: String): Result<Unit> {
+    /**
+     * Nota de crédito: reduce el total del PAPEL con documento real del proveedor (R3/R12).
+     * El papel original se conserva (totalPapel); la deuda viva baja y se recalcula el estado.
+     * Historial append-only, con idempotencia para que un reintento de red no duplique el ajuste.
+     */
+    suspend fun registrarNotaCredito(
+        facturaId: String,
+        numeroDocumento: String,
+        monto: Double,
+        motivo: String,
+        usuarioNombre: String,
+        usuarioEmail: String,
+        idempotenciaId: String = ""
+    ): Result<Unit> {
         val clienteId = getClienteId()
-        if (clienteId.isBlank() || facturaId.isBlank() || abonoId.isBlank()) {
-            return Result.failure(IllegalStateException("Parámetros no válidos para anular abono."))
+        if (clienteId.isBlank() || facturaId.isBlank()) {
+            return Result.failure(IllegalStateException("Sesión no válida o ID de factura ausente."))
+        }
+        val numDoc = numeroDocumento.trim().uppercase()
+        if (numDoc.isBlank()) {
+            return Result.failure(IllegalArgumentException("El número de la nota de crédito es obligatorio."))
+        }
+        if (monto <= 0.0) {
+            return Result.failure(IllegalArgumentException("El monto de la nota de crédito debe ser mayor a 0."))
+        }
+        if (motivo.trim().length < 5) {
+            return Result.failure(IllegalArgumentException("El motivo debe tener al menos 5 caracteres."))
         }
 
         return try {
             val docRef = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva).document(facturaId)
+            val ahoraMs = com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs()
+            val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+            val fechaLegible = sdf.format(java.util.Date(ahoraMs))
+
+            val idAjuste = idempotenciaId.trim().ifBlank { java.util.UUID.randomUUID().toString() }
+            val nuevoAjusteMap = mapOf(
+                "id" to idAjuste,
+                "tipo" to "NOTA_CREDITO",
+                "numeroDocumento" to numDoc,
+                "monto" to monto,
+                "motivo" to motivo.trim(),
+                "fechaLegible" to fechaLegible,
+                "fechaMs" to ahoraMs,
+                "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
+                "usuarioEmail" to usuarioEmail
+            )
 
             db.runTransaction { tx ->
                 val snap = tx.get(docRef)
                 if (!snap.exists()) throw IllegalStateException("La factura no existe.")
-
                 val fact = mapearFactura(snap) ?: throw IllegalStateException("No se pudo leer la factura.")
-                val abonosActualizados = fact.abonos.filterNot { it.id == abonoId }
+                if (fact.esAnulada) throw IllegalStateException("No se puede ajustar una factura anulada.")
 
-                if (abonosActualizados.size == fact.abonos.size) {
-                    throw IllegalStateException("El abono no fue encontrado en la factura.")
+                // Reintento de red: el ajuste ya escrito significa éxito, no se suma otra vez.
+                if (idempotenciaId.isNotBlank() && fact.ajustesFactura.any { it.id == idAjuste }) {
+                    return@runTransaction
                 }
 
-                val nuevoTotalAbonado = abonosActualizados.sumOf { it.monto }
-                val saldoRestante = (fact.totalEfectivo - nuevoTotalAbonado).coerceAtLeast(0.0)
+                val totalAjustesActual = fact.totalAjustes
+                val maximoAjustable = (fact.totalPapel - totalAjustesActual).coerceAtLeast(0.0)
+                if (monto > maximoAjustable + 0.01) {
+                    throw IllegalArgumentException(
+                        "La nota de crédito de " + String.format(java.util.Locale.US, "%.2f", monto) +
+                            " supera el total ajustable de " + String.format(java.util.Locale.US, "%.2f", maximoAjustable) + "."
+                    )
+                }
 
+                val ajustesActualizados = fact.ajustesFactura.map { a ->
+                    mapOf(
+                        "id" to a.id,
+                        "tipo" to a.tipo,
+                        "numeroDocumento" to a.numeroDocumento,
+                        "monto" to a.monto,
+                        "motivo" to a.motivo,
+                        "fechaLegible" to a.fechaLegible,
+                        "fechaMs" to a.fechaMs,
+                        "usuarioNombre" to a.usuarioNombre,
+                        "usuarioEmail" to a.usuarioEmail
+                    )
+                }.toMutableList()
+                ajustesActualizados.add(nuevoAjusteMap)
+
+                val nuevoTotalEfectivo = (fact.totalPapel - totalAjustesActual - monto).coerceAtLeast(0.0)
+                val totalAbonado = fact.totalAbonadoReal
+                val saldoRestante = (nuevoTotalEfectivo - totalAbonado).coerceAtLeast(0.0)
                 val nuevoEstado = when {
                     saldoRestante <= 0.01 -> "PAGADA"
-                    nuevoTotalAbonado > 0 -> "ABONADO_PARCIAL"
+                    totalAbonado > 0.01 -> "ABONADO_PARCIAL"
                     else -> "PENDIENTE"
-                }
-
-                val abonosMapList = abonosActualizados.map { ab ->
-                    mapOf(
-                        "id" to ab.id,
-                        "fechaLegible" to ab.fechaLegible,
-                        "fechaMs" to ab.fechaMs,
-                        "monto" to ab.monto,
-                        "metodoPago" to ab.metodoPago,
-                        "numeroOperacion" to ab.numeroOperacion,
-                        "usuarioNombre" to ab.usuarioNombre,
-                        "usuarioEmail" to ab.usuarioEmail,
-                        "notas" to ab.notas
-                    )
                 }
 
                 tx.update(
                     docRef,
                     mapOf(
-                        "abonos" to abonosMapList,
-                        "montoPagado" to nuevoTotalAbonado,
+                        "ajustesFactura" to ajustesActualizados,
                         "estadoPago" to nuevoEstado,
                         "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                     )
@@ -361,7 +497,7 @@ class FacturaCompraRepository(
 
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Error anulando abono $abonoId: ${e.message}", e)
+            Log.e(TAG, "Error registrando nota de crédito en factura $facturaId: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -374,12 +510,21 @@ class FacturaCompraRepository(
 
         return try {
             val docRef = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva).document(facturaId)
-            docRef.update(
-                mapOf(
-                    "fechaVencimientoPago" to nuevaFechaVencimiento.trim(),
-                    "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            db.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                if (!snap.exists()) throw IllegalStateException("La factura no existe.")
+
+                val fact = mapearFactura(snap) ?: throw IllegalStateException("No se pudo leer la factura.")
+                if (fact.esAnulada) throw IllegalStateException("No se puede prorrogar: esta factura fue anulada en otra sesión.")
+
+                tx.update(
+                    docRef,
+                    mapOf(
+                        "fechaVencimientoPago" to nuevaFechaVencimiento.trim(),
+                        "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    )
                 )
-            ).await()
+            }.await()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error prorrogando vencimiento: ${e.message}", e)

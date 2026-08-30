@@ -3,7 +3,7 @@ package com.app.administradorfarmadon.inventario.crearproductogeneral.logica
 /**
  * Filtro estructural mínimo. Atrapa SOLO basura obvia
  * (vacío, símbolos, saturación de un carácter).
- * NO decide si es producto farmacéutico — eso lo hace la IA Cloud.
+ * NO decide si es producto farmacéutico —” eso lo hace la IA Cloud.
  * NO aplica reglas fonéticas a nombres cortos, para no bloquear marcas legítimas.
  */
 object StructuralProductValidator {

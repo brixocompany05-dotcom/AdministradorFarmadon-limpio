@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.buscador
+﻿package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.buscador
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll

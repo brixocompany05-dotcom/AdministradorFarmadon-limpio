@@ -68,7 +68,7 @@ object TiempoHumanoUtils {
         val ms = parseTimestampMs(valor)
         if (ms <= 0L) return "Sin registro de actividad"
 
-        val ahora = System.currentTimeMillis()
+        val ahora = com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs()
         val diffMs = ahora - ms
         if (diffMs < 0L) return "En línea ahora"
 
@@ -113,7 +113,7 @@ object TiempoHumanoUtils {
         val ms = parseTimestampMs(valor)
         if (ms <= 0L) return "Sin registro"
 
-        val ahora = System.currentTimeMillis()
+        val ahora = com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs()
         val diffMs = ahora - ms
         if (diffMs < 0L) return "En línea ahora"
 

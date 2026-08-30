@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica
+﻿package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica
 
 import android.app.Application
 import androidx.compose.runtime.getValue
@@ -18,6 +18,7 @@ import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.P
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 sealed class ProductDetailState {
     object Loading : ProductDetailState()
@@ -42,7 +43,16 @@ class ProductDetailViewModel(
     private var currentMovements: List<MovimientoInventario> = emptyList()
     private var movimientosLimit: Long = 50
 
+    private data class OperacionPendiente(val idem: String, val clave: String)
+    private var devolucionPendiente: OperacionPendiente? = null
+    private var canjePendiente: OperacionPendiente? = null
+
+    private fun idemPara(clave: String, pendiente: OperacionPendiente?): OperacionPendiente =
+        if (pendiente?.clave == clave) pendiente else OperacionPendiente(UUID.randomUUID().toString(), clave)
+
     var uiState by mutableStateOf<ProductDetailState>(ProductDetailState.Loading)
+        private set
+    var infoEliminacion by mutableStateOf<ProductoDetalleLecturaRepository.InfoEliminacion?>(null)
         private set
 
     fun loadProduct(productId: String) {
@@ -55,7 +65,7 @@ class ProductDetailViewModel(
         productJob?.cancel()
         movementsJob?.cancel()
 
-        // 1. Si el estado anterior es de otro producto (incluido borrado), limpiarlo de inmediato — evita parpadeo de "ELIMINADO" en producto ajeno
+        // 1. Si el estado anterior es de otro producto (incluido borrado), limpiarlo de inmediato —” evita parpadeo de "ELIMINADO" en producto ajeno
         val prev = uiState
         if (prev is ProductDetailState.Success && prev.product.indice != productId) {
             uiState = ProductDetailState.Loading
@@ -89,15 +99,24 @@ class ProductDetailViewModel(
                             isPrivileged = isPrivileged
                         )
                     } else {
-                        // Solo marcar borrado si el productId solicitado sigue siendo el actual (evita que un null tardío de producto viejo marque borrado en uno nuevo)
+                        // Solo marcar borrado si el productId solicitado sigue siendo el actual
                         if (productId == PerfTracker.cachedDetailProduct?.indice || uiState is ProductDetailState.Loading || (uiState is ProductDetailState.Success && (uiState as ProductDetailState.Success).product.indice == productId)) {
                             when (val current = uiState) {
                                 is ProductDetailState.Success -> {
-                                    // Solo si el success actual es del mismo productId
-                                    if (current.product.indice == productId) uiState = current.copy(isDeleted = true)
-                                    else uiState = ProductDetailState.Error("Producto no encontrado o eliminado del inventario.")
+                                    if (current.product.indice == productId) {
+                                        uiState = current.copy(isDeleted = true)
+                                        // Cargar info real de quién lo borró (simple, sin complicar)
+                                        viewModelScope.launch {
+                                            infoEliminacion = lecturaRepo.obtenerInfoEliminacion(clienteId, productId)
+                                        }
+                                    } else uiState = ProductDetailState.Error("Producto no encontrado o eliminado del inventario.")
                                 }
-                                else -> uiState = ProductDetailState.Error("Producto no encontrado o eliminado del inventario.")
+                                else -> {
+                                    uiState = ProductDetailState.Error("Producto no encontrado o eliminado del inventario.")
+                                    viewModelScope.launch {
+                                        infoEliminacion = lecturaRepo.obtenerInfoEliminacion(clienteId, productId)
+                                    }
+                                }
                             }
                         }
                     }
@@ -170,6 +189,11 @@ class ProductDetailViewModel(
         modalidadCompensacion: String,
         onComplete: (Result<Unit>) -> Unit
     ) {
+        val op = idemPara(
+            "D|$productId|${lote.numero}|$cantidadDevuelta|$guiaRetiro|$notaCredito|$motivo|$modalidadCompensacion",
+            devolucionPendiente
+        )
+        devolucionPendiente = op
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
             FirebaseAuth.getInstance().currentUser?.uid ?: ""
         }
@@ -185,8 +209,10 @@ class ProductDetailViewModel(
                 notaCredito = notaCredito,
                 motivo = motivo,
                 modalidadCompensacion = modalidadCompensacion,
-                usuarioEmail = userEmail
+                usuarioEmail = userEmail,
+                idempotenciaId = op.idem
             )
+            if (result.isSuccess) devolucionPendiente = null
             onComplete(result)
         }
     }
@@ -201,6 +227,11 @@ class ProductDetailViewModel(
         motivo: String,
         onComplete: (Result<Unit>) -> Unit
     ) {
+        val op = idemPara(
+            "C|$productId|${loteOrigen.numero}|$cantidadCanjeada|$nuevoLoteNumero|$nuevoVencimiento|$guiaCanje|$motivo",
+            canjePendiente
+        )
+        canjePendiente = op
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
             FirebaseAuth.getInstance().currentUser?.uid ?: ""
         }
@@ -216,8 +247,10 @@ class ProductDetailViewModel(
                 nuevoVencimiento = nuevoVencimiento,
                 guiaCanje = guiaCanje,
                 motivo = motivo,
-                usuarioEmail = userEmail
+                usuarioEmail = userEmail,
+                idempotenciaId = op.idem
             )
+            if (result.isSuccess) canjePendiente = null
             onComplete(result)
         }
     }
@@ -240,29 +273,11 @@ class ProductDetailViewModel(
         }
     }
 
-    fun registrarMerma(productId: String, lote: LoteProducto, cantidadMerma: Double, motivo: String, onComplete: (Result<Unit>) -> Unit) {
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
-
-        viewModelScope.launch {
-            val result = lotesRepo.registrarMerma(
-                clienteId = clienteId,
-                productId = productId,
-                lote = lote,
-                cantidadMerma = cantidadMerma,
-                motivo = motivo,
-                usuarioEmail = userEmail
-            )
-            onComplete(result)
-        }
-    }
-
     fun guardarPresentacionesYPrecios(
         productId: String,
         unidadBase: String,
         presentaciones: List<PresentacionProducto>,
+        presentacionesOriginales: List<PresentacionProducto> = emptyList(),
         onComplete: (Result<Unit>) -> Unit
     ) {
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
@@ -276,7 +291,8 @@ class ProductDetailViewModel(
                 productId = productId,
                 unidadBase = unidadBase,
                 presentaciones = presentaciones,
-                usuarioEmail = userEmail
+                usuarioEmail = userEmail,
+                presentacionesOriginales = presentacionesOriginales
             )
             onComplete(result)
         }
@@ -320,6 +336,8 @@ class ProductDetailViewModel(
         activo: Boolean,
         diasAlertaVencimiento: Int = 90,
         nuevoCodigo: String? = null,
+        ubicacionSecundaria: String = "",
+        fefoAutomatico: Boolean = true,
         onComplete: (Result<Unit>) -> Unit
     ) {
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
@@ -331,6 +349,9 @@ class ProductDetailViewModel(
         if (ubicacion.isNotBlank()) {
             ubicacionesDisponibles = (ubicacionesDisponibles + ubicacion.trim()).filter { it.isNotBlank() }.distinct().sorted()
         }
+        if (ubicacionSecundaria.isNotBlank()) {
+            ubicacionesDisponibles = (ubicacionesDisponibles + ubicacionSecundaria.trim()).filter { it.isNotBlank() }.distinct().sorted()
+        }
 
         viewModelScope.launch {
             val result = preciosRepo.guardarConfiguracionYLogistica(
@@ -341,7 +362,9 @@ class ProductDetailViewModel(
                 activo = activo,
                 diasAlertaVencimiento = diasAlertaVencimiento,
                 usuarioEmail = userEmail,
-                nuevoCodigo = nuevoCodigo
+                nuevoCodigo = nuevoCodigo,
+                ubicacionSecundaria = ubicacionSecundaria,
+                fefoAutomatico = fefoAutomatico
             )
             if (result.isSuccess) {
                 cargarCatalogoUbicaciones()

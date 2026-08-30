@@ -33,6 +33,7 @@ fun ConfiguracionScreen(
     onNavigateToSucursales: () -> Unit,
     onNavigateToPlan: () -> Unit,
     onNavigateToUsuarios: () -> Unit,
+    onNavigateToMetodosPago: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -60,7 +61,7 @@ fun ConfiguracionScreen(
             Modifier.fillMaxSize().padding(horizontal = s.padScreenH, vertical = s.padScreenV).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(s.gapLarge)
         ) {
-            // Header premium — 1 línea, sin laberinto
+            // Header premium —” 1 línea, sin laberinto
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.weight(1f)) {
                     Text("Configuración", style = TokensFarmadon.tipografia.titulo1.copy(fontSize = s.textTitle.value.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.4).sp, fontFamily = InterPremium), color = colores.textoPrincipal)
@@ -87,7 +88,7 @@ fun ConfiguracionScreen(
                 }
             }
 
-            // Hero farmacia — compacto premium con métricas — sin caja anidada gruesa
+            // Hero farmacia —” compacto premium con métricas —” sin caja anidada gruesa
             Surface(
                 color = colores.cardElevada, shape = RoundedCornerShape(s.radiusCard), border = BorderStroke(s.borderWidth, colores.cardBorde), shadowElevation = 0.dp,
                 modifier = Modifier.fillMaxWidth()
@@ -150,9 +151,9 @@ fun ConfiguracionScreen(
                         }
                         Box(Modifier.weight(1f)) {
                             BentoCard(
-                                numero = "04", titulo = "Moneda y caja", subtitulo = "Cómo cobras", desc = "S/ PEN, redondeo y formato",
-                                icono = Icons.Default.Payments, accent = colores.textoTerciario, habilitado = false, badge = "Próximamente",
-                                onClick = { android.widget.Toast.makeText(context, "Moneda y Caja — próximamente", android.widget.Toast.LENGTH_SHORT).show() }, s = s
+                                numero = "04", titulo = "Métodos de pago", subtitulo = "Cómo paga tu empresa", desc = "Efectivo, Yape, transferencias…",
+                                icono = Icons.Default.Payments, accent = colores.estadoExito, habilitado = esAdmin, badge = if (esAdmin) null else "Admin",
+                                onClick = { if (esAdmin) onNavigateToMetodosPago() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s
                             )
                         }
                     }
@@ -162,7 +163,7 @@ fun ConfiguracionScreen(
                     BentoCard(numero = "01", titulo = "Sucursales", subtitulo = "Tus locales físicos", desc = "Direcciones, mapas y límites", icono = Icons.Default.Storefront, accent = colores.estadoExito, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToSucursales() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
                     BentoCard(numero = "02", titulo = "Plan y pagos", subtitulo = "Suscripción BRIXO", desc = "Vigencia, pagos y comprobantes", icono = Icons.Default.Diamond, accent = colores.textoPrincipal, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToPlan() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
                     BentoCard(numero = "03", titulo = "Personal", subtitulo = "Quién atiende", desc = "Roles, sedes y permisos", icono = Icons.Default.Group, accent = colores.estadoAlerta, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToUsuarios() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
-                    BentoCard(numero = "04", titulo = "Moneda y caja", subtitulo = "Cómo cobras", desc = "S/ PEN, redondeo y formato", icono = Icons.Default.Payments, accent = colores.textoTerciario, habilitado = false, badge = "Próximamente", onClick = { android.widget.Toast.makeText(context, "Moneda y Caja — próximamente", android.widget.Toast.LENGTH_SHORT).show() }, s = s)
+                    BentoCard(numero = "04", titulo = "Métodos de pago", subtitulo = "Cómo paga tu empresa", desc = "Efectivo, Yape, transferencias…", icono = Icons.Default.Payments, accent = colores.estadoExito, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToMetodosPago() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
                 }
             }
 
@@ -193,7 +194,7 @@ private fun BentoCard(
     s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 ) {
     val colores = TokensFarmadon.colores
-    // Quiet premium: altura geométrica s.btnLargeH*2.65 (~143dp base) clamp 124-164 — nunca 148.dp fijo
+    // Quiet premium: altura geométrica s.btnLargeH*2.65 (~143dp base) clamp 124-164 —” nunca 148.dp fijo
     val cardH = (s.btnLargeH * 2.65f).coerceIn(124.dp, 164.dp)
     Surface(
         modifier = Modifier.fillMaxWidth().height(cardH).clip(RoundedCornerShape(s.radiusCard)).border(s.borderWidth, colores.cardBorde, RoundedCornerShape(s.radiusCard)).clickable { onClick() },

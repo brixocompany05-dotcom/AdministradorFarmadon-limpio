@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.autenticacion.registro.paso1_datos.ui
+﻿package com.app.administradorfarmadon.autenticacion.registro.paso1_datos.ui
 
 import android.Manifest
 import android.content.pm.PackageManager

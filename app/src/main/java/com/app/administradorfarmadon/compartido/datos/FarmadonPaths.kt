@@ -8,10 +8,10 @@ import com.google.firebase.firestore.FirebaseFirestore
  * Rutas canónicas de Farmadon (base nueva, sin migración).
  *
  * Modelo limpio:
- * - clientes/{clienteId}          → SOLO identidad del cliente (dueño): dueno, nombre, email, dni.
- * - farmacias/{farmaciaId}        → LA FARMACIA (farmaciaId == clienteId, vínculo 1:1 por uid del dueño,
+ * - clientes/{clienteId}          ──†’ SOLO identidad del cliente (dueño): dueno, nombre, email, dni.
+ * - farmacias/{farmaciaId}        ──†’ LA FARMACIA (farmaciaId == clienteId, vínculo 1:1 por uid del dueño,
  *                                    con su campo clienteId adentro): nombreFarmacia, ruc, plan, estado.
- *   - farmacias/{f}/sucursales/{sucursalId} → LAS TIENDAS, y debajo TODO el operativo de esa sede:
+ *   - farmacias/{f}/sucursales/{sucursalId} ──†’ LAS TIENDAS, y debajo TODO el operativo de esa sede:
  *     inventario, movimientos, alertasInventario, compras_facturas, proveedores, indices_codigos,
  *     reclamos_proveedores, canjes_proveedores, catalogos, auditoria, auditorias.
  *

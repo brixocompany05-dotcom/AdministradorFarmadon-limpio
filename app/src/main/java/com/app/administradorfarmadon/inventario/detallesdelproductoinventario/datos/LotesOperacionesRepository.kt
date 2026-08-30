@@ -3,9 +3,9 @@ package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.d
 import kotlinx.coroutines.tasks.await
 
 /**
- * Operaciones de lotes — bloqueo, devolución, canje, anulación y merma. Transacciones atómicas todo-o-nada.
+ * Operaciones de lotes —” bloqueo, devolución, canje, anulación y merma. Transacciones atómicas todo-o-nada.
  * Fachada compatibilidad: delega a LotesBloqueoRepository y LotesDevolucionCanjeRepository.
- * Extraído de ProductDetailFirestoreRepository (1.268 líneas) y God Lotes 673 → 2 repos.
+ * Extraído de ProductDetailFirestoreRepository (1.268 líneas) y God Lotes 673 ──†’ 2 repos.
  */
 class LotesOperacionesRepository(
     private val db: com.google.firebase.firestore.FirebaseFirestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
@@ -15,14 +15,13 @@ class LotesOperacionesRepository(
 
     suspend fun cambiarBloqueoLote(clienteId: String, productId: String, lote: com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto, ponerEnCuarentena: Boolean, cantidadAfectada: Double, motivo: String, usuarioEmail: String) = bloqueo.cambiarBloqueoLote(clienteId, productId, lote, ponerEnCuarentena, cantidadAfectada, motivo, usuarioEmail)
     suspend fun anularIngresoLote(clienteId: String, productId: String, lote: com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto, motivo: String, usuarioEmail: String) = bloqueo.anularIngresoLote(clienteId, productId, lote, motivo, usuarioEmail)
-    suspend fun registrarMerma(clienteId: String, productId: String, lote: com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto, cantidadMerma: Double, motivo: String, usuarioEmail: String) = bloqueo.registrarMerma(clienteId, productId, lote, cantidadMerma, motivo, usuarioEmail)
-    suspend fun registrarDevolucionProveedor(clienteId: String, productId: String, lote: com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto, cantidadDevuelta: Double, guiaRetiro: String, notaCredito: String, motivo: String, modalidadCompensacion: String, usuarioEmail: String) = devol.registrarDevolucionProveedor(clienteId, productId, lote, cantidadDevuelta, guiaRetiro, notaCredito, motivo, modalidadCompensacion, usuarioEmail)
-    suspend fun registrarCanjeProducto(clienteId: String, productId: String, loteOrigen: com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto, cantidadCanjeada: Double, nuevoLoteNumero: String, nuevoVencimiento: String, guiaCanje: String, motivo: String, usuarioEmail: String) = devol.registrarCanjeProducto(clienteId, productId, loteOrigen, cantidadCanjeada, nuevoLoteNumero, nuevoVencimiento, guiaCanje, motivo, usuarioEmail)
+    suspend fun registrarDevolucionProveedor(clienteId: String, productId: String, lote: com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto, cantidadDevuelta: Double, guiaRetiro: String, notaCredito: String, motivo: String, modalidadCompensacion: String, usuarioEmail: String, idempotenciaId: String = "") = devol.registrarDevolucionProveedor(clienteId, productId, lote, cantidadDevuelta, guiaRetiro, notaCredito, motivo, modalidadCompensacion, usuarioEmail, idempotenciaId)
+    suspend fun registrarCanjeProducto(clienteId: String, productId: String, loteOrigen: com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto, cantidadCanjeada: Double, nuevoLoteNumero: String, nuevoVencimiento: String, guiaCanje: String, motivo: String, usuarioEmail: String, idempotenciaId: String = "") = devol.registrarCanjeProducto(clienteId, productId, loteOrigen, cantidadCanjeada, nuevoLoteNumero, nuevoVencimiento, guiaCanje, motivo, usuarioEmail, idempotenciaId)
 
     /**
      * PRIORIDAD DE VENTA: define qué lote se consume primero. loteId = null/vacío vuelve a FEFO.
-     * AUDITORÍA OBLIGATORIA: dentro de la misma transacción se registra QUIÉN (email), CON QUÉ
-     * ROL, qué lote anterior quedaba y cuál queda ahora — la decisión nunca es anónima.
+     * AUDITORíA OBLIGATORIA: dentro de la misma transacción se registra QUIí‰N (email), CON QUí‰
+     * ROL, qué lote anterior quedaba y cuál queda ahora —” la decisión nunca es anónima.
      */
     suspend fun definirLotePrioritario(clienteId: String, productId: String, loteId: String?, usuarioRol: String, usuarioEmail: String): Result<Unit> {
         if (clienteId.isBlank() || productId.isBlank()) return Result.failure(Exception("Sesión no válida."))
@@ -34,6 +33,9 @@ class LotesOperacionesRepository(
             db.runTransaction { tx ->
                 val snap = tx.get(productRef)
                 if (!snap.exists()) throw Exception("El producto no existe.")
+                if (snap.getBoolean("fefoAutomatico") ?: true) {
+                    throw Exception("El FEFO automático está activo. Apágalo en Configuración del producto para elegir manualmente.")
+                }
                 if (loteFinal.isNotBlank()) {
                     val lotes = snap.get("lotes") as? Map<*, *> ?: emptyMap<Any?, Any?>()
                     val existe = lotes.keys.any { it.toString().equals(loteFinal, ignoreCase = true) } ||
@@ -53,7 +55,7 @@ class LotesOperacionesRepository(
                     "actualizadoPor" to usuarioEmail
                 ))
 
-                // Asiento de auditoría atómico: quién, con qué rol, antes → ahora.
+                // Asiento de auditoría atómico: quién, con qué rol, antes ──†’ ahora.
                 tx.set(
                     tiendaRef.collection("auditoria").document(),
                     mapOf(

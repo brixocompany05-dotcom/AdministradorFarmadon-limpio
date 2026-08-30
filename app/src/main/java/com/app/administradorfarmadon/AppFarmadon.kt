@@ -4,13 +4,16 @@ import android.app.Application
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.LocalDraftManager
 import com.app.administradorfarmadon.appconexioninternet.NetworkHealthMonitor
+import com.app.administradorfarmadon.appconexioninternet.NetworkStatus
 import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
+import com.app.administradorfarmadon.compartido.logica.RelojServidorSincronizador
 import com.app.administradorfarmadon.notificaciones.NotificationChannels
 import com.google.firebase.database.FirebaseDatabase
 import org.osmdroid.config.Configuration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class AppFarmadon : Application() {
@@ -38,9 +41,28 @@ class AppFarmadon : Application() {
         NotificationChannels.createNotificationChannels(this)
 
         appScope.launch {
+            // Calibrar el reloj del servidor lo antes posible (al arranque de la app,
+            // no solo al abrir Inventario/Menú). Restaura el último offset bueno y luego
+            // reintenta medir contra Firestore; si no hay red, queda el último conocido.
+            RelojServidorSincronizador.cargar(this@AppFarmadon)
+            RelojServidorSincronizador.sincronizar(this@AppFarmadon)
             SessionManager.init(this@AppFarmadon)
             NetworkHealthMonitor.init(this@AppFarmadon)
             LocalDraftManager.init(this@AppFarmadon)
+        }
+
+        // El reloj del servidor se re-sincroniza cada vez que el cortafuego reporta
+        // conexión plena (CONECTADO). Así la tablet "siempre habla con el servidor"
+        // en cuanto tiene internet, y nunca se queda con un offset viejo en silencio.
+        appScope.launch {
+            var prevConectado = false
+            NetworkHealthMonitor.status.collect { status ->
+                val conectado = status == NetworkStatus.CONECTADO
+                if (conectado && !prevConectado) {
+                    RelojServidorSincronizador.sincronizar(this@AppFarmadon)
+                }
+                prevConectado = conectado
+            }
         }
     }
 }

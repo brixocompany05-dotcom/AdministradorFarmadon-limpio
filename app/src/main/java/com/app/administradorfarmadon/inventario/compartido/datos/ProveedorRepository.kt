@@ -4,6 +4,7 @@ import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import android.util.Log
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
+import com.app.administradorfarmadon.inventario.compartido.modelo.MovimientoSaldoProveedor
 import com.app.administradorfarmadon.inventario.compartido.modelo.Proveedor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
@@ -39,8 +40,7 @@ class ProveedorRepository(
     fun observarProveedores(onErrorEscucha: ((String) -> Unit)? = null): Flow<List<Proveedor>> = callbackFlow {
         val clienteId = getClienteId()
         if (clienteId.isBlank()) {
-            trySend(emptyList())
-            close()
+            close(IllegalStateException("No hay una farmacia activa para cargar proveedores."))
             return@callbackFlow
         }
 
@@ -50,8 +50,8 @@ class ProveedorRepository(
         val listener = ref.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 Log.e(TAG, "Error escuchando proveedores: ${error.message}", error)
-                onErrorEscucha?.invoke(error.message ?: "Sin detalle del servidor")
-                trySend(emptyList())
+                onErrorEscucha?.invoke(error.message ?: error.toString())
+                close(error)
                 return@addSnapshotListener
             }
 
@@ -64,6 +64,23 @@ class ProveedorRepository(
                 val email = doc.getString("email") ?: ""
                 val direccion = doc.getString("direccion") ?: ""
                 val montoMinimoPedido = doc.getDouble("montoMinimoPedido") ?: (doc.get("montoMinimoPedido") as? Number)?.toDouble() ?: 0.0
+                val saldoAFavor = doc.getDouble("saldoAFavor") ?: 0.0
+                val historialRaw = doc.get("historialSaldoAFavor") as? List<*>
+                val historialSaldo = historialRaw?.mapNotNull { m ->
+                    if (m is Map<*, *>) MovimientoSaldoProveedor(
+                        id = m["id"] as? String ?: "",
+                        tipo = m["tipo"] as? String ?: "",
+                        monto = (m["monto"] as? Number)?.toDouble() ?: 0.0,
+                        facturaId = m["facturaId"] as? String ?: "",
+                        facturaNumero = m["facturaNumero"] as? String ?: "",
+                        motivo = m["motivo"] as? String ?: "",
+                        documento = m["documento"] as? String ?: "",
+                        fechaLegible = m["fechaLegible"] as? String ?: "",
+                        fechaMs = (m["fechaMs"] as? Number)?.toLong() ?: 0L,
+                        usuarioNombre = m["usuarioNombre"] as? String ?: "",
+                        usuarioEmail = m["usuarioEmail"] as? String ?: ""
+                    ) else null
+                } ?: emptyList()
 
                 if (nombre.isNotBlank()) {
                     Proveedor(
@@ -74,7 +91,9 @@ class ProveedorRepository(
                         telefono = telefono,
                         email = email,
                         direccion = direccion,
-                        montoMinimoPedido = montoMinimoPedido
+                        montoMinimoPedido = montoMinimoPedido,
+                        saldoAFavor = saldoAFavor,
+                        historialSaldoAFavor = historialSaldo
                     )
                 } else null
             } ?: emptyList()
@@ -121,7 +140,7 @@ class ProveedorRepository(
     /**
      * Elimina un proveedor por su ID determinístico.
      * Bloqueado si tiene facturas pendientes de pago (trampa preventiva).
-     * La factura es documento legal separado — no se borra, solo se bloquea la eliminación del contacto.
+     * La factura es documento legal separado —” no se borra, solo se bloquea la eliminación del contacto.
      */
     suspend fun eliminarProveedor(
         clienteId: String,
@@ -136,7 +155,8 @@ class ProveedorRepository(
                 "No puedes eliminar este proveedor: tiene $facturasPendientesCount factura(s) pendiente(s) de pago. Liquidar primero."
             ))
         }
-
+        // La plata a favor no puede quedarse sin casa: si el proveedor nos debe dinero,
+        // su ficha no se elimina hasta que ese saldo se recupere o se declare pérdida.
         return try {
             val cleanKey = cleanKey(proveedorNombre)
             val provId = proveedorId.ifBlank { "prov_$cleanKey" }
@@ -144,6 +164,12 @@ class ProveedorRepository(
                 return Result.failure(Exception("No se pudo identificar el documento del proveedor a eliminar."))
             }
             val docRef = FarmadonPaths.proveedores(db, clienteId, sucursalId).document(provId)
+            val saldoAFavor = docRef.get().await().getDouble("saldoAFavor") ?: 0.0
+            if (kotlin.math.abs(saldoAFavor) > 0.01) {
+                return Result.failure(Exception(
+                    "No puedes eliminar este proveedor: tiene un saldo a favor de ${String.format(java.util.Locale.US, "%.2f", saldoAFavor)} pendiente de recuperar. Primero úsalo en una compra o decláralo perdido."
+                ))
+            }
             docRef.delete().await()
             Result.success(Unit)
         } catch (e: Exception) {

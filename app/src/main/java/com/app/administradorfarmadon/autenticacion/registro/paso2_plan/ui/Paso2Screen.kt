@@ -129,7 +129,7 @@ fun PasoSeleccionPlan(
 
                 // El aviso se enciende con la verdad del contrato: si BRIXO pidió
                 // corregir el plan (camposACorregir incluye planId), el cliente debe
-                // ver POR QUÉ está eligiendo plan. Los campos legacy sugerirCambioPlan/
+                // ver POR QUí‰ está eligiendo plan. Los campos legacy sugerirCambioPlan/
                 // accionSugerida se mantienen por compatibilidad.
                 val pideCambioPlan = camposACorregir.any { it == "planId" || it == "plan" }
                 if (esCorreccion && (pideCambioPlan || sugerirCambioPlan || accionSugerida == "cambiar_plan")) {
@@ -375,7 +375,7 @@ fun PlanCard(
         "/ ${plan.diasGratis.coerceAtLeast(1)} días"
     else
         "/mes · ${monedaPlan.first}"
-    val notaTrial = if (!plan.esGratuito && plan.diasPrueba > 0) "INCLUYE ${plan.diasPrueba} DÍAS DE PRUEBA" else null
+    val notaTrial = if (!plan.esGratuito && plan.diasPrueba > 0) "INCLUYE ${plan.diasPrueba} DíAS DE PRUEBA" else null
 
     val isDestacado = plan.nombre.contains("Pro", ignoreCase = true) || plan.nombre.contains("Premium", ignoreCase = true)
     Surface(
@@ -513,7 +513,7 @@ fun ResumenPaso1(nombre: String, ruc: String, email: String, s: MedidaAdaptativa
         ) {
             Icon(Icons.Default.Info, null, tint = FDColors.TextSecondary, modifier = Modifier.size(14.dp))
             Text(
-                text = "$nombre • $ruc • $email",
+                text = "$nombre —¢ $ruc —¢ $email",
                 style = TokensFarmadon.tipografia.leyenda,
                 color = FDColors.TextSecondary
             )
@@ -532,7 +532,7 @@ fun ExitoRegistroScreen(
         modifier = Modifier
             .fillMaxSize()
             .drawBehind {
-                // 1. Fondo Adaptativo — tokens (sin Color fijo)
+                // 1. Fondo Adaptativo —” tokens (sin Color fijo)
                 drawRect(
                     brush = Brush.radialGradient(
                         colors = if (FDColors.isDark) {
@@ -545,7 +545,7 @@ fun ExitoRegistroScreen(
                     )
                 )
 
-                // 2. Foco de Luz Atmosférico — adaptativo
+                // 2. Foco de Luz Atmosférico —” adaptativo
                 drawRect(
                     brush = Brush.linearGradient(
                         colors = if (FDColors.isDark) {
@@ -576,7 +576,7 @@ fun ExitoRegistroScreen(
                 )
                 Spacer(modifier = Modifier.height(s.gapLarge))
                 Text(
-                    if (esCorreccion) "¡CORRECCIÓN ENVIADA!" else "¡SOLICITUD RECIBIDA!",
+                    if (esCorreccion) "¡CORRECCIí“N ENVIADA!" else "¡SOLICITUD RECIBIDA!",
                     style = TokensFarmadon.tipografia.etiqueta.copy(
                         color = FDColors.Success,
                         letterSpacing = 4.sp,

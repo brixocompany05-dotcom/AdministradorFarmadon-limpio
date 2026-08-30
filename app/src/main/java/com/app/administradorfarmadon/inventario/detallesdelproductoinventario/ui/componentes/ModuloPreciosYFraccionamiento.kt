@@ -137,7 +137,7 @@ fun ModuloPreciosYFraccionamiento(
     // Blindaje: límite es UNIDADES POR EMPAQUE (contenido), no mg de concentración
     val limiteContenido = cantMaster.coerceAtLeast(1)
 
-    // ── VALIDACIÓN PURA EN TIEMPO REAL ──
+    // ──”€──”€ VALIDACIí“N PURA EN TIEMPO REAL ──”€──”€
     val validacion = remember(presentacionesState, costoUnitarioBase, limiteContenido, product.permiteFraccionar) {
         PreciosYFraccionamientoValidator.validar(
             presentaciones = presentacionesState,
@@ -271,7 +271,7 @@ fun ModuloPreciosYFraccionamiento(
                                         val badgeTexto = when {
                                             esEnvaseCompleto -> "ENVASE COMPLETO"
                                             pres.cantidad == 1 -> "UNIDAD"
-                                            else -> "FRACCIÓN (x${pres.cantidad})"
+                                            else -> "FRACCIí“N (x${pres.cantidad})"
                                         }
                                         Surface(
                                             color = if (esEnvaseCompleto) FDColors.Primary.copy(alpha = 0.15f) else FDColors.Border.copy(alpha = 0.25f),
@@ -369,7 +369,7 @@ fun ModuloPreciosYFraccionamiento(
                         ) {
                             Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp), tint = if (esSellado) FDColors.TextTertiary else FDColors.TextPrimary)
                             Spacer(Modifier.width(8.dp))
-                            Text(if (esSellado) "PRODUCTO SELLADO — NO SE FRACCIONA" else "AÑADIR OTRA PRESENTACIÓN", style = FDType.Label.copy(fontSize = 11.sp, color = if (esSellado) FDColors.TextTertiary else FDColors.TextPrimary))
+                            Text(if (esSellado) "PRODUCTO SELLADO —” NO SE FRACCIONA" else "AÑADIR OTRA PRESENTACIí“N", style = FDType.Label.copy(fontSize = 11.sp, color = if (esSellado) FDColors.TextTertiary else FDColors.TextPrimary))
                         }
                     }
                 }
@@ -427,11 +427,16 @@ fun ModuloPreciosYFraccionamiento(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (selectedIndex == 0) "FORMATO BASE (#1)" else "FRACCIÓN (#${selectedIndex + 1})",
+                                text = if (selectedIndex == 0) "FORMATO BASE (#1)" else "FRACCIí“N (#${selectedIndex + 1})",
                                 style = FDType.Heading3.copy(fontWeight = FontWeight.Bold)
                             )
 
-                            if (selectedIndex > 0 && isPrivileged && presentacionesState.size > 1) {
+                            val isBase = if (product.presentacionPrincipalId.isNotBlank()) {
+                                selectedPres?.presentacionId == product.presentacionPrincipalId
+                            } else {
+                                selectedIndex == 0
+                            }
+                            if (!isBase && isPrivileged && presentacionesState.size > 1) {
                                 OutlinedButton(
                                     onClick = {
                                         val lista = presentacionesState.toMutableList()
@@ -490,7 +495,7 @@ fun ModuloPreciosYFraccionamiento(
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Text(
-                                    text = "LIQUIDACIÓN EN VIVO",
+                                    text = "LIQUIDACIí“N EN VIVO",
                                     style = FDType.Label.copy(fontSize = 10.5.sp, color = FDColors.TextTertiary, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                                 )
 
@@ -594,7 +599,7 @@ fun ModuloPreciosYFraccionamiento(
                         }
                     }
 
-                    // BOTÓN PRIMARIO FIJO AL FONDO
+                    // BOTí“N PRIMARIO FIJO AL FONDO
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (validacion.hayVentaAPerdida) {
                             Surface(
@@ -650,7 +655,7 @@ fun ModuloPreciosYFraccionamiento(
                             )
                         ) {
                             Text(
-                                text = "GUARDAR POLÍTICA DE PRECIOS",
+                                text = "GUARDAR POLíTICA DE PRECIOS",
                                 style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             )
                         }
@@ -667,6 +672,12 @@ fun ModuloPreciosYFraccionamiento(
         productoNombre = product.nombre,
         presentacionesCount = presentacionesState.size,
         onDismiss = { estadoGuardado = EstadoGuardadoPrecios.INACTIVO },
-        onReintentar = { ejecutarGuardado() }
+        onReintentar = { ejecutarGuardado() },
+        onVerFresco = {
+            // Verdad vigente: recarga borrador con lo fresco del servidor sin perder tu trabajo previo del todo — 1 toque
+            presentacionesState = if (product.presentaciones.isNotEmpty()) product.presentaciones else presentacionesState
+            estadoGuardado = EstadoGuardadoPrecios.INACTIVO
+            mensajeErrorGuardado = ""
+        }
     )
 }

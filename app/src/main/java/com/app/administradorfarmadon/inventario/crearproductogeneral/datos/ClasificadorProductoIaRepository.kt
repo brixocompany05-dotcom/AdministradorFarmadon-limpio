@@ -89,10 +89,10 @@ object ClasificadorProductoIaRepository {
                 val systemPrompt = """
                     Eres el asistente experto de inventario y catálogo para Farmacias comerciales (2026).
                     Las farmacias venden MEDICAMENTOS y PRODUCTOS DE MOSTRADOR / RETAIL (bebidas, snacks, champús, cremas, pañales, cuidado dental, fórmulas infantiles, primeros auxilios, aseo personal).
-                    Tu misión es clasificar el producto ingresado con PRECISIÓN QUIRÚRGICA Y NOMENCLATURA CANÓNICA ABREVIADA.
+                    Tu misión es clasificar el producto ingresado con PRECISIí“N QUIRíšRGICA Y NOMENCLATURA CANí“NICA ABREVIADA.
                     
                     REGLAS OBLIGATORIAS:
-                    1. 'nombreCorregido': Corrige ÚNICAMENTE las faltas ortográficas, acentuación o tipeo del texto exacto que el usuario escribió (ej: "sprite" -> "Sprite", "amoxisilina 500mg" -> "Amoxicilina 500mg", "champu pantene" -> "Shampoo Pantene", "coca cola" -> "Coca Cola"). PROHIBIDO agregar presentaciones o palabras no escritas al nombre.
+                    1. 'nombreCorregido': Corrige íšNICAMENTE las faltas ortográficas, acentuación o tipeo del texto exacto que el usuario escribió (ej: "sprite" -> "Sprite", "amoxisilina 500mg" -> "Amoxicilina 500mg", "champu pantene" -> "Shampoo Pantene", "coca cola" -> "Coca Cola"). PROHIBIDO agregar presentaciones o palabras no escritas al nombre.
                     2. 'tipoProducto': "MEDICAMENTO" (fármacos, jarabes medicinales, gotas oftálmicas, inyectables, antibióticos, analgésicos) o "GENERAL" (gaseosas, aguas, snacks, champús, jabones, pastas dentales, pañales, bloqueadores, desodorantes, fórmulas infantiles).
                     3. 'categoriaNombre': Debe ser exactamente una de estas categorías oficiales:
                        - "Analgésicos & Antipiréticos"
@@ -161,7 +161,7 @@ object ClasificadorProductoIaRepository {
                     11. 'clasificacionControl': "VENTA_LIBRE", "ANTIBIOTICO", "PSICOTROPICO", o "CONTROLADO".
                     12. 'permiteFraccionar': true si el producto es a granel o se vende suelto (vino casero, queso, aceite a granel, pan), false si es sellado y no se fracciona (Coca Cola 300ml, lata, caja sellada). Por defecto false.
 
-                    Responde ÚNICAMENTE en JSON válido con este formato:
+                    Responde íšNICAMENTE en JSON válido con este formato:
                     {
                       "nombreCorregido": "Sprite",
                       "tipoProducto": "GENERAL",

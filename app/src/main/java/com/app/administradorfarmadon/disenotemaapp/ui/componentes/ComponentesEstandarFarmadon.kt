@@ -26,13 +26,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
+ * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
  * COMPONENTES ESTÁNDAR UNIVERSALES DE FARMADON (ENTERPRISE TABLET SAAS 2026)
- * ═══════════════════════════════════════════════════════════════════════════════
+ * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
  * Garantizan 100% de coherencia matemática, geométrica y cromática en toda la app:
  * - Mismas medidas y radios (10.dp en inputs/botones, 16.dp/18.dp en modales/cards).
  * - Mismas alturas (52.dp en inputs, 48.dp en botones principales).
- * - Mismos colores institucionales (Éxito, Alerta, Peligro, Neutral).
+ * - Mismos colores institucionales (í‰xito, Alerta, Peligro, Neutral).
  * - Misma escala tipográfica sin variaciones arbitrarias.
  */
 

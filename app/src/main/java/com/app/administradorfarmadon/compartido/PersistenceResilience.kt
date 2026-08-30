@@ -29,7 +29,7 @@ object PersistenceResilience {
             
             val error = result.exceptionOrNull()
 
-            // 🛡️ BUG FIX #4: Predicado configurable — cubre conflictos de transacción por defecto.
+            // BUG FIX #4: Predicado configurable — cubre conflictos de transacción por defecto.
             if (error == null || !isRecoverable(error)) {
                 return result
             }

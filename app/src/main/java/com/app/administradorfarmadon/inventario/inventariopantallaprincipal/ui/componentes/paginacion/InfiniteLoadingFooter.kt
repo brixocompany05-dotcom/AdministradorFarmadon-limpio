@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.paginacion
+﻿package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.paginacion
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.CircularProgressIndicator

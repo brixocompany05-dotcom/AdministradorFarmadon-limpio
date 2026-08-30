@@ -53,7 +53,7 @@ fun ConstanciaPagoDialog(
                 modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Cabecera con Ícono de Éxito
+                // Cabecera con ícono de í‰xito
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -136,7 +136,7 @@ fun ConstanciaPagoDialog(
                     }
                     FilaDetalleConstancia(label = "Fecha y Hora", valor = pago.fecha)
                     FilaDetalleConstancia(label = "Asesor BRIXO", valor = pago.admin)
-                    if (pago.vigenciaHasta.isNotBlank() && pago.vigenciaHasta != "—") {
+                    if (pago.vigenciaHasta.isNotBlank() && pago.vigenciaHasta != "—”") {
                         FilaDetalleConstancia(label = "Nueva Vigencia", valor = pago.vigenciaHasta)
                     }
                     if (pago.motivo.isNotBlank()) {
@@ -191,7 +191,7 @@ fun ConstanciaPagoDialog(
                                 appendLine("Monto: ${com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.monedaSimbolo.ifBlank { "S/" }} ${String.format(Locale.US, "%.2f", pago.monto)}")
                                 appendLine("Fecha: ${pago.fecha}")
                                 appendLine("Asesor: ${pago.admin}")
-                                if (pago.vigenciaHasta.isNotBlank() && pago.vigenciaHasta != "—") {
+                                if (pago.vigenciaHasta.isNotBlank() && pago.vigenciaHasta != "—”") {
                                     appendLine("Vigencia hasta: ${pago.vigenciaHasta}")
                                 }
                                 // Verdad, no maquillaje: el dato solo garantiza que el movimiento

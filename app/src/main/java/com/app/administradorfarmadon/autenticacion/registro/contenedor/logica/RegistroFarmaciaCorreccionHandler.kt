@@ -37,7 +37,7 @@ internal fun RegistroFarmaciaViewModel.precargarSolicitudCorreccionImpl(uid: Str
         try {
             val db = FarmadonFirestore.db
             // El documento de solicitud usa el RUC como id, pero lleva el campo "uid"
-            // (auth uid). El camino de CORRECCIÓN puede recibir el RUC (desde "consultar
+            // (auth uid). El camino de CORRECCIí“N puede recibir el RUC (desde "consultar
             // estado") o el auth uid (desde el login). Se busca por id del documento y,
             // si no existe, por el campo "uid", para cubrir ambos casos sin perder al usuario.
             var document = AuthPaths.solicitudes(db).document(uid).get().await()
@@ -62,7 +62,7 @@ internal fun RegistroFarmaciaViewModel.precargarSolicitudCorreccionImpl(uid: Str
             }
             // Observación VIVA = pedida y aún sin respuesta del cliente.
             // camposACorregir NO se borra al enviarse la corrección (BrixoPanel
-            // lo necesita para la tabla antes→después), así que solo cuenta como
+            // lo necesita para la tabla antes──†’después), así que solo cuenta como
             // pendiente mientras correccionRecibidaAt sea null. Sin este sello,
             // el cliente podía reentrar al flujo de corrección sin nada pendiente.
             val correccionYaRespondida = document.get("correccionRecibidaAt") != null
@@ -140,13 +140,13 @@ internal fun RegistroFarmaciaViewModel.precargarSolicitudCorreccionImpl(uid: Str
                     direccion = direccion,
                     latitud = latitud,
                     longitud = longitud,
-                    // País del expediente tal cual (legados sin país → vacío:
+                    // País del expediente tal cual (legados sin país ──†’ vacío:
                     // el formulario queda bloqueado hasta que elija). Si el
                     // país existe pero faltan monedas, se derivan del catálogo.
                     paisIso = paisIso,
                     monedaIso = monedaIso.ifBlank { CatalogoPaises.monedaDe(paisIso).first },
                     monedaSimbolo = monedaSimbolo.ifBlank { CatalogoPaises.monedaDe(paisIso).second },
-                    // Legados guardaban "+51…" pegado: el prefijo ahora es visual.
+                    // Legados guardaban "+51—¦" pegado: el prefijo ahora es visual.
                     telefono = CatalogoPaises.telefonoSinPrefijo(paisIso, telefono)
                 )
                 val p2 = Paso2UiState(

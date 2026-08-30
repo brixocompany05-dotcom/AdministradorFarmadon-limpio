@@ -78,7 +78,7 @@ fun UsuarioItemCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(s.sm)
         ) {
-            // Avatar — tamaño físico s.iconLarge (28dp base escalado)
+            // Avatar —” tamaño físico s.iconLarge (28dp base escalado)
             Box(contentAlignment = Alignment.BottomEnd) {
                 Box(
                     modifier = Modifier
@@ -107,7 +107,7 @@ fun UsuarioItemCard(
                 ) {}
             }
 
-            // Información y Badge — gaps simétricos s.xs
+            // Información y Badge —” gaps simétricos s.xs
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(s.xs * 0.5f)
@@ -133,7 +133,7 @@ fun UsuarioItemCard(
                             shape = RoundedCornerShape(s.radiusChip * 0.6f)
                         ) {
                             Text(
-                                text = "TÚ",
+                                text = "Tíš",
                                 style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = s.textLabel.value.sp * 0.85f, fontWeight = FontWeight.Black),
                                 color = colores.textoPrincipal,
                                 modifier = Modifier.padding(horizontal = s.xs * 0.75f, vertical = 2.dp)
@@ -160,7 +160,7 @@ fun UsuarioItemCard(
                     }
 
                     Text(
-                        text = "• ${usuario.sucursalNombre}",
+                        text = "—¢ ${usuario.sucursalNombre}",
                         style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp),
                         color = colores.textoTerciario,
                         maxLines = 1,

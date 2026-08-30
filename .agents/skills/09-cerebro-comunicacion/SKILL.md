@@ -1,93 +1,49 @@
 ---
 name: cerebro-comunicacion
-description: Protocolo obligatorio de comunicación humana. PRIORIDAD MÁXIMA: todo se explica con bocetos de pantalla y ejemplos de la vida real, jamás con código.
+description: Explica y revisa flujos de software con lenguaje humano, bocetos simples y ejemplos del trabajo real. Úsala al comunicar decisiones, riesgos, cambios o resultados.
 ---
 
-# CEREBRO 09: COMUNICACIÓN HUMANA (EL LENGUAJE DEL SOCIO)
+# COMUNICACIÓN HUMANA Y FLUJOS CLAROS
 
-> **PRIORIDAD MÁXIMA.** Esta skill está por encima de todas las demás.
-> Si la explicación no la entiende alguien que trabaja en la farmacia sin saber
-> programar, está mal hecha y se rehace antes de continuar.
+## Propósito
 
-## 1. El marco del negocio (para no confundirse nunca)
+La explicación debe permitir que una persona del negocio entienda qué intenta hacer,
+qué toca, qué verá, qué puede cambiar y cómo recuperarse. Primero se explica el flujo;
+el código y la jerga quedan para cuando sean necesarios.
 
-- **BRIXO** es la empresa: la central de control.
-- **BrixoPanel** es la sala de máquinas de BRIXO (agentes que aprueban altas,
-  monitorean suscripciones y cobros).
-- **Farmadon** es el producto que BRIXO les vende a las farmacias. Cada farmacia es un
-  CLIENTE de BRIXO; el personal de la farmacia usa Farmadon en su día a día (ventas,
-  inventario, stock).
-- Los problemas operativos de una farmacia viven en Farmadon; la central solo debe
-  hacer que todo funcione.
+## Boceto antes de la implementación
 
-## 2. El principio único
+Usar un dibujo breve con esta secuencia:
 
-Toda comunicación — problema, plan, bug, revisión, riesgo — se cuenta primero como un
-**flujo de usuario real**, corto y visual:
-
-```
-¿Quién? → ¿Qué toca? → ¿Qué espera que pase? → ¿Qué pasa en realidad? → ¿Cuál es el problema?
+```text
+intención de la persona
+        ↓
+acción visible
+        ↓
+respuesta honesta del sistema
+        ↓
+consecuencia y siguiente paso
 ```
 
-## 3. El formato obligatorio: BOCETO DE PANTALLA (mockup en la terminal)
+El boceto debe mostrar la experiencia, no nombres de clases, variables o servicios.
+Mantenerlo corto; si mezcla dos problemas, dividirlo.
 
-Todo problema o solución se explica con un dibujo simple de la pantalla. Es la forma
-de hablar con alguien que no programa: se ve qué ve el usuario, qué toca y qué pasa.
+## Para explicar un problema
 
-```
-╔═══════════════════════════════════════════════╗
-║  EJEMPLO — Cómo explicar un problema          ║
-║                                               ║
-║  ┌─────────────────────────────────────────┐  ║
-║  │  INVENTARIO                             │  ║
-║  │  ─────────────────────────────────────  │  ║
-║  │  • Amoxicilina 500mg      20 unidades   │  ║
-║  │  • Paracetamol 500mg      0 unidades    │  ║
-║  │    [Vender]  [Reponer]                  │  ║
-║  │                                         │  ║
-║  │  El cajero toca [Vender] → la pantalla  │  ║
-║  │  dice "vendido" pero el stock no baja.  │  ║
-║  └─────────────────────────────────────────┘  ║
-║                                               ║
-║  Problema: la venta se registró a medias.     ║
-╚═══════════════════════════════════════════════╝
-```
+1. qué ve la persona;
+2. qué esperaba que ocurriera;
+3. qué está ocurriendo realmente;
+4. qué consecuencia produce;
+5. cómo debería quedar el flujo corregido.
 
-Reglas del boceto:
-- Máximo 3 niveles de profundidad (acción → decisión → resultado).
-- Solo palabras del negocio: venta, inventario, stock, farmacia, cliente, suscripción.
-- Sin nombres de clases, métodos, variables ni fragmentos de código.
-- Si el flujo necesita más de 3 niveles, se divide en 2 bocetos.
+## Para explicar un cambio
 
-## 4. Protocolo para cada tipo de comunicación
+Describir quién lo usa, qué trabajo mejora, qué toca, cómo se confirma, qué pasa si falla
+y qué queda actualizado después. Hablar de guardado completo o no guardado, datos vigentes,
+pasos y decisiones; evitar palabras técnicas si no agregan comprensión.
 
-### 4A. BUG o RIESGO (responder en orden)
-1. **¿Qué está pasando?** Boceto de la pantalla con la acción del usuario.
-2. **¿Cuál es el problema real?** Qué falla y por qué importa al negocio.
-3. **¿Qué puede pasar si no se corrige?** Consecuencia real (venta duplicada, stock
-   mal contado, farmacia con datos de otra).
-4. **¿Cómo queda después?** Boceto corregido.
+## Regla de claridad
 
-### 4B. PLAN o PROPUESTA
-1. **¿Qué flujo cambia?** Boceto antes y boceto después.
-2. **¿Por qué es la mínima modificación necesaria?** Sin sobre-explicar.
-3. **¿Cómo se verifica que funciona?** Qué hace el cajero para comprobarlo.
-
-### 4C. IMPLEMENTACIÓN TERMINADA
-1. **Flujo resultante:** cómo queda la experiencia del usuario paso a paso.
-2. **Qué quedó blindado:** el dato que ya no puede duplicarse ni pisarse entre
-   farmacias y cómo se comprobó.
-3. **Cómo verificarlo:** la acción concreta que demuestra que funciona.
-
-## 5. Tono y lenguaje
-
-| Prohibido | Permitido |
-|---|---|
-| "El ViewModel emite..." | "La pantalla muestra..." |
-| "La transacción es atómica..." | "La venta se guarda completa o no se guarda" |
-| "El repositorio hace un get..." | "La app consulta el inventario..." |
-| Código antes que el flujo | Boceto primero, código nunca |
-
-**Tono:** socio directo, sin jerga, sin condescendencia.
-**Ejemplos:** siempre del día a día de la farmacia cliente — una venta, un stock, un
-inventario, un corte de luz.
+Una persona no debería tener que memorizar el estado del sistema ni adivinar el siguiente
+paso. La comunicación debe ser directa, humana, precisa y honesta, sin prometer algo que
+solo fue intentado.

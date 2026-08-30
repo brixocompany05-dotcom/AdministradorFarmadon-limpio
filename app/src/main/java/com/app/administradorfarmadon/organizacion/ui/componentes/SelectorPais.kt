@@ -96,7 +96,7 @@ fun SelectorPaisProfesional(
 }
 
 /**
- * Diálogo de selección de país para Tablet SaaS — catálogo propio de BRIXO
+ * Diálogo de selección de país para Tablet SaaS —” catálogo propio de BRIXO
  * (7 países operativos), sin contexto ni librerías externas.
  */
 @Composable

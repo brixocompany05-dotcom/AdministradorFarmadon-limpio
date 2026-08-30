@@ -106,22 +106,22 @@ class EditarProductoRepository(
                 return Result.failure(IllegalArgumentException("El nombre del producto no puede estar vacío."))
             }
 
-            val catFinal = categoriaNombre.ifBlank { "General" }
-            val empFinal = empaque.ifBlank { "Caja" }
+            val catFinal = categoriaNombre.trim().ifBlank { "N/A" }
+            val empFinal = empaque.trim().ifBlank { "N/A" }
             val uniTempE = contenidoUnidad.ifBlank {
                 val (_, u) = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.separarContenidoYUnidad(medidaConcentracion)
                 u
             }
-            if (empFinal.isNotBlank() && uniTempE.isNotBlank()) {
+            if (empFinal.isNotBlank() && uniTempE.isNotBlank() && empFinal != "N/A" && uniTempE != "N/A") {
                 val fam2 = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.detectarFamiliaFisica(empFinal, uniTempE)
                 if (!fam2.empaquesCompatibles.any { it.equals(empFinal, ignoreCase = true) } || !fam2.unidadesCompatibles.any { it.equals(uniTempE, ignoreCase = true) }) {
                     return Result.failure(IllegalArgumentException("Envase '$empFinal' no combina con unidad '$uniTempE'. Usa: ${fam2.empaquesCompatibles.take(3).joinToString(", ")} para $uniTempE."))
                 }
             }
-            if (permiteFraccionar && empFinal.lowercase() in listOf("caja", "blíster", "blister", "sobre") && uniTempE.lowercase() in listOf("tab", "cáp", "cap", "sob")) {
+            if (permiteFraccionar && empFinal != "N/A" && uniTempE != "N/A" && empFinal.lowercase() in listOf("caja", "blíster", "blister", "sobre") && uniTempE.lowercase() in listOf("tab", "cáp", "cap", "sob")) {
                 return Result.failure(IllegalArgumentException("Caja/Blíster sellado no puede ser fraccionable. Cambia a Bolsa/Granel si necesitas vender por unidad."))
             }
-            val labFinal = laboratorio.trim().ifBlank { "Genérico" }
+            val labFinal = laboratorio.trim().ifBlank { "N/A" }
             val (cantFromConcentracion, unitFromConcentracion) = CatalogoEmpaques.separarContenidoYUnidad(medidaConcentracion)
             val cantVal = contenido.ifBlank { cantFromConcentracion }
             val unidadVal = contenidoUnidad.ifBlank { unitFromConcentracion }
@@ -141,7 +141,7 @@ class EditarProductoRepository(
                 return Result.failure(IllegalArgumentException("Ya existe otro producto en tu inventario con la presentación '$empFinal · $medidaConcentracion'."))
             }
 
-            // 2. Validación rápida fuera de transacción (UX) — el blindaje real está dentro
+            // 2. Validación rápida fuera de transacción (UX) —” el blindaje real está dentro
             if (tieneCodigo) {
                 val codExistente = buscarProductoPorCodigoBarras(clienteId, codigoBarras, productoId)
                 if (codExistente != null) {
@@ -170,7 +170,7 @@ class EditarProductoRepository(
                 val claveFichaAnterior = CodigoBarraHelper.claveFicha(nombreAnterior, empaqueAnterior, medidaAnterior)
                 val claveFichaNueva = CodigoBarraHelper.claveFicha(nombre.trim(), empFinal, medidaConcentracion.trim())
 
-                // BLINDAJE ATÓMICO: si cambia la ficha o el código, verifica que los nuevos no tengan dueño dentro del candado
+                // BLINDAJE ATí“MICO: si cambia la ficha o el código, verifica que los nuevos no tengan dueño dentro del candado
                 if (claveFichaNueva != claveFichaAnterior) {
                     CodigoBarraHelper.verificarFichaUnicidadEnTransaccion(tx, db, clienteId, claveFichaNueva)
                 }
@@ -195,7 +195,7 @@ class EditarProductoRepository(
                     "categoriasLista" to listOf(catFinal),
                     "etiquetas" to etiquetasList,
                     "laboratorio" to labFinal,
-                    "proveedorBaseNombre" to labFinal,
+                    "proveedorBaseNombre" to (snapshot.getString("proveedorBaseNombre") ?: "").ifBlank { "N/A" },
                     "empaque" to empFinal,
                     "contenido" to cantVal,
                     "contenidoUnidad" to unidadVal,
@@ -233,6 +233,43 @@ class EditarProductoRepository(
                     updates["etiquetaPendienteDetalle"] = "Código actualizado a $codNuevoLimpio"
                 }
 
+                // SINCRONIZAR LA PRESENTACIí“N BASE con el nombre/código/envase nuevos.
+                // La presentación base es la que coincide con presentacionPrincipalId
+                // (o la primera si el producto es antiguo y no tiene la marca). Se conserva
+                // su precioventa para no borrar el precio que fijó el usuario en caja.
+                // Esto evita que el ticket y el Kardex queden con el nombre/código viejos.
+                val principalId = (snapshot.get("presentacionPrincipalId") as? String)
+                    ?.takeIf { it.isNotBlank() } ?: productoId
+                val presRawList = (snapshot.get("presentaciones") as? List<*>) ?: emptyList<Any>()
+                val presentacionesFinal: List<Map<String, Any>> = if (presRawList.isEmpty()) {
+                    listOf(
+                        mapOf(
+                            "presentacionId" to productoId,
+                            "nombre" to nombre.trim(),
+                            "empaque" to empFinal,
+                            "cantidad" to (cantVal.toIntOrNull() ?: 1).coerceAtLeast(1),
+                            "unidadMedida" to unidadVal.ifBlank { empFinal },
+                            "codigoBarras" to codNuevoLimpio,
+                            "precioventa" to 0.0
+                        )
+                    )
+                } else {
+                    presRawList.filterIsInstance<Map<*, *>>().map { raw ->
+                        @Suppress("UNCHECKED_CAST")
+                        val mutable = (raw as Map<String, Any>).toMutableMap()
+                        if (mutable["presentacionId"] == principalId) {
+                            mutable["nombre"] = nombre.trim()
+                            mutable["empaque"] = empFinal
+                            mutable["cantidad"] = (cantVal.toIntOrNull() ?: 1).coerceAtLeast(1)
+                            mutable["unidadMedida"] = unidadVal.ifBlank { empFinal }
+                            mutable["codigoBarras"] = codNuevoLimpio
+                        }
+                        mutable
+                    }
+                }
+                updates["presentacionPrincipalId"] = principalId
+                updates["presentaciones"] = presentacionesFinal
+
                 tx.update(docRef, updates)
 
                 // Mantener índice atómico de fichas sincronizado
@@ -250,7 +287,7 @@ class EditarProductoRepository(
                 if (codNuevoLimpio.isNotBlank() && codNuevoLimpio != codAnterior) {
                     CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codNuevoLimpio, productoId, nombre.trim())
                 } else if (codNuevoLimpio.isNotBlank() && codAnterior.isBlank()) {
-                    // Producto que no tenía código y ahora sí → crear índice
+                    // Producto que no tenía código y ahora sí ──†’ crear índice
                     CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codNuevoLimpio, productoId, nombre.trim())
                 }
 

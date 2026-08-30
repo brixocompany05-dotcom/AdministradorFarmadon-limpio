@@ -33,13 +33,13 @@ fun PlanCronogramaCard(
     val s = recordarMedidaAdaptativa()
 
     val badgeTexto = when {
-        planInfo.estadoSuscripcion == "sin_suscripcion" -> "SIN SUSCRIPCIÓN"
+        planInfo.estadoSuscripcion == "sin_suscripcion" -> "SIN SUSCRIPCIí“N"
         planInfo.estadoSuscripcion == "pausado" -> "EN PAUSA COMERCIAL"
         planInfo.estadoSuscripcion == "suspendido" -> "SUSPENDIDO"
         planInfo.estadoSuscripcion == "vencida" -> "VENCIDA"
         planInfo.estadoSuscripcion == "por_vencer" -> "POR VENCER"
-        planInfo.tieneBeneficioCortesia -> "CORTESÍA (+${planInfo.diasCortesia} DÍAS)"
-        planInfo.estadoSuscripcion == "prueba" -> "PERÍODO DE PRUEBA"
+        planInfo.tieneBeneficioCortesia -> "CORTESíA (+${planInfo.diasCortesia} DíAS)"
+        planInfo.estadoSuscripcion == "prueba" -> "PERíODO DE PRUEBA"
         else -> "ACTIVA"
     }
 
@@ -191,19 +191,19 @@ fun PlanCronogramaCard(
             ) {
                 DatoVigenciaBloque(
                     label = "FECHA DE ALTA",
-                    valor = planInfo.fechaInicio.ifBlank { "—" },
+                    valor = planInfo.fechaInicio.ifBlank { "—”" },
                     icono = Icons.Default.PlayArrow,
                     modifier = Modifier.weight(1f)
                 )
                 DatoVigenciaBloque(
-                    label = if (planInfo.tieneBeneficioCortesia) "PRÓRROGA" else "DÍAS PRUEBA",
-                    valor = if (planInfo.tieneBeneficioCortesia) "+${planInfo.diasCortesia}d" else if (planInfo.diasPruebaContratados > 0) "${planInfo.diasPruebaContratados}d" else "—",
+                    label = if (planInfo.tieneBeneficioCortesia) "PRí“RROGA" else "DíAS PRUEBA",
+                    valor = if (planInfo.tieneBeneficioCortesia) "+${planInfo.diasCortesia}d" else if (planInfo.diasPruebaContratados > 0) "${planInfo.diasPruebaContratados}d" else "—”",
                     icono = Icons.Default.CardGiftcard,
                     modifier = Modifier.weight(1f)
                 )
                 DatoVigenciaBloque(
-                    label = "PRÓXIMO VENCIMIENTO",
-                    valor = planInfo.fechaFin.ifBlank { "—" },
+                    label = "PRí“XIMO VENCIMIENTO",
+                    valor = planInfo.fechaFin.ifBlank { "—”" },
                     icono = Icons.Default.Event,
                     modifier = Modifier.weight(1f)
                 )
@@ -266,12 +266,12 @@ fun PlanCronogramaCard(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Inicio: ${planInfo.fechaInicio.ifBlank { "—" }}",
+                            text = "Inicio: ${planInfo.fechaInicio.ifBlank { "—”" }}",
                             style = TokensFarmadon.tipografia.cuerpo.copy(fontSize = s.textBody.value.sp * 0.85f),
                             color = colores.textoTerciario
                         )
                         Text(
-                            text = "Corte: ${planInfo.fechaFin.ifBlank { "—" }}",
+                            text = "Corte: ${planInfo.fechaFin.ifBlank { "—”" }}",
                             style = TokensFarmadon.tipografia.cuerpo.copy(fontSize = s.textBody.value.sp * 0.85f),
                             color = colores.textoTerciario
                         )

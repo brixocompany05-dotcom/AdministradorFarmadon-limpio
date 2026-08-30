@@ -118,7 +118,7 @@ fun LectorCodigoBarrasCamaraDialog(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // ── SUPERPOSICIÓN DE VISOR Y CONTROLES ──
+            // ──”€──”€ SUPERPOSICIí“N DE VISOR Y CONTROLES ──”€──”€
             ScannerOverlay(
                 onClose = onDismiss,
                 modifier = Modifier.fillMaxSize()
@@ -340,7 +340,7 @@ private fun ScannerOverlay(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "APUNTA AL CÓDIGO DE BARRAS",
+                        text = "APUNTA AL Cí“DIGO DE BARRAS",
                         style = FDType.Label.copy(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,

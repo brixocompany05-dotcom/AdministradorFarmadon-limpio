@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.sp
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.bounceClick
+import com.app.administradorfarmadon.inventario.compartido.logica.PerfilUnidades
+import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import kotlinx.coroutines.delay
 
 private val CHIPS_STOCK_MINIMO = listOf(0.0, 5.0, 10.0, 15.0, 20.0, 50.0)
@@ -48,7 +50,8 @@ fun PanelStockMinimo(
     stockTotalActual: Double,
     unidadBase: String,
     onStockMinimoChange: (Double) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    producto: MoldeProductos? = null
 ) {
     // Unidad coherente = contenedor con el que se cuenta y vende (Caja/Frasco/Bloque), nunca genérico
     val unidadSingular = unidadBase.trim().ifBlank { "Unidad" }
@@ -57,23 +60,51 @@ fun PanelStockMinimo(
         unidadSingular.endsWith("s", ignoreCase = true) -> unidadSingular
         else -> "${unidadSingular}s"
     }
-    var inputTexto by remember(stockMinimoActual) {
-        mutableStateOf(if (stockMinimoActual > 0) stockMinimoActual.toInt().toString() else "0")
+    // Control de unidad para fraccionables: el usuario elige si el mínimo es en Frascos, ml o L
+    val esFraccionable = producto?.permiteFraccionar == true
+    val unidadContenidoRaw = producto?.contenidoUnidad?.ifBlank { producto?.inventarioPerfilUnidadContenido }?.ifBlank { unidadBase } ?: unidadBase
+    val factorContenido = if (producto != null) com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper.factorContenido(producto.contenido, producto.presentaciones) else 1.0
+    var unidadSeleccionada by remember(producto?.indice, unidadBase) { mutableStateOf(unidadBase) }
+    val opcionesUnidad = remember(producto, unidadBase, unidadContenidoRaw) {
+        val base = unidadBase.ifBlank { "Unidad" }
+        val contenido = unidadContenidoRaw.ifBlank { base }
+        val lista = mutableListOf<String>()
+        lista.add(base)
+        if (!contenido.equals(base, ignoreCase = true)) lista.add(contenido)
+        if (contenido.equals("ml", ignoreCase = true) && lista.none { it.equals("L", true) }) lista.add("L")
+        if (contenido.equals("L", ignoreCase = true) && lista.none { it.equals("ml", true) }) lista.add("ml")
+        lista.distinct()
+    }
+    fun convertirBaseAUnidad(valorBase: Double): String {
+        if (producto == null || unidadSeleccionada.equals(unidadBase, true)) {
+            return if (valorBase % 1.0 == 0.0) valorBase.toInt().toString() else String.format(java.util.Locale.US, "%.2f", valorBase).trimEnd('0').trimEnd('.')
+        }
+        val valorEnUnidad = PerfilUnidades.normalizarA(valorBase * factorContenido, unidadBase, unidadSeleccionada)
+        return if (valorEnUnidad % 1.0 == 0.0) valorEnUnidad.toInt().toString() else String.format(java.util.Locale.US, "%.2f", valorEnUnidad).trimEnd('0').trimEnd('.')
+    }
+    fun convertirUnidadABase(valorUnidad: Double): Double {
+        if (producto == null || unidadSeleccionada.equals(unidadBase, true)) return valorUnidad
+        val valorEnBaseUnidad = PerfilUnidades.normalizarA(valorUnidad, unidadSeleccionada, unidadBase)
+        return valorEnBaseUnidad / factorContenido
+    }
+    var inputTexto by remember(stockMinimoActual, unidadSeleccionada) {
+        mutableStateOf(convertirBaseAUnidad(stockMinimoActual))
     }
 
-    LaunchedEffect(inputTexto) {
-        val num = inputTexto.toDoubleOrNull()
-        if (num != null && num >= 0 && num != stockMinimoActual) {
-            delay(600)
-            onStockMinimoChange(num)
-        }
-    }
-    DisposableEffect(inputTexto, stockMinimoActual) {
-        onDispose {
-            val num = inputTexto.toDoubleOrNull()
-            if (num != null && num >= 0 && num != stockMinimoActual) {
-                onStockMinimoChange(num)
+    // Guardado único con debounce — sin duplicar
+    LaunchedEffect(inputTexto, unidadSeleccionada) {
+        val numUnidad = inputTexto.toDoubleOrNull()
+        if (numUnidad != null && numUnidad >= 0) {
+            val numBase = convertirUnidadABase(numUnidad)
+            if (kotlin.math.abs(numBase - stockMinimoActual) > 0.001) {
+                delay(600)
+                if (inputTexto.toDoubleOrNull() == numUnidad) {
+                    onStockMinimoChange(numBase)
+                }
             }
+        } else if (inputTexto.isEmpty()) {
+            delay(600)
+            if (inputTexto.isEmpty() && stockMinimoActual != 0.0) onStockMinimoChange(0.0)
         }
     }
 
@@ -95,7 +126,7 @@ fun PanelStockMinimo(
             stockMinimoActual > 0 && stockTotalActual <= stockMinimoActual -> DiagnosticoStock(
                 color = FDColors.Warning,
                 icon = Icons.Outlined.Warning,
-                titulo = "CRÍTICO (${stockTotalActual.toInt()} $nombreStock)",
+                titulo = "CRíTICO (${stockTotalActual.toInt()} $nombreStock)",
                 descripcion = "Quedan ${stockTotalActual.toInt()} $nombreStock, mínimo es ${stockMinimoActual.toInt()} $nombreMinimo."
             )
             stockMinimoActual > 0 -> DiagnosticoStock(
@@ -119,7 +150,7 @@ fun PanelStockMinimo(
             style = FDType.Body.copy(fontSize = 12.5.sp, color = FDColors.TextSecondary)
         )
 
-        // ── TARJETA DE DIAGNÓSTICO EN VIVO ──
+        // ──”€──”€ TARJETA DE DIAGNí“STICO EN VIVO ──”€──”€
         Surface(
             color = diagnostico.color.copy(alpha = 0.08f),
             shape = RoundedCornerShape(10.dp),
@@ -159,6 +190,37 @@ fun PanelStockMinimo(
             }
         }
 
+        // Selector de unidad para fraccionables — el usuario elige si el mínimo es en Frascos o ml/L
+        if (esFraccionable && opcionesUnidad.size > 1) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Avisar en:",
+                    style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = FDColors.TextSecondary)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    opcionesUnidad.forEach { unidad ->
+                        val seleccionado = unidadSeleccionada == unidad
+                        androidx.compose.material3.FilterChip(
+                            selected = seleccionado,
+                            onClick = {
+                                unidadSeleccionada = unidad
+                                inputTexto = convertirBaseAUnidad(stockMinimoActual)
+                            },
+                            label = { Text(unidad, style = FDType.Caption.copy(fontSize = 11.sp, fontWeight = if (seleccionado) FontWeight.Bold else FontWeight.Medium)) },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = FDColors.Primary.copy(alpha = 0.15f),
+                                selectedLabelColor = FDColors.Primary
+                            )
+                        )
+                    }
+                }
+                Text(
+                    text = "El mínimo se guarda en ${unidadBase} pero lo ves en ${unidadSeleccionada}. Ej: 50 ml = ${String.format(java.util.Locale.US, "%.2f", convertirUnidadABase(50.0))} ${unidadBase}",
+                    style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.TextTertiary)
+                )
+            }
+        }
+
         // Chips de selección rápida de 1 toque (Auto-guardado directo)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
@@ -174,22 +236,24 @@ fun PanelStockMinimo(
             ) {
                 CHIPS_STOCK_MINIMO.forEach { stockChip ->
                     val isSelected = stockMinimoActual == stockChip
+                    val displayChip = if (esFraccionable && !unidadSeleccionada.equals(unidadBase, true)) {
+                        PerfilUnidades.normalizarA(stockChip * factorContenido, unidadBase, unidadSeleccionada)
+                    } else stockChip
+                    val displayChipStr = if (displayChip % 1.0 == 0.0) displayChip.toInt().toString() else String.format(java.util.Locale.US, "%.2f", displayChip).trimEnd('0').trimEnd('.')
+                    val unidadChip = if (esFraccionable) unidadSeleccionada else if (stockChip == 1.0) unidadSingular else unidadPlural
                     Surface(
                         color = if (isSelected) FDColors.Primary.copy(alpha = 0.15f) else FDColors.Surface,
                         shape = RoundedCornerShape(6.dp),
                         border = BorderStroke(1.dp, if (isSelected) FDColors.Primary else FDColors.Border),
                         modifier = Modifier
                             .clickable {
-                                inputTexto = stockChip.toInt().toString()
+                                inputTexto = displayChipStr
                                 onStockMinimoChange(stockChip)
                             }
                             .bounceClick()
                     ) {
                         Text(
-                            text = if (stockChip == 0.0) "0 (Sin alerta)" else {
-                                val nom = if (stockChip == 1.0) unidadSingular else unidadPlural
-                                "${stockChip.toInt()} $nom"
-                            },
+                            text = if (stockChip == 0.0) "0 (Sin alerta)" else "$displayChipStr $unidadChip",
                             style = FDType.Caption.copy(
                                 fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
@@ -203,14 +267,16 @@ fun PanelStockMinimo(
         }
 
         ConfiguracionTextField(
-            label = "Mínimo en $unidadPlural *",
+            label = "Mínimo en $unidadSeleccionada *",
             value = inputTexto,
             onValueChange = { nuevo ->
-                val soloDigitos = nuevo.filter { it.isDigit() }.take(6)
-                inputTexto = soloDigitos
+                val filtrado = nuevo.replace(',', '.').filter { it.isDigit() || it == '.' }
+                val partes = filtrado.split('.')
+                val limpio = if (partes.size > 2) partes[0] + "." + partes.drop(1).joinToString("") else filtrado
+                inputTexto = limpio.take(7)
             },
-            placeholder = "5",
-            keyboardType = KeyboardType.Number,
+            placeholder = if (esFraccionable) "Ej: 50" else "5",
+            keyboardType = KeyboardType.Decimal,
             leadingIcon = Icons.Outlined.NotificationsActive
         )
     }

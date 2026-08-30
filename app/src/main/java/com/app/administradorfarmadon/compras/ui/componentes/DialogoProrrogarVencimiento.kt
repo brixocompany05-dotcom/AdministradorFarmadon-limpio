@@ -31,6 +31,7 @@ import java.util.*
 @Composable
 fun DialogoProrrogarVencimiento(
     factura: FacturaCompra,
+    estadoFactura: String? = null,
     onDismiss: () -> Unit,
     onConfirmarProrroga: (nuevaFecha: String) -> Unit
 ) {
@@ -49,10 +50,12 @@ fun DialogoProrrogarVencimiento(
 
     fun hoyServidor(): Date = Date(com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs())
 
+    val esAnulada = estadoFactura.equals("ANULADA", ignoreCase = true)
     var fechaTexto by remember { mutableStateOf(factura.fechaVencimientoPago.ifBlank { sdf.format(hoyServidor()) }) }
     var errorFecha by remember { mutableStateOf<String?>(null) }
 
     fun sumarDias(dias: Int) {
+        if (esAnulada) return
         val baseDate = try {
             if (factura.fechaVencimientoPago.isNotBlank()) sdf.parse(factura.fechaVencimientoPago) ?: hoyServidor()
             else hoyServidor()
@@ -102,12 +105,12 @@ fun DialogoProrrogarVencimiento(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(s.xs)
                     ) {
-                        Icon(Icons.Default.CalendarMonth, null, tint = FDColors.Primary, modifier = Modifier.size(s.iconSmall))
+                        Icon(Icons.Default.CalendarMonth, null, tint = if (esAnulada) FDColors.Error else FDColors.Primary, modifier = Modifier.size(s.iconSmall))
                         Column {
                             Text(
-                                text = "PRORROGAR VENCIMIENTO",
+                                text = if (esAnulada) "FACTURA ANULADA" else "PRORROGAR VENCIMIENTO",
                                 style = FDType.Label.copy(fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.92f),
-                                color = FDColors.TextTertiary
+                                color = if (esAnulada) FDColors.Error else FDColors.TextTertiary
                             )
                             Text(
                                 text = "Factura: ${factura.numeroFactura}",
@@ -124,6 +127,37 @@ fun DialogoProrrogarVencimiento(
 
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f), thickness = s.separatorH)
 
+                if (esAnulada) {
+                    Surface(
+                        color = FDColors.Error.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(s.radiusInput),
+                        border = BorderStroke(s.borderWidth, FDColors.Error.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(s.padCard),
+                            verticalArrangement = Arrangement.spacedBy(s.xs * 0.7f)
+                        ) {
+                            Text(
+                                "Esta factura fue anulada en otra sesión.",
+                                style = FDType.Body.copy(fontSize = s.textBody.value.sp, fontWeight = FontWeight.Bold),
+                                color = FDColors.Error
+                            )
+                            if (factura.motivoAnulacion.isNotBlank()) {
+                                Text(
+                                    "Motivo: ${factura.motivoAnulacion}",
+                                    style = FDType.BodySmall.copy(fontSize = s.textBody.value.sp * 0.92f),
+                                    color = FDColors.TextSecondary
+                                )
+                            }
+                            Text(
+                                "No se puede prorrogar.",
+                                style = FDType.BodySmall.copy(fontSize = s.textBody.value.sp * 0.92f),
+                                color = FDColors.TextSecondary
+                            )
+                        }
+                    }
+                } else {
                 Text(
                     text = "Vencimiento actual: ${factura.fechaVencimientoPago.ifBlank { "Sin fecha fijada" }}",
                     style = FDType.BodySmall.copy(fontSize = s.textBody.value.sp * 0.92f),
@@ -192,6 +226,7 @@ fun DialogoProrrogarVencimiento(
                     Spacer(Modifier.width(s.gapSmall))
                     Button(
                         onClick = {
+                            if (esAnulada) return@Button
                             val fTrim = fechaTexto.trim()
                             try {
                                 val parsed = sdf.parse(fTrim)
@@ -212,8 +247,13 @@ fun DialogoProrrogarVencimiento(
                         shape = RoundedCornerShape(s.radiusButton),
                         modifier = Modifier.height(s.btnMediumH)
                     ) {
-                        Text("APLICAR PRÓRROGA", style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = FontWeight.Black))
+                        if (esAnulada) {
+                            Text("FACTURA ANULADA", style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = FontWeight.Black))
+                        } else {
+                            Text("APLICAR PRÓRROGA", style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = FontWeight.Black))
+                        }
                     }
+                }
                 }
             }
         }

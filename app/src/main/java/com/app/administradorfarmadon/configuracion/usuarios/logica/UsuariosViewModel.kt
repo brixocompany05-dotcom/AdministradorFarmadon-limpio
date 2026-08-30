@@ -72,7 +72,7 @@ class UsuariosViewModel @JvmOverloads constructor(
                 }
             }
 
-            // 2. Escuchar Herramientas del Plan Contratado (para selector por usuario) — R8 vivo
+            // 2. Escuchar Herramientas del Plan Contratado (para selector por usuario) —” R8 vivo
             launch { observarHerramientasDelPlan(clienteId) }
 
             // 3. Escuchar Sucursales de la Farmacia
@@ -512,7 +512,7 @@ class UsuariosViewModel @JvmOverloads constructor(
     }
 
     /**
-     * U1 — Recontratar: abre la ficha sellada en modo edición.
+     * U1 —” Recontratar: abre la ficha sellada en modo edición.
      * Guardar escribirá dadoDeBaja=false + acceso según formulario, con la MISMA
      * identidad (uid/correo), evitando el choque "correo ya registrado".
      */
@@ -706,8 +706,8 @@ class UsuariosViewModel @JvmOverloads constructor(
     }
 
     private fun cargarFormularioDesdeUsuario(state: UsuariosUiState, usuario: UsuarioFarmacia): UsuariosUiState {
-        // RAÍZ: si usuario ya tiene mapa explícito, es la verdad. Si está vacío (migrado),
-        // NO inventar todo true — dejar vacío para heredar del rol (coherente con Sidebar).
+        // RAíZ: si usuario ya tiene mapa explícito, es la verdad. Si está vacío (migrado),
+        // NO inventar todo true —” dejar vacío para heredar del rol (coherente con Sidebar).
         // El UI mostrará switches según efectivo (ver onPermisoModuloChanged).
         val permisosInit = if (usuario.permisosModulos.isNotEmpty()) {
             usuario.permisosModulos

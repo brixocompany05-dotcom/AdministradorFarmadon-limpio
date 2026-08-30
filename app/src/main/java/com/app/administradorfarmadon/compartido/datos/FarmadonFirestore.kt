@@ -3,7 +3,7 @@ package com.app.administradorfarmadon.compartido.datos
 import com.google.firebase.firestore.FirebaseFirestore
 
 /**
- * Único punto de acceso a Cloud Firestore en toda la app.
+ * íšnico punto de acceso a Cloud Firestore en toda la app.
  *
  * Por qué existe (regla de negocio, no capricho):
  * - Todas las clases que tocan Firestore obtienen aquí su conexión. Un solo punto

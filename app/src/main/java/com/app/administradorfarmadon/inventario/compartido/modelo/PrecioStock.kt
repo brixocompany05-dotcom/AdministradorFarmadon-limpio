@@ -1,7 +1,7 @@
 package com.app.administradorfarmadon.inventario.compartido.modelo
 
 /**
- * Precios, presentaciones y stock — cuánto cuesta y cuánto hay.
+ * Precios, presentaciones y stock —” cuánto cuesta y cuánto hay.
  * Responsabilidad única: valor comercial y disponibilidad física.
  * Extraído de MoldeProductos para evitar God-Model.
  */

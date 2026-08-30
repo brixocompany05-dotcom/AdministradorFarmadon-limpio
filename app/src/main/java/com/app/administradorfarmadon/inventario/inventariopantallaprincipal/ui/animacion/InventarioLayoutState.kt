@@ -27,13 +27,17 @@ fun rememberInventarioLayoutState(
 
     // ── 4 COLUMNAS PILARES ENTERPRISE SAAS ──
     val categoryWidth     = if (isDetailOpen) 140.dp else 200.dp
+    val codeWidth         = if (isDetailOpen) 110.dp else 150.dp
     val stockWidth        = if (isDetailOpen) 100.dp else 130.dp
     val minWidth          = if (isDetailOpen) 100.dp else 130.dp
+    val expiryWidth       = if (isDetailOpen) 90.dp else 120.dp
 
     val cols = InventoryColumns(
         category = categoryWidth,
+        code = codeWidth,
         stock = stockWidth,
-        min = minWidth
+        min = minWidth,
+        expiry = expiryWidth
     )
     
     return InventarioLayoutState(

@@ -5,12 +5,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.inventario.compartido.datos.FacturaCompraRepository
+import com.app.administradorfarmadon.inventario.compartido.datos.IngresoMercaderiaRepository
 import com.app.administradorfarmadon.inventario.compartido.datos.ProveedorRepository
+import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
 import com.app.administradorfarmadon.inventario.compartido.modelo.Proveedor
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.datos.InventarioFirestoreRepository
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.PharmProduct
 import com.app.administradorfarmadon.compras.datos.PedidoCompra
 import com.app.administradorfarmadon.compras.datos.PedidoCompraRepository
+import com.app.administradorfarmadon.compras.saldoafavor.datos.SaldoAFavorOperacionesRepository
+import com.app.administradorfarmadon.configuracion.metodospago.datos.MetodosPagoRepository
 import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 import java.util.Locale
 import kotlinx.coroutines.flow.*
@@ -20,13 +24,15 @@ class ComprasViewModel(
     private val proveedorRepository: ProveedorRepository = ProveedorRepository(),
     private val facturaRepository: FacturaCompraRepository = FacturaCompraRepository(),
     private val inventarioRepository: InventarioFirestoreRepository = InventarioFirestoreRepository(),
-    private val pedidoCompraRepository: PedidoCompraRepository = PedidoCompraRepository()
+    private val pedidoCompraRepository: PedidoCompraRepository = PedidoCompraRepository(),
+    private val ingresoRepository: IngresoMercaderiaRepository = IngresoMercaderiaRepository(),
+    private val metodosPagoRepository: MetodosPagoRepository = MetodosPagoRepository()
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "ComprasViewModel"
 
-        // ── PERSISTENCIA EN MEMORIA DE SESIÓN (PERMANECE AL NAVEGAR ENTRE MÓDULOS) ──
+        // ──”€──”€ PERSISTENCIA EN MEMORIA DE SESIí“N (PERMANECE AL NAVEGAR ENTRE Mí“DULOS) ──”€──”€
         private var tabSesionGuardada: String = "REPOSICION"
         private var subTabProveedorGuardada: String = "RESUMEN"
         private var filtroEstadoFacturaGuardada: String = "TODAS"
@@ -47,8 +53,39 @@ class ComprasViewModel(
 
     private val escuchasJobs = mutableListOf<kotlinx.coroutines.Job>()
     private var sucursalObserverJob: kotlinx.coroutines.Job? = null
-    // Debe vivir ANTES del init — el reinicio por cambio de sede lo limpia al instante
+    // Debe vivir ANTES del init —” el reinicio por cambio de sede lo limpia al instante
     private val ultimoValorEnviado = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private var ultimoAbonoIntentoId: String = ""
+    private var huellaUltimoAbono: String = ""
+
+    private fun huellaAbono(
+        facturaId: String,
+        monto: Double,
+        metodoPago: String,
+        numeroOperacion: String,
+        notas: String
+    ): String = listOf(
+        facturaId,
+        monto,
+        metodoPago,
+        numeroOperacion.trim().uppercase(),
+        notas.trim()
+    ).joinToString("|")
+
+    private var ultimoNotaIntentoId: String = ""
+    private var huellaUltimoNota: String = ""
+
+    private fun huellaNotaCredito(
+        facturaId: String,
+        numeroDocumento: String,
+        monto: Double,
+        motivo: String
+    ): String = listOf(
+        facturaId,
+        numeroDocumento.trim().uppercase(),
+        monto,
+        motivo.trim()
+    ).joinToString("|")
 
     init {
         observarCambiosDeSucursal()
@@ -76,6 +113,7 @@ class ComprasViewModel(
             it.copy(
                 proveedores = emptyList(),
                 facturas = emptyList(),
+                metodosPago = emptyList(),
                 pedidosGuardados = emptyList(),
                 pedidosPorProveedor = emptyMap(),
                 todosLosProductos = emptyList(),
@@ -92,15 +130,21 @@ class ComprasViewModel(
             pedidoCompraRepository.observarCarritosReposicion(onErrorEscucha = ::marcarErrorEscucha)
                 .catch { e ->
                     Log.e(TAG, "Error escuchando carrito compartido: ${e.message}", e)
+                    marcarErrorEscucha(e.message ?: e.toString())
                 }
                 .collect { mapa ->
                     // Poda del rastro local: lo que el servidor ya confirma deja de ser "pendiente"
                     ultimoValorEnviado.entries.removeAll { (clave, valor) ->
                         val proveedor = clave.substringBefore('\u0001')
                         val productoId = clave.substringAfter('\u0001')
-                        mapa[proveedor]?.get(productoId) == valor
+                        mapa.totales[proveedor]?.get(productoId) == valor
                     }
-                    _uiState.update { it.copy(pedidosPorProveedor = mapa, errorEscucha = null) }
+                    _uiState.update {
+                        it.copy(
+                            pedidosPorProveedor = mapa.totales,
+                            contribuidoresCarrito = mapa.contribuidores
+                        )
+                    }
                 }
         }
         escuchasJobs.add(job)
@@ -109,6 +153,14 @@ class ComprasViewModel(
     /** La pantalla jamás confunde "no hay datos" con "se cayó la actualización en vivo". */
     private fun marcarErrorEscucha(motivo: String) {
         _uiState.update { it.copy(errorEscucha = motivo) }
+    }
+
+    fun reintentarEscuchas() {
+        escuchasJobs.forEach { it.cancel() }
+        escuchasJobs.clear()
+        _uiState.update { it.copy(cargando = true, errorEscucha = null) }
+        iniciarEscuchasTiempoReal()
+        iniciarCarritoCompartido()
     }
 
     private fun iniciarEscuchasTiempoReal() {
@@ -120,10 +172,10 @@ class ComprasViewModel(
             proveedorRepository.observarProveedores(onErrorEscucha = ::marcarErrorEscucha)
                 .catch { e ->
                     Log.e(TAG, "Error en flujo de proveedores: ${e.message}", e)
-                    emit(emptyList())
+                    marcarErrorEscucha(e.message ?: e.toString())
                 }
                 .collect { lista ->
-                    _uiState.update { it.copy(proveedores = lista, cargando = false, errorEscucha = null) }
+                    _uiState.update { it.copy(proveedores = lista, cargando = false) }
                 }
         })
 
@@ -132,10 +184,22 @@ class ComprasViewModel(
             facturaRepository.observarFacturasRecientes(onErrorEscucha = ::marcarErrorEscucha)
                 .catch { e ->
                     Log.e(TAG, "Error en flujo de facturas: ${e.message}", e)
-                    emit(emptyList())
+                    marcarErrorEscucha(e.message ?: e.toString())
                 }
                 .collect { facturas ->
-                    _uiState.update { it.copy(facturas = facturas, errorEscucha = null) }
+                    _uiState.update { it.copy(facturas = facturas) }
+                }
+        })
+
+        // 3. Métodos de pago configurados para ESTA sucursal (el dinero real, no una lista fija)
+        escuchasJobs.add(viewModelScope.launch {
+            metodosPagoRepository.observarMetodosPago(sucursalId)
+                .catch { e ->
+                    Log.e(TAG, "Error escuchando métodos de pago: ${e.message}", e)
+                    marcarErrorEscucha(e.message ?: e.toString())
+                }
+                .collect { lista ->
+                    _uiState.update { it.copy(metodosPago = lista) }
                 }
         })
 
@@ -145,7 +209,7 @@ class ComprasViewModel(
                 inventarioRepository.observarInventario(farmaciaId)
                     .catch { e ->
                         Log.e(TAG, "Error en flujo de inventario para compras: ${e.message}", e)
-                        emit(emptyList())
+                        marcarErrorEscucha(e.message ?: e.toString())
                     }
                     .collect { productos ->
                         _uiState.update { it.copy(todosLosProductos = productos) }
@@ -158,10 +222,10 @@ class ComprasViewModel(
             pedidoCompraRepository.observarPedidosRecientes(onErrorEscucha = ::marcarErrorEscucha)
                 .catch { e ->
                     Log.e(TAG, "Error en flujo de pedidos_compra: ${e.message}", e)
-                    emit(emptyList())
+                    marcarErrorEscucha(e.message ?: e.toString())
                 }
                 .collect { pedidos ->
-                    _uiState.update { it.copy(pedidosGuardados = pedidos, errorEscucha = null) }
+                    _uiState.update { it.copy(pedidosGuardados = pedidos) }
                 }
         })
     }
@@ -225,7 +289,7 @@ class ComprasViewModel(
         _uiState.update { it.copy(productoPendienteConfirmar = null, cantidadExtraPropuesta = 0) }
     }
 
-    // ── UNA SOLA PLUMA: la escucha en vivo dibuja el borrador; aquí solo escribimos a la base ──
+    // ──”€──”€ UNA SOLA PLUMA: la escucha en vivo dibuja el borrador; aquí solo escribimos a la base ──”€──”€
     private fun claveCarrito(proveedor: String, productoId: String) = "$proveedor\u0001$productoId"
 
     private fun valorBaseCarrito(proveedor: String, productoId: String): Int {
@@ -234,13 +298,19 @@ class ComprasViewModel(
         return maxOf(enPantalla, enviadoPreviamente)
     }
 
-    private fun aplicarCambiosCarrito(proveedorNombre: String, cambios: Map<String, Int>) {
+    private fun aplicarCambiosCarrito(proveedorNombre: String, cambios: Map<String, Int>, esDelta: Boolean = true) {
         if (cambios.isEmpty()) return
-        // Captura sede al momento del toque — evita que un cambio de sede mid-tap escriba en sede equivocada (R1)
+        // Captura sede al momento del toque —” evita que un cambio de sede mid-tap escriba en sede equivocada (R1)
         val farmaciaCapturada = SessionManager.clienteIdGarantizado
         val sucursalCapturada = SessionManager.sucursalIdEfectiva
+        val usuarioId = SessionManager.idCajera.ifBlank { "Sistema" }
+        val usuarioNombre = SessionManager.nombreUsuario.ifBlank { "Sistema" }
         viewModelScope.launch {
-            val ok = pedidoCompraRepository.guardarProductosCarrito(proveedorNombre, cambios, farmaciaCapturada, sucursalCapturada)
+            val ok = pedidoCompraRepository.guardarProductosCarrito(
+                proveedorNombre, cambios, farmaciaCapturada, sucursalCapturada,
+                usuarioId = usuarioNombre, usuarioNombre = usuarioNombre,
+                esDelta = esDelta
+            )
             if (!ok) {
                 // Retroceso del optimismo local: si la base NO confirmó, esos valores
                 // dejan de ser base para el próximo toque (+/-). Así el siguiente ajuste
@@ -268,7 +338,7 @@ class ComprasViewModel(
                 ultimoValorEnviado[claveCarrito(proveedorNombre, prod.id)] = sugerido
             }
         }
-        aplicarCambiosCarrito(proveedorNombre, cambios)
+        aplicarCambiosCarrito(proveedorNombre, cambios, esDelta = false)
     }
 
     fun reponerTodosLosSugeridosGlobal() {
@@ -283,18 +353,16 @@ class ComprasViewModel(
             }
         }
         cambiosPorProveedor.forEach { (proveedor, cambios) ->
-            aplicarCambiosCarrito(proveedor, cambios)
+            aplicarCambiosCarrito(proveedor, cambios, esDelta = false)
         }
     }
 
     private fun modificarCantidadPedirProveedor(proveedorNombre: String, productoId: String, delta: Int) {
-        val base = valorBaseCarrito(proveedorNombre, productoId)
-        val nueva = (base + delta).coerceAtLeast(0)
-        if (nueva == base) return
-
-        val clave = claveCarrito(proveedorNombre, productoId)
-        if (nueva == 0) ultimoValorEnviado.remove(clave) else ultimoValorEnviado[clave] = nueva
-        aplicarCambiosCarrito(proveedorNombre, mapOf(productoId to nueva))
+        // El clic ES el incremento: se envía el +1/-1 tal cual. La transacción del
+        // repositorio lo suma sobre la verdad vigente, de modo que dos usuarios que
+        // tocan el mismo producto al mismo tiempo jamás pierden una unidad.
+        if (delta == 0) return
+        aplicarCambiosCarrito(proveedorNombre, mapOf(productoId to delta))
     }
 
     fun abrirRevisionPedido(pedido: PedidoProveedor) {
@@ -414,7 +482,7 @@ class ComprasViewModel(
                             mostrarModalConfirmacionEnvio = false,
                             pedidoParaConfirmarEnvio = null,
                             subTabPedidosDerecha = "ENVIADOS",
-                            mensajeExito = "✓ ¡Orden para ${pedido.proveedorNombre} guardada y marcada como ENVIADA!$notaMultiusuario"
+                            mensajeExito = "──œ“ ¡Orden para ${pedido.proveedorNombre} guardada y marcada como ENVIADA!$notaMultiusuario"
                         )
                     }
                 },
@@ -452,9 +520,21 @@ class ComprasViewModel(
     }
 
     fun abrirDialogoRecepcion(pedido: PedidoCompra) {
+        val ultimaFacturaNumero = pedido.recepciones.asReversed()
+            .firstOrNull { it.numeroFactura.isNotBlank() }
+            ?.numeroFactura
+            ?.trim()
+            ?.uppercase()
+        val facturaViva = ultimaFacturaNumero?.let { numero ->
+            _uiState.value.facturas.firstOrNull {
+                it.numeroFactura.equals(numero, ignoreCase = true) &&
+                        (pedido.proveedorId.isBlank() || it.proveedorId == pedido.proveedorId)
+            }
+        }
         _uiState.update {
             it.copy(
                 pedidoParaRecepcionar = pedido,
+                facturaRecepcionExistente = facturaViva,
                 mostrarDialogoRecepcion = true,
                 cargandoIndiceRecepcion = true,
                 indiceLotesOrden = emptyMap(),
@@ -476,9 +556,11 @@ class ComprasViewModel(
     }
 
     fun cerrarDialogoRecepcion() {
+        if (_uiState.value.procesandoRecepcion) return
         _uiState.update {
             it.copy(
                 pedidoParaRecepcionar = null,
+                facturaRecepcionExistente = null,
                 mostrarDialogoRecepcion = false,
                 procesandoRecepcion = false,
                 recepcionIntentoId = "",
@@ -494,6 +576,10 @@ class ComprasViewModel(
         condicionPago: String,
         fechaVencimientoPago: String,
         montoFactura: Double,
+        montoPagado: Double,
+        metodoPago: String = "",
+        pagosRecepcion: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle> = emptyList(),
+        saldoAFavorUsado: Double = 0.0,
         itemsRecepcion: List<com.app.administradorfarmadon.compras.datos.ItemRecepcionEntrega>,
         cerrarConAjuste: Boolean = false
     ) {
@@ -516,6 +602,10 @@ class ComprasViewModel(
                 condicionPago = condicionPago,
                 fechaVencimientoPago = fechaVencimientoPago,
                 montoFactura = montoFactura,
+                montoPagado = montoPagado,
+                metodoPago = metodoPago,
+                pagosRecepcion = pagosRecepcion,
+                saldoAFavorUsado = saldoAFavorUsado,
                 itemsRecepcion = itemsRecepcion,
                 cerrarConAjuste = cerrarConAjuste,
                 usuarioEmail = usuarioEmail,
@@ -530,7 +620,7 @@ class ComprasViewModel(
                             procesandoRecepcion = false,
                             mostrarDialogoRecepcion = false,
                             pedidoParaRecepcionar = null,
-                            mensajeExito = "✓ ¡Mercadería recibida y asentada con éxito! Stock y Factura $numeroFactura actualizados."
+                            mensajeExito = "──œ“ ¡Mercadería recibida y asentada con éxito! Stock y Factura $numeroFactura actualizados."
                         )
                     }
                 },
@@ -575,7 +665,7 @@ class ComprasViewModel(
     fun removerProductoDePedido(proveedorNombre: String, productoId: String) {
         val clave = claveCarrito(proveedorNombre, productoId)
         ultimoValorEnviado.remove(clave)
-        aplicarCambiosCarrito(proveedorNombre, mapOf(productoId to 0))
+        aplicarCambiosCarrito(proveedorNombre, mapOf(productoId to 0), esDelta = false)
     }
 
     fun limpiarPedidoProveedor(proveedorNombre: String) {
@@ -595,6 +685,32 @@ class ComprasViewModel(
     fun seleccionarProveedor(proveedorId: String) {
         proveedorSeleccionadoIdGuardado = proveedorId
         _uiState.update { it.copy(proveedorSeleccionadoId = proveedorId) }
+    }
+
+    fun cobrarSaldoAFavor(proveedorId: String, monto: Double, documento: String, onComplete: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val res = SaldoAFavorOperacionesRepository().registrarEgresoSaldo(
+                proveedorId = proveedorId,
+                monto = monto,
+                tipo = SaldoAFavorOperacionesRepository.TIPO_COBRADO,
+                documento = documento,
+                motivo = "Cobro en efectivo del saldo a favor"
+            )
+            onComplete(res)
+        }
+    }
+
+    fun declararSaldoPerdido(proveedorId: String, monto: Double, motivo: String, onComplete: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val res = SaldoAFavorOperacionesRepository().registrarEgresoSaldo(
+                proveedorId = proveedorId,
+                monto = monto,
+                tipo = SaldoAFavorOperacionesRepository.TIPO_PERDIDO,
+                documento = "",
+                motivo = motivo
+            )
+            onComplete(res)
+        }
     }
 
     fun eliminarProveedor(
@@ -636,7 +752,7 @@ class ComprasViewModel(
         _uiState.update {
             it.copy(
                 mostrarDialogoAbono = true,
-                facturaParaAbonar = factura,
+                facturaParaAbonarId = factura.id,
                 mensajeError = null
             )
         }
@@ -646,7 +762,7 @@ class ComprasViewModel(
         _uiState.update {
             it.copy(
                 mostrarDialogoAbono = false,
-                facturaParaAbonar = null,
+                facturaParaAbonarId = null,
                 procesandoPago = false
             )
         }
@@ -657,10 +773,26 @@ class ComprasViewModel(
         monto: Double,
         metodoPago: String,
         numeroOperacion: String,
-        notas: String
+        pagos: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle> = emptyList()
     ) {
+        // El botón se desactiva en pantalla, pero este candado también protege
+        // contra dos toques que lleguen antes de la siguiente recomposición.
+        if (_uiState.value.procesandoPago) return
+
+        val huellaActual = huellaAbono(facturaId, monto, metodoPago, numeroOperacion, "")
+        val idIntento = if (ultimoAbonoIntentoId.isNotBlank() && huellaUltimoAbono == huellaActual) {
+            ultimoAbonoIntentoId
+        } else {
+            java.util.UUID.randomUUID().toString().also {
+                ultimoAbonoIntentoId = it
+                huellaUltimoAbono = huellaActual
+            }
+        }
+
+        // Se marca antes de lanzar la corrutina: una segunda llamada inmediata
+        // ve el estado ocupado y no inicia otro pago.
+        _uiState.update { it.copy(procesandoPago = true, mensajeError = null, mensajeExito = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(procesandoPago = true, mensajeError = null, mensajeExito = null) }
             val usuarioNombre = SessionManager.nombreUsuario.ifBlank { "Administración" }
             val usuarioEmail = SessionManager.email.ifBlank { "" }
 
@@ -669,9 +801,11 @@ class ComprasViewModel(
                 monto = monto,
                 metodoPago = metodoPago,
                 numeroOperacion = numeroOperacion,
+                pagos = pagos,
                 usuarioNombre = usuarioNombre,
                 usuarioEmail = usuarioEmail,
-                notas = notas
+                notas = "",
+                idempotenciaId = idIntento
             )
 
             res.fold(
@@ -681,41 +815,26 @@ class ComprasViewModel(
                         it.copy(
                             procesandoPago = false,
                             mostrarDialogoAbono = false,
-                            facturaParaAbonar = null,
-                            mensajeExito = "✓ Abono de ${SessionManager.monedaSimbolo.ifBlank { "S/" }} $montoStr registrado con éxito."
+                            facturaParaAbonarId = null,
+                            mensajeExito = "──œ“ Abono de ${SessionManager.monedaSimbolo.ifBlank { "S/" }} $montoStr registrado con éxito."
                         )
                     }
+                    ultimoAbonoIntentoId = ""
+                    huellaUltimoAbono = ""
                 },
                 onFailure = { e ->
+                    val detalle = e.message?.takeIf { it.isNotBlank() } ?: e.toString()
+                    val esFallaDeConexion = detalle.contains("UNAVAILABLE", true) ||
+                            detalle.contains("Network", true) ||
+                            detalle.contains("timeout", true)
                     _uiState.update {
                         it.copy(
                             procesandoPago = false,
-                            mensajeError = "No se pudo registrar el abono: ${e.message}"
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    fun anularAbonoFactura(facturaId: String, abonoId: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(procesandoPago = true, mensajeError = null, mensajeExito = null) }
-            val res = facturaRepository.anularAbono(facturaId, abonoId)
-            res.fold(
-                onSuccess = {
-                    _uiState.update {
-                        it.copy(
-                            procesandoPago = false,
-                            mensajeExito = "✓ Abono anulado y saldo de factura restaurado correctamente."
-                        )
-                    }
-                },
-                onFailure = { e ->
-                    _uiState.update {
-                        it.copy(
-                            procesandoPago = false,
-                            mensajeError = "Error al anular abono: ${e.message}"
+                            mensajeError = if (esFallaDeConexion) {
+                                "Firebase no confirmó el abono por un problema de conexión. Reintenta el mismo pago; no se duplicará. Detalle: $detalle"
+                            } else {
+                                "No se pudo registrar el abono. Revisa el detalle antes de reintentar: $detalle"
+                            }
                         )
                     }
                 }
@@ -727,7 +846,7 @@ class ComprasViewModel(
         _uiState.update {
             it.copy(
                 mostrarDialogoProrroga = true,
-                facturaParaProrroga = factura,
+                facturaParaProrrogaId = factura.id,
                 mensajeError = null
             )
         }
@@ -737,7 +856,138 @@ class ComprasViewModel(
         _uiState.update {
             it.copy(
                 mostrarDialogoProrroga = false,
-                facturaParaProrroga = null
+                facturaParaProrrogaId = null
+            )
+        }
+    }
+
+    // ── ANULAR FACTURA (plan Anular Factura: papel + producto + plata, cerrados juntos) ──
+
+    /** Regla de negocio de dinero: solo dueño/administración cierra facturas con plata pagada. */
+    val esUsuarioAutorizadoPlata: Boolean
+        get() {
+            val r = SessionManager.rol.trim()
+            if (r.isBlank()) return true
+            return listOf("dueño", "dueno", "administrador", "admin").any { r.equals(it, ignoreCase = true) }
+        }
+
+    fun abrirDialogoAnularFactura(factura: FacturaCompra) {
+        _uiState.update {
+            it.copy(
+                mostrarDialogoAnulacion = true,
+                facturaParaAnular = factura,
+                procesandoAnulacion = false,
+                cargandoLineasAnulacion = true,
+                lineasAnulacion = emptyList(),
+                mensajeError = null
+            )
+        }
+        // Resumen EN VIVO: se lee el estante AHORA para mostrar entró/hoy/devuelve ANTES de confirmar.
+        // La transacción final re-verifica atómicamente: si algo cambió mientras tanto, gana la tx.
+        viewModelScope.launch {
+            try {
+                val lotesPorProducto = ingresoRepository.leerLotesDeProductos(factura.items.map { it.productoId })
+                val lineas = factura.items.map { item ->
+                    val lotes = lotesPorProducto[item.productoId]
+                    val productoExiste = lotes != null
+                    val loteRes = lotes?.let { FechaVencimientoHelper.resolverLote(it, item.loteNumero) }
+                    val loteData = loteRes?.second as? Map<*, *>
+                    val hoy = ((loteData?.get("cantidad") as? Number)?.toDouble() ?: 0.0).coerceAtLeast(0.0)
+                    val devuelve = kotlin.math.min(item.cantidadTotal, hoy)
+                    LineaAnulacionVista(
+                        productoId = item.productoId,
+                        productoNombre = item.productoNombre,
+                        loteNumero = item.loteNumero,
+                        vencimiento = loteData?.get("vencimiento") as? String ?: item.vencimiento,
+                        entro = item.cantidadTotal,
+                        hoy = hoy,
+                        devuelve = devuelve,
+                        noVuelve = (item.cantidadTotal - devuelve).coerceAtLeast(0.0),
+                        loteExiste = loteRes != null,
+                        productoExiste = productoExiste
+                    )
+                }
+                _uiState.update { it.copy(cargandoLineasAnulacion = false, lineasAnulacion = lineas) }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        cargandoLineasAnulacion = false,
+                        mostrarDialogoAnulacion = false,
+                        facturaParaAnular = null,
+                        mensajeError = "No se pudo leer el inventario actual para comparar con la factura: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun cerrarDialogoAnularFactura() {
+        if (_uiState.value.procesandoAnulacion) return
+        _uiState.update {
+            it.copy(
+                mostrarDialogoAnulacion = false,
+                facturaParaAnular = null,
+                lineasAnulacion = emptyList()
+            )
+        }
+    }
+
+    fun confirmarAnulacionFactura(
+        motivo: String,
+        respuestaPlata: String?,
+        metodoDevolucion: String? = null,
+        referenciaDevolucion: String? = null
+    ) {
+        val factura = _uiState.value.facturaParaAnular ?: return
+        if (_uiState.value.procesandoAnulacion) return
+        if (factura.esAnulada) {
+            _uiState.update { it.copy(mensajeError = "Esta factura ya fue anulada por otro usuario. Nada cambió.") }
+            return
+        }
+        val plata = factura.plataPagadaEnFactura
+        if (plata > 0.01) {
+            if (!esUsuarioAutorizadoPlata) {
+                _uiState.update { it.copy(mensajeError = "Solo el dueño o administración puede anular una factura con dinero ya pagado. Pídele ayuda a un usuario de administración.") }
+                return
+            }
+            if (respuestaPlata == null) {
+                _uiState.update { it.copy(mensajeError = "Indica qué pasa con el dinero ya pagado: saldo a favor, devolución recibida o pérdida. La plata no puede quedar a medias.") }
+                return
+            }
+            if (respuestaPlata == "DEVOLUCION_RECIBIDA" && metodoDevolucion.isNullOrBlank()) {
+                _uiState.update { it.copy(mensajeError = "Indica en qué te devolvieron el dinero (efectivo, transferencia, cheque u otro).") }
+                return
+            }
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(procesandoAnulacion = true, mensajeError = null) }
+            val res = ingresoRepository.anularFactura(
+                facturaId = factura.id,
+                motivo = motivo,
+                conDevolucion = true,
+                usuarioEmail = SessionManager.email,
+                usuarioNombre = SessionManager.nombreUsuario,
+                respuestaPlata = respuestaPlata ?: "",
+                metodoDevolucion = metodoDevolucion.orEmpty(),
+                referenciaDevolucion = referenciaDevolucion.orEmpty()
+            )
+            res.fold(
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            procesandoAnulacion = false,
+                            mostrarDialogoAnulacion = false,
+                            facturaParaAnular = null,
+                            lineasAnulacion = emptyList(),
+                            mensajeExito = "Factura ${factura.numeroFactura.ifBlank { "sin número" }} anulada. El papel, el estante y la plata quedaron escritos."
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(procesandoAnulacion = false, mensajeError = e.message ?: "No se pudo anular la factura.")
+                    }
+                }
             )
         }
     }
@@ -750,8 +1000,8 @@ class ComprasViewModel(
                     _uiState.update {
                         it.copy(
                             mostrarDialogoProrroga = false,
-                            facturaParaProrroga = null,
-                            mensajeExito = "✓ Fecha de vencimiento prorrogada a $nuevaFechaVencimiento."
+                            facturaParaProrrogaId = null,
+                            mensajeExito = "──œ“ Fecha de vencimiento prorrogada a $nuevaFechaVencimiento."
                         )
                     }
                 },
@@ -764,45 +1014,83 @@ class ComprasViewModel(
         }
     }
 
-    fun revertirPagoFactura(facturaId: String, numeroFactura: String = "", proveedor: String = "") {
-        viewModelScope.launch {
-            val factura = _uiState.value.facturas.find { it.id == facturaId }
-            if (factura != null && factura.totalAbonadoReal > 0) {
-                val simbolo = SessionManager.monedaSimbolo.ifBlank { "S/" }
-                _uiState.update {
-                    it.copy(
-                        mensajeError = "Esta factura tiene ${factura.abonos.size} abono(s) registrado(s) por $simbolo " +
-                                String.format(java.util.Locale.US, "%.2f", factura.totalAbonadoReal) +
-                                ". Anula primero los abonos desde el historial de la factura; la reversión no borra pagos reales."
-                    )
-                }
-                return@launch
-            }
+    // ── NOTA DE CRÉDITO / AJUSTE DE FACTURA: el papel se reduce con documento, jamás en silencio ──
+    fun abrirDialogoNotaCredito(factura: FacturaCompra) {
+        _uiState.update {
+            it.copy(
+                mostrarDialogoNotaCredito = true,
+                facturaParaNotaCreditoId = factura.id,
+                mensajeError = null
+            )
+        }
+    }
+
+    fun cerrarDialogoNotaCredito() {
+        _uiState.update {
+            it.copy(
+                mostrarDialogoNotaCredito = false,
+                facturaParaNotaCreditoId = null,
+                procesandoNotaCredito = false
+            )
+        }
+    }
+
+    fun registrarNotaCredito(facturaId: String, numeroDocumento: String, monto: Double, motivo: String) {
+        if (_uiState.value.procesandoNotaCredito) return
+        if (!esUsuarioAutorizadoPlata) {
             _uiState.update {
-                it.copy(
-                    procesandoPago = true,
-                    mensajeError = null,
-                    mensajeExito = null
-                )
+                it.copy(mensajeError = "Solo el dueño o administración puede registrar notas de crédito. Pídele ayuda a un usuario de administración.")
             }
-            val res = facturaRepository.actualizarEstadoPagoFactura(facturaId, "PENDIENTE")
-            if (res.isSuccess) {
-                val detalle = if (numeroFactura.isNotBlank()) "Factura $numeroFactura" else "La factura"
-                _uiState.update {
-                    it.copy(
-                        procesandoPago = false,
-                        mensajeExito = "↺ $detalle devuelta a estado PENDIENTE DE PAGO."
-                    )
-                }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        procesandoPago = false,
-                        mensajeError = res.exceptionOrNull()?.message
-                            ?: "Error al revertir el estado de la factura."
-                    )
-                }
+            return
+        }
+
+        // Idempotencia: un reintento tras corte de red jamás duplica la nota de crédito.
+        val huellaActual = huellaNotaCredito(facturaId, numeroDocumento, monto, motivo)
+        val idIntento = if (ultimoNotaIntentoId.isNotBlank() && huellaUltimoNota == huellaActual) {
+            ultimoNotaIntentoId
+        } else {
+            java.util.UUID.randomUUID().toString().also {
+                ultimoNotaIntentoId = it
+                huellaUltimoNota = huellaActual
             }
+        }
+
+        _uiState.update { it.copy(procesandoNotaCredito = true, mensajeError = null, mensajeExito = null) }
+        viewModelScope.launch {
+            val usuarioNombre = SessionManager.nombreUsuario.ifBlank { "Administración" }
+            val usuarioEmail = SessionManager.email
+            val res = facturaRepository.registrarNotaCredito(
+                facturaId = facturaId,
+                numeroDocumento = numeroDocumento,
+                monto = monto,
+                motivo = motivo,
+                usuarioNombre = usuarioNombre,
+                usuarioEmail = usuarioEmail,
+                idempotenciaId = idIntento
+            )
+            res.fold(
+                onSuccess = {
+                    val montoStr = String.format(java.util.Locale.US, "%.2f", monto)
+                    _uiState.update {
+                        it.copy(
+                            procesandoNotaCredito = false,
+                            mostrarDialogoNotaCredito = false,
+                            facturaParaNotaCreditoId = null,
+                            mensajeExito = "Nota de crédito $numeroDocumento por ${SessionManager.monedaSimbolo.ifBlank { "S/" }} $montoStr registrada."
+                        )
+                    }
+                    ultimoNotaIntentoId = ""
+                    huellaUltimoNota = ""
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(
+                            procesandoNotaCredito = false,
+                            mensajeError = "No se pudo registrar la nota de crédito: ${e.message}"
+                        )
+                    }
+                }
+            )
         }
     }
 
@@ -893,7 +1181,7 @@ class ComprasViewModel(
         viewModelScope.launch {
             proveedorRepository.registrarOActualizarProveedor(provActualizado).fold(
                 onSuccess = {
-                    _uiState.update { it.copy(mensajeExito = "✓ Teléfono de $proveedorNombre guardado en su ficha.") }
+                    _uiState.update { it.copy(mensajeExito = "──œ“ Teléfono de $proveedorNombre guardado en su ficha.") }
                 },
                 onFailure = { e ->
                     _uiState.update { it.copy(mensajeError = "No se pudo guardar el teléfono: ${e.message}") }

@@ -91,7 +91,7 @@ class PlanFacturacionViewModel(
 
     /**
      * Lógica de Asentamiento de Pago Bancario (Notificación a BRIXO)
-     * RAÍZ: nunca fingir éxito. Antes era delay(1500) falso que decía "notificado"
+     * RAíZ: nunca fingir éxito. Antes era delay(1500) falso que decía "notificado"
      * sin subir nada a BRIXO. Ahora informa veraz y deriva al flujo real
      * ReportarPagoDialog (Storage + solicitudes_pago) que sí tiene verdad.
      */
@@ -108,7 +108,7 @@ class PlanFacturacionViewModel(
             // es ReportarPagoDialog que sube voucher a Storage y crea solicitudes_pago.
             _uiState.value = _uiState.value.copy(
                 cargando = false,
-                error = "Notificación directa aún no disponible — usa el botón 'Reportar Pago' con comprobante. Si ves este mensaje, avisa a soporte BRIXO."
+                error = "Notificación directa aún no disponible —” usa el botón 'Reportar Pago' con comprobante. Si ves este mensaje, avisa a soporte BRIXO."
             )
         }
     }

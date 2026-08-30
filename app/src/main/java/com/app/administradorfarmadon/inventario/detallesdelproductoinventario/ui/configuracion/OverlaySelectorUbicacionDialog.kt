@@ -50,7 +50,8 @@ fun OverlaySelectorUbicacionDialog(
     ubicacionActual: String,
     ubicacionesDisponibles: List<String>,
     onUbicacionSelected: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    excluir: String = ""
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var modoCreacion by remember { mutableStateOf(false) }
@@ -70,6 +71,7 @@ fun OverlaySelectorUbicacionDialog(
 
     val textoNuevaLimpia = nuevaUbicacionInput.trim().replace(Regex("\\s+"), " ")
     val esNuevaValida = textoNuevaLimpia.length >= 3
+    val coincideExcluida = excluir.isNotBlank() && textoNuevaLimpia.isNotBlank() && textoNuevaLimpia.equals(excluir, ignoreCase = true)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -100,7 +102,7 @@ fun OverlaySelectorUbicacionDialog(
                         .padding(24.dp),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // ── 1. CABECERA SUPERIOR ──
+                    // 1. CABECERA SUPERIOR
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -151,7 +153,7 @@ fun OverlaySelectorUbicacionDialog(
 
                         HorizontalDivider(color = FDColors.Border, thickness = 0.5.dp)
 
-                        // ── 2. MODO BUSCADOR O MODO CREACIÓN ──
+                    // ── 2. MODO BUSCADOR O MODO CREACIÓN ──
                         if (!modoCreacion) {
                             // Barra de búsqueda con icono y auto-focus
                             val searchInteraction = remember { MutableInteractionSource() }
@@ -305,20 +307,26 @@ fun OverlaySelectorUbicacionDialog(
                                 ) {
                                     items(opcionesFiltradas) { item ->
                                         val isSelected = item.equals(ubicacionActual, ignoreCase = true)
+                                        val isExcluida = excluir.isNotBlank() && item.equals(excluir, ignoreCase = true)
                                         Surface(
-                                            color = if (isSelected) FDColors.Primary.copy(alpha = 0.12f) else FDColors.Surface,
+                                            color = if (isSelected) FDColors.Primary.copy(alpha = 0.12f)
+                                                else if (isExcluida) FDColors.Surface.copy(alpha = 0.6f)
+                                                else FDColors.Surface,
                                             shape = RoundedCornerShape(8.dp),
                                             border = BorderStroke(
                                                 width = if (isSelected) 1.5.dp else 0.5.dp,
-                                                color = if (isSelected) FDColors.Primary else FDColors.Border
+                                                color = if (isSelected) FDColors.Primary
+                                                    else if (isExcluida) FDColors.Border.copy(alpha = 0.5f)
+                                                    else FDColors.Border
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable {
-                                                    onUbicacionSelected(item)
-                                                    onDismiss()
-                                                }
-                                                .bounceClick()
+                                                .then(
+                                                    if (isExcluida) Modifier else Modifier.clickable {
+                                                        onUbicacionSelected(item)
+                                                        onDismiss()
+                                                    }.bounceClick()
+                                                )
                                         ) {
                                             Row(
                                                 modifier = Modifier
@@ -334,7 +342,9 @@ fun OverlaySelectorUbicacionDialog(
                                                     Icon(
                                                         imageVector = Icons.Outlined.Place,
                                                         contentDescription = null,
-                                                        tint = if (isSelected) FDColors.Primary else FDColors.TextTertiary,
+                                                        tint = if (isSelected) FDColors.Primary
+                                                            else if (isExcluida) FDColors.TextDisabled
+                                                            else FDColors.TextTertiary,
                                                         modifier = Modifier.size(18.dp)
                                                     )
                                                     Text(
@@ -342,15 +352,17 @@ fun OverlaySelectorUbicacionDialog(
                                                         style = FDType.Body.copy(
                                                             fontSize = 13.5.sp,
                                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                            color = if (isSelected) FDColors.Primary else FDColors.TextPrimary
+                                                            color = if (isSelected) FDColors.Primary
+                                                                else if (isExcluida) FDColors.TextDisabled
+                                                                else FDColors.TextPrimary
                                                         ),
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
 
-                                                if (isSelected) {
-                                                    Surface(
+                                                when {
+                                                    isSelected -> Surface(
                                                         color = FDColors.Primary,
                                                         shape = CircleShape,
                                                         modifier = Modifier.size(22.dp)
@@ -359,6 +371,10 @@ fun OverlaySelectorUbicacionDialog(
                                                             Icon(Icons.Default.Check, null, tint = FDColors.PrimaryText, modifier = Modifier.size(14.dp))
                                                         }
                                                     }
+                                                    isExcluida -> Text(
+                                                        text = "Ya asignada",
+                                                        style = FDType.Caption.copy(fontSize = 11.sp, color = FDColors.TextDisabled)
+                                                    )
                                                 }
                                             }
                                         }
@@ -374,10 +390,24 @@ fun OverlaySelectorUbicacionDialog(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "💡 Esta nueva ubicación se guardará en el catálogo general de tu farmacia y podrá ser elegida por cualquier otro producto.",
+                                    text = "Esta nueva ubicación se guardará en el catálogo general de tu farmacia y podrá ser elegida por cualquier otro producto.",
                                     style = FDType.Caption.copy(fontSize = 12.sp, color = FDColors.TextSecondary),
                                     modifier = Modifier.padding(14.dp)
                                 )
+                            }
+                            if (coincideExcluida) {
+                                Surface(
+                                    color = FDColors.Warning.copy(alpha = 0.10f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(0.5.dp, FDColors.Warning.copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "Esa ubicación ya está asignada como la otra (principal o secundaria). Elige un nombre distinto para este producto.",
+                                        style = FDType.Caption.copy(fontSize = 12.sp, color = FDColors.Warning),
+                                        modifier = Modifier.padding(14.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -445,12 +475,12 @@ fun OverlaySelectorUbicacionDialog(
 
                             Button(
                                 onClick = {
-                                    if (esNuevaValida) {
+                                    if (esNuevaValida && !coincideExcluida) {
                                         onUbicacionSelected(textoNuevaLimpia)
                                         onDismiss()
                                     }
                                 },
-                                enabled = esNuevaValida,
+                                enabled = esNuevaValida && !coincideExcluida,
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = FDColors.Primary,

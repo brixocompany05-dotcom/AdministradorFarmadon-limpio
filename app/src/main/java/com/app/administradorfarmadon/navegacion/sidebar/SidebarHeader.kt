@@ -57,7 +57,7 @@ fun SidebarHeader(
             .padding(horizontal = 24.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Nombre de la Farmacia — Look Apple Premium
+        // Nombre de la Farmacia —” Look Apple Premium
         if (isLoading || nombreFarmacia.isBlank()) {
             Box(
                 modifier = Modifier

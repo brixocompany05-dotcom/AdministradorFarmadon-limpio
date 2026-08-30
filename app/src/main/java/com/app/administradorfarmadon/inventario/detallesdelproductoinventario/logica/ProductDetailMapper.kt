@@ -1,9 +1,10 @@
-package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica
+﻿package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica
 
 import androidx.compose.ui.graphics.Color
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
 import com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper
+import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -49,12 +50,27 @@ object ProductDetailMapper {
 
     fun diasHastaVencer(vencimiento: String): Int? = FechaVencimientoHelper.diasHastaVencer(vencimiento)
 
+    fun esLotePrioritario(lote: LoteProducto, prioridadId: String): Boolean {
+        val id = prioridadId.trim()
+        return id.isNotBlank() && (lote.loteId.equals(id, true) || lote.numero.equals(id, true))
+    }
+
+    /** El lote principal de consumo va primero; el resto se ordena por vencimiento (FEFO). */
+    fun ordenarLotesParaConsumo(
+        lotes: Collection<LoteProducto>,
+        prioridadId: String
+    ): List<LoteProducto> =
+        lotes.sortedWith(
+            compareByDescending<LoteProducto> { esLotePrioritario(it, prioridadId) }
+                .thenBy { diasHastaVencer(it.vencimiento) ?: Int.MAX_VALUE }
+        )
+
     fun colorVencimiento(dias: Int?): Color = when {
         dias == null      -> FDColors.TextSecondary
         dias < 0          -> FDColors.Error
         dias <= 30        -> FDColors.Warning
         dias <= 90        -> FDColors.Warning.copy(alpha = 0.7f)
-        else              -> FDColors.TextPrimary // Neutro, no verde — antes Success
+        else              -> FDColors.TextPrimary // Neutro, no verde —” antes Success
     }
 
     fun resolverFactorContenedor(p: MoldeProductos): Double =
@@ -110,7 +126,8 @@ object ProductDetailMapper {
     fun formatRelativeDate(dateString: String): String {
         return try {
             val date = java.time.LocalDateTime.parse(dateString, dbFormatter)
-            val now = java.time.LocalDateTime.now()
+            val now = java.time.Instant.ofEpochMilli(com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs())
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
             val daysBetween = ChronoUnit.DAYS.between(date.toLocalDate(), now.toLocalDate())
 
             val timeStr = date.format(timeFormatter).lowercase()

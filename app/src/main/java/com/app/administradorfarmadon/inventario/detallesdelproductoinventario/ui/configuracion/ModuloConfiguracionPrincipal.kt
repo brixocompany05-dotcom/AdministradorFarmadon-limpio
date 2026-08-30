@@ -24,7 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Configuración — REDISEÑO TOTAL Enterprise Quiet (2026)
+ * Configuración —” REDISEÑO TOTAL Enterprise Quiet (2026)
  * Filosofía: no es un dashboard con hero + stepper pesado. Es Ajustes tranquilo:
  * cabecera tipográfica mínima, navegación silenciosa 32% | detalle 68% con aire,
  * un solo scroll padre, sin tarjetas que compiten, sin bordes gruesos, sin semáforos chillones.
@@ -34,7 +34,7 @@ fun ModuloConfiguracionPrincipal(
     product: MoldeProductos,
     movements: List<com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario> = emptyList(),
     ubicacionesDisponibles: List<String>,
-    onGuardarConfiguracion: (ubicacion: String, stockMinimo: Double, activo: Boolean, diasAlertaVencimiento: Int, nuevoCodigo: String?, onComplete: (Result<Unit>) -> Unit) -> Unit,
+    onGuardarConfiguracion: (ubicacion: String, stockMinimo: Double, activo: Boolean, diasAlertaVencimiento: Int, nuevoCodigo: String?, ubicacionSecundaria: String, fefoAutomatico: Boolean, onComplete: (Result<Unit>) -> Unit) -> Unit,
     onGenerarCodigoUnico: suspend () -> String = { "" },
     onVerificarDuplicadoCodigo: suspend (String) -> String? = { null },
     onMarcarEtiquetaImpresa: () -> Unit = {},
@@ -48,8 +48,10 @@ fun ModuloConfiguracionPrincipal(
 
     val codigoOriginal = remember(product.codigo) { product.codigo.trim() }
     var ubicacionState by remember(product.ubicacion) { mutableStateOf(product.ubicacion.trim()) }
+    var ubicacionSecundariaState by remember(product.ubicacionSecundaria) { mutableStateOf(product.ubicacionSecundaria.trim()) }
     var stockMinimoState by remember(product.stockMinimoBase) { mutableStateOf(product.stockMinimoBase) }
     var diasState by remember(product.diasAlertaVencimiento) { mutableStateOf(if (product.diasAlertaVencimiento in 15..365) product.diasAlertaVencimiento else 90) }
+    var fefoState by remember(product.fefoAutomatico) { mutableStateOf(product.fefoAutomatico) }
     var activoState by remember(product.activo) { mutableStateOf(product.activo) }
     var codigoState by remember(codigoOriginal) { mutableStateOf(codigoOriginal) }
     var estadoAuto by remember { mutableStateOf(EstadoAutoGuardado.REPOSO) }
@@ -57,20 +59,29 @@ fun ModuloConfiguracionPrincipal(
 
     fun persistir(
         nuevaUbicacion: String = ubicacionState,
+        nuevaUbicacionSecundaria: String = ubicacionSecundariaState,
         nuevoStockMinimo: Double = stockMinimoState,
         nuevoActivo: Boolean = activoState,
         nuevosDias: Int = diasState,
-        nuevoCodigo: String? = null
+        nuevoCodigo: String? = null,
+        nuevoFefo: Boolean = fefoState
     ) {
         ubicacionState = nuevaUbicacion
+        ubicacionSecundariaState = nuevaUbicacionSecundaria
         stockMinimoState = nuevoStockMinimo
+        // Candado de coherencia: la secundaria nunca puede igualar ni quedar huérfana sin principal
+        val secFinal = if (nuevaUbicacion.isBlank() || nuevaUbicacionSecundaria.isBlank()) ""
+        else if (nuevaUbicacionSecundaria.equals(nuevaUbicacion, ignoreCase = true)) ""
+        else nuevaUbicacionSecundaria
+        ubicacionSecundariaState = secFinal
         activoState = nuevoActivo
         diasState = nuevosDias
+        fefoState = nuevoFefo
         if (nuevoCodigo != null) codigoState = nuevoCodigo.trim()
         estadoAuto = EstadoAutoGuardado.GUARDANDO
         mensajeError = null
         scope.launch {
-            onGuardarConfiguracion(nuevaUbicacion, nuevoStockMinimo, nuevoActivo, nuevosDias, nuevoCodigo) { res ->
+            onGuardarConfiguracion(nuevaUbicacion, nuevoStockMinimo, nuevoActivo, nuevosDias, nuevoCodigo, secFinal, nuevoFefo) { res ->
                 if (res.isSuccess) {
                     estadoAuto = EstadoAutoGuardado.GUARDADO
                     scope.launch {
@@ -94,7 +105,7 @@ fun ModuloConfiguracionPrincipal(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // ── Cabecera quiet — tipográfica, no card
+        // ──”€──”€ Cabecera quiet —” tipográfica, no card
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -119,7 +130,7 @@ fun ModuloConfiguracionPrincipal(
 
         HorizontalDivider(color = FDColors.Border.copy(alpha = 0.35f), thickness = 0.5.dp)
 
-        // ── Cuerpo 32 | 68 — navegación quiet + detalle con scroll único
+        // ──”€──”€ Cuerpo 32 | 68 —” navegación quiet + detalle con scroll único
         Row(
             modifier = Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -130,13 +141,14 @@ fun ModuloConfiguracionPrincipal(
                 ubicacionActual = ubicacionState,
                 stockMinimoActual = stockMinimoState,
                 diasVencimientoActual = diasState,
+                fefoAutomaticoActual = fefoState,
                 unidadStock = unidadMenu,
                 isActivo = activoState,
                 codigoActual = codigoState,
                 modifier = Modifier.widthIn(min = 260.dp, max = 320.dp).weight(0.34f).fillMaxHeight()
             )
 
-            // Panel derecho — una sola superficie, scroll padre, contenido sin scrolls anidados
+            // Panel derecho —” una sola superficie, scroll padre, contenido sin scrolls anidados
             Column(
                 modifier = Modifier
                     .weight(0.66f)
@@ -145,11 +157,12 @@ fun ModuloConfiguracionPrincipal(
                     .background(FDColors.Surface)
                     .padding(0.dp)
             ) {
-                // Header del detalle — título + subtítulo de la sección, sin pastilla gritona
+                // Header del detalle —” título + subtítulo de la sección, sin pastilla gritona
                 val (tituloSec, descSec) = when (seccion) {
                     SeccionConfiguracion.UBICACION -> "Ubicación física" to "Pasillo, vitrina o zona donde se encuentra."
                     SeccionConfiguracion.STOCK_MINIMO -> "Stock mínimo" to "Umbral que dispara la alerta de reposición."
                     SeccionConfiguracion.ALERTA_VENCIMIENTO -> "Alerta por vencimiento" to "Con cuánta anticipación avisar por canje."
+                    SeccionConfiguracion.CONSUMO_FEFO -> "Consumo de lotes" to "Orden FEFO automático por vencimiento o elección manual."
                     SeccionConfiguracion.ESTADO_OPERATIVO -> "Estado operativo" to "Si se muestra para vender en mostrador."
                     SeccionConfiguracion.CODIGO_BARRAS -> "Código y etiquetas" to "Generar, verificar e imprimir."
                 }
@@ -167,7 +180,7 @@ fun ModuloConfiguracionPrincipal(
 
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.30f), thickness = 0.5.dp)
 
-                // Contenido scrolleable ÚNICO — los Panel* ya no abren su propio scroll
+                // Contenido scrolleable íšNICO —” los Panel* ya no abren su propio scroll
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -180,7 +193,9 @@ fun ModuloConfiguracionPrincipal(
                     when (seccion) {
                         SeccionConfiguracion.UBICACION -> PanelUbicacionAlmacen(
                             ubicacionSeleccionada = ubicacionState,
+                            ubicacionSecundaria = ubicacionSecundariaState,
                             onUbicacionChange = { persistir(nuevaUbicacion = it) },
+                            onUbicacionSecundariaChange = { persistir(nuevaUbicacionSecundaria = it) },
                             ubicacionesDisponibles = ubicacionesDisponibles
                         )
                         SeccionConfiguracion.STOCK_MINIMO -> {
@@ -189,13 +204,18 @@ fun ModuloConfiguracionPrincipal(
                                 stockMinimoActual = stockMinimoState,
                                 stockTotalActual = total,
                                 unidadBase = unidadMenu,
-                                onStockMinimoChange = { persistir(nuevoStockMinimo = it.coerceAtLeast(1.0)) }
+                                onStockMinimoChange = { persistir(nuevoStockMinimo = it.coerceAtLeast(0.0)) },
+                                producto = product
                             )
                         }
                         SeccionConfiguracion.ALERTA_VENCIMIENTO -> PanelAlertaVencimiento(
                             diasVencimientoActual = diasState,
                             lotes = product.lotes,
                             onDiasVencimientoChange = { persistir(nuevosDias = it) }
+                        )
+                        SeccionConfiguracion.CONSUMO_FEFO -> PanelConsumoFefo(
+                            fefoAutomatico = fefoState,
+                            onFefoChange = { persistir(nuevoFefo = it) }
                         )
                         SeccionConfiguracion.ESTADO_OPERATIVO -> {
                             PanelEstadoOperativo(isActivo = activoState, onActivoChange = { persistir(nuevoActivo = it) })

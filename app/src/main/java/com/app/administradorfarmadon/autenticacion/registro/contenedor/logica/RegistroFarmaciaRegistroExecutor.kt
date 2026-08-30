@@ -137,7 +137,7 @@ internal suspend fun RegistroFarmaciaViewModel.guardarEnFirestoreConTransaccion(
         val planRef = EcosistemaPaths.planes(db).document(plan.id)
         val solDoc = tx.get(solRef)
         // Misma guarda que el FILTRO 2 (fuente única ESTADOS_SOLICITUD_ACTIVA):
-        // los tres estados vivos bloquean el reenvío — un pisón borraría la
+        // los tres estados vivos bloquean el reenvío —” un pisón borraría la
         // custodia del agente. "rechazada" pasa: reintento legítimo que
         // conserva la línea de tiempo de abajo.
         if (solDoc.exists() && solDoc.getString("estado") in ESTADOS_SOLICITUD_ACTIVA) {

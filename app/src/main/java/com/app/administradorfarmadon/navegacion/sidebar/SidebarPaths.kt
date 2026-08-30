@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.navegacion.sidebar
+﻿package com.app.administradorfarmadon.navegacion.sidebar
 
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.google.firebase.firestore.FirebaseFirestore

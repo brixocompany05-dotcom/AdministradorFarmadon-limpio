@@ -3,9 +3,9 @@ package com.app.administradorfarmadon.inventario.compartido.modelo
 import com.google.firebase.database.DataSnapshot
 
 /**
- * MoldeProductos — Fachada UNIFICADA con fuente única.
+ * MoldeProductos —” Fachada UNIFICADA con fuente única.
  * Fuente real: productoBase + precioStock + loteInfo (3 objetos).
- * Los 65 vars antiguos delegan a esos 3 — no hay duplicación, no hay dato a medias.
+ * Los 65 vars antiguos delegan a esos 3 —” no hay duplicación, no hay dato a medias.
  * Nuevas pantallas: usen ProductoBase / PrecioStock / LoteInfo directo.
  * Pantallas viejas: siguen usando molde.nombre etc. (delegado).
  */
@@ -106,6 +106,10 @@ data class MoldeProductos(
         get() = loteInfo.ubicacion
         set(value) { loteInfo.ubicacion = value }
 
+    var ubicacionSecundaria: String
+        get() = loteInfo.ubicacionSecundaria
+        set(value) { loteInfo.ubicacionSecundaria = value }
+
     var proveedorBaseId: String
         get() = loteInfo.proveedorBaseId
         set(value) { loteInfo.proveedorBaseId = value }
@@ -182,6 +186,10 @@ data class MoldeProductos(
         get() = productoBase.principioActivo
         set(value) { productoBase.principioActivo = value }
 
+    var laboratorio: String
+        get() = productoBase.laboratorio
+        set(value) { productoBase.laboratorio = value }
+
     var registroSanitario: String
         get() = productoBase.registroSanitario
         set(value) { productoBase.registroSanitario = value }
@@ -205,6 +213,10 @@ data class MoldeProductos(
     var lotePrioritarioPorRol: String
         get() = loteInfo.lotePrioritarioPorRol
         set(value) { loteInfo.lotePrioritarioPorRol = value }
+
+    var fefoAutomatico: Boolean
+        get() = loteInfo.fefoAutomatico
+        set(value) { loteInfo.fefoAutomatico = value }
 
     var diasAlertaVencimiento: Int
         get() = loteInfo.diasAlertaVencimiento
@@ -267,8 +279,10 @@ data class MoldeProductos(
         contenidoUnidad: String = "",
         ubicacionId: String = "",
         ubicacion: String = "",
+        ubicacionSecundaria: String = "",
         proveedorBaseId: String = "",
         proveedorBaseNombre: String = "",
+        laboratorio: String = "",
         clasificacionControl: String = "",
         temperaturaAlmacenamiento: String = "",
         inventarioPerfilUnidadSingular: String = "",
@@ -322,8 +336,10 @@ data class MoldeProductos(
         this.contenidoUnidad = contenidoUnidad
         this.ubicacionId = ubicacionId
         this.ubicacion = ubicacion
+        this.ubicacionSecundaria = ubicacionSecundaria
         this.proveedorBaseId = proveedorBaseId
         this.proveedorBaseNombre = proveedorBaseNombre
+        this.laboratorio = laboratorio
         this.clasificacionControl = clasificacionControl
         this.temperaturaAlmacenamiento = temperaturaAlmacenamiento
         this.inventarioPerfilUnidadSingular = inventarioPerfilUnidadSingular
@@ -447,27 +463,27 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
     )
 }
 
-// ── REGLA ÚNICA DE UNIDADES ────────────────────────────────────────────────
-// lote.cantidad          = unidades FÍSICAS del producto (cajas, frascos, etc.)
+// ──”€──”€ REGLA íšNICA DE UNIDADES ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// lote.cantidad          = unidades FíSICAS del producto (cajas, frascos, etc.)
 // PresentacionProducto.cantidad = unidades de CONTENIDO en esa presentación (tabletas, mL, etc.)
 // factorContenido        = cantidad de la presentación mayor = contenido declarado al crear el producto
 //
 // EJEMPLO: Panadol 180 Tab, stock 3 Cajas
-//   Vender "1 Caja"    (cantidad=180) → -180÷180 = -1.0 caja  → quedan 2 Cajas (360 Tab)
-//   Vender "1 Tableta" (cantidad=1)   → -1÷180   = -0.00556 c → quedan 2.994 Cajas (539 Tab)
+//   Vender "1 Caja"    (cantidad=180) ──†’ -180í·180 = -1.0 caja  ──†’ quedan 2 Cajas (360 Tab)
+//   Vender "1 Tableta" (cantidad=1)   ──†’ -1í·180   = -0.00556 c ──†’ quedan 2.994 Cajas (539 Tab)
 //
-// EL MÓDULO DE VENTAS DEBE USAR UnidadVentaHelper.stockFisicoParaVender()
+// EL Mí“DULO DE VENTAS DEBE USAR UnidadVentaHelper.stockFisicoParaVender()
 // para calcular cuánto descontar del lote. Nunca descontar presentacion.cantidad directo.
-// ──────────────────────────────────────────────────────────────────────────
+// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
 
 /**
- * Stock disponible en UNIDADES FÍSICAS (cajas, frascos…).
+ * Stock disponible en UNIDADES FíSICAS (cajas, frascos—¦).
  * Es la suma de lote.cantidad de todos los lotes sin bloquear.
  */
 val MoldeProductos.stockDisponibleFisico: Double
     get() = lotes.values.sumOf { it.cantidad.coerceAtLeast(0.0) }
 
-/** Alias de compatibilidad — apunta a stockDisponibleFisico. */
+/** Alias de compatibilidad —” apunta a stockDisponibleFisico. */
 val MoldeProductos.stockDisponibleUnidades: Double
     get() = stockDisponibleFisico
 
@@ -483,7 +499,7 @@ val MoldeProductos.precioVenta: Double
         ?: 0.0
 
 /**
- * Stock disponible expresado en UNIDADES DE CONTENIDO (tabletas, mL…) — SOLO PARA MOSTRAR.
+ * Stock disponible expresado en UNIDADES DE CONTENIDO (tabletas, mL—¦) —” SOLO PARA MOSTRAR.
  * Nunca usar este valor para calcular descuentos: el cálculo correcto es UnidadVentaHelper.
  */
 val MoldeProductos.stockDisponibleEnContenido: Double
@@ -495,9 +511,9 @@ val MoldeProductos.stockDisponibleEnContenido: Double
 
 /**
  * Valida si hay stock suficiente para vender [cantidadContenido] unidades de contenido
- * (tabletas, mL, etc. — lo que dice PresentacionProducto.cantidad).
+ * (tabletas, mL, etc. —” lo que dice PresentacionProducto.cantidad).
  *
- * Convierte correctamente de contenido → físico usando UnidadVentaHelper
+ * Convierte correctamente de contenido ──†’ físico usando UnidadVentaHelper
  * antes de comparar con el stock (que está en unidades físicas).
  *
  * El módulo de ventas llama esto con la presentación a vender para saber si puede vender.

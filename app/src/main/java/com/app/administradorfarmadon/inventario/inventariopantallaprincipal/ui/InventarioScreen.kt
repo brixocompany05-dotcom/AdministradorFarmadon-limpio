@@ -11,14 +11,20 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.material3.*
@@ -28,7 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -126,14 +134,67 @@ private fun MetricPremiumInline(
     }
 }
 
+@Composable
+private fun ElegantMetricCard(
+    label: String,
+    value: String,
+    sub: String,
+    accent: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isLoading: Boolean,
+    onClick: (() -> Unit)?,
+    s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa,
+    modifier: Modifier = Modifier
+) {
+    val click = if (onClick != null) Modifier.clickable { onClick() } else Modifier
+    Surface(
+        color = FDColors.SurfaceElevated,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(0.7.dp, FDColors.Border),
+        shadowElevation = if (FDColors.isDark) 0.dp else 4.dp,
+        modifier = modifier.then(click).height(78.dp)
+    ) {
+        Box(Modifier.fillMaxWidth()) {
+            Box(
+                Modifier.fillMaxWidth().height(1.8.dp)
+                    .background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(accent.copy(alpha = 0.50f), Color.Transparent)))
+                    .align(Alignment.TopCenter)
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                        .background(accent.copy(alpha = 0.11f))
+                        .border(0.6.dp, accent.copy(alpha = 0.18f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, null, tint = accent, modifier = Modifier.size(18.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    if (isLoading) {
+                        Box(Modifier.width(64.dp).height(16.dp).clip(RoundedCornerShape(6.dp)).background(FDColors.Border.copy(alpha = 0.20f)))
+                    } else {
+                        Text(value, style = FDType.Heading3.copy(fontSize = 15.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.3).sp), color = FDColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text(label.uppercase(), style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp), color = FDColors.TextTertiary, maxLines = 1)
+                    Text(sub, style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium), color = FDColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun InventarioScreen(
     viewModel: InventarioViewModel = viewModel(),
     onNavigateToCrearProducto: () -> Unit = {},
     onNavigateToEditarProducto: (String) -> Unit = {},
-    onNavigateToIngresarStock: (String) -> Unit = {},
-    onDetailStateChanged: (Boolean) -> Unit = {}
+    onDetailStateChanged: (Boolean) -> Unit = {},
+    onFocusModeChanged: (Boolean) -> Unit = {}
 ) {
     val s = recordarMedidaAdaptativa()
 
@@ -269,7 +330,7 @@ fun InventarioScreen(
     // Estados honestos de carga y búsqueda server-side
     val busquedaEstado = uiState.busquedaEstado
     val isBusquedaCargando = busquedaEstado is InventarioBusquedaEstado.Cargando
-    val isBusquedaVacia = busquedaEstado is InventarioBusquedaEstado.BusquedaVacia || busquedaEstado is InventarioBusquedaEstado.BusquedaVacía
+    val isBusquedaVacia = busquedaEstado is InventarioBusquedaEstado.BusquedaVacia || busquedaEstado is InventarioBusquedaEstado.BusquedaVaciaAlias
     val isBusquedaError = busquedaEstado is InventarioBusquedaEstado.Error
     val isCargandoInicial = isLoadingProducts && uiState.pagedProducts.isEmpty() && !isBusquedaCargando
 
@@ -322,63 +383,121 @@ fun InventarioScreen(
                                 )
                             }
                     ) {
-                        // TOP BAR PREMIUM — tipografía s.*, padding s.*, icono hermoso
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = s.padScreenH, vertical = s.padCard * 0.6f),
+                                .padding(horizontal = s.padScreenH, vertical = s.padCard * 0.55f),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(s.xs)
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            val interactionSource = remember { MutableInteractionSource() }
+                            val isFocused by interactionSource.collectIsFocusedAsState()
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(s.inputMinH)
+                                    .clip(RoundedCornerShape(s.radiusInput))
+                                    .background(FDColors.InputBackground)
+                                    .border(
+                                        width = if (isFocused) s.borderWidth * 1.2f else s.borderWidth,
+                                        color = if (isFocused) FDColors.BorderFocus else FDColors.InputBorder,
+                                        shape = RoundedCornerShape(s.radiusInput)
+                                    )
+                                    .padding(horizontal = s.padCard),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.xs)) {
-                                    Box(Modifier.size(6.dp).clip(CircleShape).background(FDColors.Success))
-                                    Text(
-                                        "CENTRO DE ABASTO",
-                                        style = FDType.Label.copy(
-                                            color = FDColors.TextTertiary,
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = s.textLabel.value.sp * 0.85f,
-                                            letterSpacing = 1.sp
+                                    Icon(
+                                        Icons.Default.Search, null,
+                                        tint = if (isFocused) FDColors.Primary else FDColors.TextTertiary,
+                                        modifier = Modifier.size(s.iconSmall)
+                                    )
+                                    BasicTextField(
+                                        value = searchQuery,
+                                        onValueChange = { viewModel.onSearchQueryChanged(it) },
+                                        interactionSource = interactionSource,
+                                        textStyle = FDType.Body.copy(color = FDColors.TextPrimary, fontSize = s.textBody.value.sp, letterSpacing = 0.1.sp),
+                                        cursorBrush = SolidColor(FDColors.Primary),
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        decorationBox = { inner ->
+                                            if (searchQuery.isEmpty()) Text(
+                                                "Buscar producto…",
+                                                style = FDType.Body.copy(color = FDColors.InputPlaceholder, fontSize = s.textBody.value.sp * 0.92f),
+                                                maxLines = 1
+                                            )
+                                            inner()
+                                        }
+                                    )
+                                    if (searchQuery.isNotEmpty()) {
+                                        Icon(
+                                            Icons.Default.Close, null,
+                                            tint = FDColors.TextTertiary,
+                                            modifier = Modifier.size(16.dp).clickable { viewModel.onSearchQueryChanged("") }
                                         )
-                                    )
+                                    }
                                 }
-                                Text(
-                                    "INVENTARIO",
-                                    style = FDType.Heading2.copy(
-                                        color = FDColors.TextPrimary,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = s.textTitle.value.sp,
-                                        letterSpacing = (-0.4).sp
-                                    )
-                                )
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.xs)) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(s.btnSmallH)
-                                        .clip(RoundedCornerShape(s.radiusButton * 0.7f))
-                                        .background(FDColors.Glass)
-                                        .border(s.borderWidth * 0.6f, FDColors.Border, RoundedCornerShape(s.radiusButton * 0.7f))
-                                        .clickable { isAlertasPanelOpen = true },
-                                    contentAlignment = Alignment.Center
+                            Box(
+                                modifier = Modifier
+                                    .height(s.inputMinH)
+                                    .clip(RoundedCornerShape(s.radiusButton))
+                                    .background(FDColors.Glass)
+                                    .border(s.borderWidth * 0.6f, FDColors.Border, RoundedCornerShape(s.radiusButton))
+                                    .clickable { viewModel.setFilterPanelOpen(true) }
+                                    .padding(horizontal = s.padCard * 0.85f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(s.xs * 0.7f)
                                 ) {
-                                    Icon(Icons.Default.Notifications, null, tint = FDColors.TextSecondary, modifier = Modifier.size(s.iconSmall))
+                                    Icon(Icons.Default.FilterList, null, tint = if (activeFiltersCount > 0) FDColors.Primary else FDColors.TextPrimary, modifier = Modifier.size(s.iconSmall))
+                                    Text("FILTROS", color = if (activeFiltersCount > 0) FDColors.Primary else FDColors.TextPrimary, fontSize = s.textLabel.value.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
+                                    if (activeFiltersCount > 0) {
+                                        Box(Modifier.size(s.iconTiny).clip(CircleShape).background(FDColors.Primary), contentAlignment = Alignment.Center) {
+                                            Text("$activeFiltersCount", color = FDColors.PrimaryText, fontSize = s.textLabel.value.sp * 0.75f, fontWeight = FontWeight.Black)
+                                        }
+                                    }
                                 }
-                                Button(
-                                    onClick = { onNavigateToCrearProducto() },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = FDColors.Primary,
-                                        contentColor = FDColors.PrimaryText
-                                    ),
-                                    shape = RoundedCornerShape(s.radiusButton),
-                                    modifier = Modifier.height(s.btnSmallH),
-                                    contentPadding = PaddingValues(horizontal = s.padCard)
-                                ) {
-                                    Icon(Icons.Default.Add, null, modifier = Modifier.size(s.iconTiny))
-                                    Spacer(Modifier.width(s.xs * 0.7f))
-                                    Text("NUEVO PRODUCTO", style = FDType.Label.copy(color = FDColors.PrimaryText, fontSize = s.textLabel.value.sp, fontWeight = FontWeight.Black))
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(s.inputMinH)
+                                    .clip(RoundedCornerShape(s.radiusButton * 0.7f))
+                                    .background(FDColors.Glass)
+                                    .border(s.borderWidth * 0.6f, FDColors.Border, RoundedCornerShape(s.radiusButton * 0.7f))
+                                    .clickable { isAlertasPanelOpen = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Icon(Icons.Default.Notifications, null, tint = if (unreadAlertIds.isNotEmpty()) FDColors.Warning else FDColors.TextSecondary, modifier = Modifier.size(s.iconSmall))
+                                    if (unreadAlertIds.isNotEmpty()) {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.TopEnd)
+                                                .offset(x = 4.dp, y = (-4).dp)
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(FDColors.Error)
+                                                .border(1.dp, FDColors.Surface, CircleShape)
+                                        )
+                                    }
                                 }
+                            }
+                            Button(
+                                onClick = { onNavigateToCrearProducto() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = FDColors.Primary,
+                                    contentColor = FDColors.PrimaryText
+                                ),
+                                shape = RoundedCornerShape(s.radiusButton),
+                                modifier = Modifier.height(s.inputMinH),
+                                contentPadding = PaddingValues(horizontal = s.padCard)
+                            ) {
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(s.iconTiny))
+                                Spacer(Modifier.width(s.xs * 0.7f))
+                                Text("NUEVO", style = FDType.Label.copy(color = FDColors.PrimaryText, fontSize = s.textLabel.value.sp, fontWeight = FontWeight.Black))
                             }
                         }
 
@@ -387,122 +506,17 @@ fun InventarioScreen(
                         } catch (e: Exception) {
                             "S/ $totalInventoryValue"
                         }
-                        // Resumen premium 1 barra — 4 métricas sin competir (1 Surface, no 4 cards)
-                        Surface(
-                            color = FDColors.Surface,
-                            shape = RoundedCornerShape(s.radiusCard * 0.85f),
-                            border = BorderStroke(s.borderWidth, FDColors.Border),
-                            shadowElevation = 1.dp,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = s.padScreenH, vertical = s.xs)
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = s.padScreenH, vertical = s.xs),
+                            horizontalArrangement = Arrangement.spacedBy(s.xs)
                         ) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = s.padCard, vertical = s.sm),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                MetricPremiumInline(label = "VALOR", value = formattedValue, sub = "${totalProductsCount} productos", color = FDColors.Primary, icon = Icons.Default.Payments, isLoading = isCargandoInicial, onClick = null, modifier = Modifier.weight(1f))
-                                Box(Modifier.width(s.separatorH).height(s.gapXLarge * 1.33f).background(FDColors.Border.copy(alpha = 0.45f)))
-                                MetricPremiumInline(label = "ACTIVOS", value = uiState.activeProductsCount.toString(), sub = "en venta", color = FDColors.Success, icon = Icons.Default.Inventory2, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab("TODOS") }, modifier = Modifier.weight(1f))
-                                Box(Modifier.width(s.separatorH).height(s.gapXLarge * 1.33f).background(FDColors.Border.copy(alpha = 0.45f)))
-                                MetricPremiumInline(label = "POR REPONER", value = lowStockCount.toString(), sub = if (estadoTab == "POR_REPONER") "filtrado" else "críticos", color = FDColors.Warning, icon = Icons.Default.WarningAmber, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_REPONER") "TODOS" else "POR_REPONER") }, modifier = Modifier.weight(1f))
-                                Box(Modifier.width(s.separatorH).height(s.gapXLarge * 1.33f).background(FDColors.Border.copy(alpha = 0.45f)))
-                                MetricPremiumInline(label = "POR VENCER", value = nearExpiryCount.toString(), sub = "30 días", color = FDColors.Error, icon = Icons.Default.Schedule, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_VENCER") "TODOS" else "POR_VENCER") }, modifier = Modifier.weight(1f))
-                            }
+                            ElegantMetricCard(label = "Valor", value = formattedValue, sub = "${totalProductsCount} productos", accent = FDColors.Primary, icon = Icons.Outlined.AccountBalanceWallet, isLoading = isCargandoInicial, onClick = null, s = s, modifier = Modifier.weight(1f))
+                            ElegantMetricCard(label = "Activos", value = uiState.activeProductsCount.toString(), sub = "en venta", accent = FDColors.Success, icon = Icons.Outlined.Inventory2, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab("TODOS") }, s = s, modifier = Modifier.weight(1f))
+                            ElegantMetricCard(label = "Por reponer", value = lowStockCount.toString(), sub = if (estadoTab == "POR_REPONER") "filtrado" else "críticos", accent = FDColors.Warning, icon = Icons.Outlined.WarningAmber, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_REPONER") "TODOS" else "POR_REPONER") }, s = s, modifier = Modifier.weight(1f))
+                            ElegantMetricCard(label = "Por vencer", value = nearExpiryCount.toString(), sub = "30 días", accent = FDColors.Error, icon = Icons.Outlined.Schedule, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_VENCER") "TODOS" else "POR_VENCER") }, s = s, modifier = Modifier.weight(1f))
                         }
 
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = s.padScreenH, vertical = s.xs)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(s.xs)
-                            ) {
-                                val interactionSource = remember { MutableInteractionSource() }
-                                val isFocused by interactionSource.collectIsFocusedAsState()
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(s.inputMinH)
-                                        .clip(RoundedCornerShape(s.radiusInput))
-                                        .background(FDColors.InputBackground)
-                                        .border(
-                                            width = if (isFocused) s.borderWidth * 1.2f else s.borderWidth,
-                                            color = if (isFocused) FDColors.BorderFocus else FDColors.InputBorder,
-                                            shape = RoundedCornerShape(s.radiusInput)
-                                        )
-                                        .padding(horizontal = s.padCard),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.xs)) {
-                                        Icon(
-                                            Icons.Default.Search, null,
-                                            tint = if (isFocused) FDColors.Primary else FDColors.TextTertiary,
-                                            modifier = Modifier.size(s.iconSmall)
-                                        )
-                                        BasicTextField(
-                                            value = searchQuery,
-                                            onValueChange = { viewModel.onSearchQueryChanged(it) },
-                                            interactionSource = interactionSource,
-                                            textStyle = FDType.Body.copy(color = FDColors.TextPrimary, fontSize = s.textBody.value.sp, letterSpacing = 0.1.sp),
-                                            cursorBrush = SolidColor(FDColors.Primary),
-                                            modifier = Modifier.weight(1f),
-                                            singleLine = true,
-                                            decorationBox = { inner ->
-                                                if (searchQuery.isEmpty()) Text(
-                                                    buildAnnotatedString {
-                                                        append("Busca por nombre, laboratorio o código — ")
-                                                        withStyle(SpanStyle(color = FDColors.Primary, fontWeight = FontWeight.SemiBold)) { append("Paracetamol") }
-                                                        append("…")
-                                                    },
-                                                    style = FDType.Body.copy(color = FDColors.InputPlaceholder, fontSize = s.textBody.value.sp * 0.92f),
-                                                    maxLines = 1
-                                                )
-                                                inner()
-                                            }
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .background(FDColors.Glass, RoundedCornerShape(s.radiusChip * 0.6f))
-                                                .border(s.borderWidth * 0.6f, FDColors.Border, RoundedCornerShape(s.radiusChip * 0.6f))
-                                                .padding(horizontal = s.xs * 0.7f, vertical = s.xs * 0.3f)
-                                        ) {
-                                            Text(
-                                                text = "⌘K",
-                                                color = FDColors.TextTertiary,
-                                                fontSize = s.textLabel.value.sp * 0.85f,
-                                                fontWeight = FontWeight.Black,
-                                                letterSpacing = 0.4.sp
-                                            )
-                                        }
-                                    }
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .height(s.inputMinH)
-                                        .clip(RoundedCornerShape(s.radiusButton))
-                                        .background(FDColors.Glass)
-                                        .border(s.borderWidth * 0.6f, FDColors.Border, RoundedCornerShape(s.radiusButton))
-                                        .clickable { viewModel.setFilterPanelOpen(true) }
-                                        .padding(horizontal = s.padCard * 0.85f),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(s.xs * 0.7f)
-                                    ) {
-                                        Icon(Icons.Default.FilterList, null, tint = FDColors.TextPrimary, modifier = Modifier.size(s.iconSmall))
-                                        Text("FILTROS", color = FDColors.TextPrimary, fontSize = s.textLabel.value.sp, fontWeight = FontWeight.Black, letterSpacing = 0.7.sp)
-                                        if (activeFiltersCount > 0) {
-                                            Box(Modifier.size(s.iconTiny).clip(CircleShape).background(FDColors.Primary), contentAlignment = Alignment.Center) {
-                                                Text("$activeFiltersCount", color = FDColors.PrimaryText, fontSize = s.textLabel.value.sp * 0.75f, fontWeight = FontWeight.Black)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(s.xs))
-
                             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 if (uiState.productsList.isNotEmpty() || activeFiltersCount > 0 || searchQuery.isNotEmpty()) {
                                     com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.comunes.CategoryTabsRow(
@@ -529,9 +543,10 @@ fun InventarioScreen(
                                     Text("PRODUCTO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp)
                                     Icon(Icons.Default.UnfoldMore, null, tint = FDColors.TextTertiary.copy(alpha = 0.5f), modifier = Modifier.size(s.iconTiny * 0.9f))
                                 }
-                                Box(modifier = Modifier.width(layoutState.cols.category)) { Text("CATEGORÍA", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
-                                Box(modifier = Modifier.width(layoutState.cols.stock), contentAlignment = Alignment.CenterEnd) { Text("STOCK", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
-                                Box(modifier = Modifier.width(layoutState.cols.min), contentAlignment = Alignment.CenterEnd) { Text("MÍNIMO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
+                                Box(modifier = Modifier.width(layoutState.cols.code)) { Text("CÓDIGO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
+                                Box(modifier = Modifier.width(layoutState.cols.stock), contentAlignment = Alignment.CenterEnd) { Text("STOCK ACTUAL", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
+                                Box(modifier = Modifier.width(layoutState.cols.min), contentAlignment = Alignment.CenterEnd) { Text("STOCK MÍNIMO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
+                                Box(modifier = Modifier.width(layoutState.cols.expiry), contentAlignment = Alignment.CenterEnd) { Text("VENCIMIENTO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
                             }
                             Box(modifier = Modifier.fillMaxWidth().padding(horizontal = s.padScreenH).height(s.separatorH).background(FDColors.Border.copy(alpha = 0.6f)))
                         }
@@ -661,13 +676,94 @@ fun InventarioScreen(
 
         // PANEL DETALLES: PANTALLA COMPLETA (overlay) — ocupa todo, no queda aplastado al lado
         if (selectedProductId != null) {
-            Box(modifier = Modifier.fillMaxSize().background(FDColors.Background)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(FDColors.Background)
+                    // Bloquea el fondo: captura los toques para que NO lleguen a la lista detrás.
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
+            ) {
                 ProductDetailScreen(
                     productId = selectedProductId!!, initialTabIndex = detalleTabInicial,
                     onClose = { closeSidePanels() },
                     onEdit = { product -> onNavigateToEditarProducto(product.indice) },
-                    onAdjustStock = { product, _ -> onNavigateToIngresarStock(product.indice) }
+                    onFocusModeChanged = onFocusModeChanged
                 )
             }
         }
+
     }
+
+
+@Composable
+private fun OptionEntradaEnterprise(
+    titulo: String,
+    descripcion: String,
+    badge: String,
+    icono: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
+) {
+    Surface(
+        onClick = onClick,
+        color = FDColors.Surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, FDColors.BorderStrong.copy(alpha = if (FDColors.isDark) 1f else 0.4f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(FDColors.Primary.copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icono, null, tint = FDColors.Primary, modifier = Modifier.size(26.dp))
+            }
+            
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        titulo.uppercase(),
+                        style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
+                        color = FDColors.TextPrimary
+                    )
+                    Surface(
+                        color = FDColors.Primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            badge,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = FDType.Caption.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = FDColors.Primary
+                        )
+                    }
+                }
+                Text(
+                    descripcion,
+                    style = FDType.Body.copy(fontSize = 13.sp),
+                    color = FDColors.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            
+            Icon(
+                Icons.Default.ArrowForward, 
+                null, 
+                tint = FDColors.TextTertiary, 
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}

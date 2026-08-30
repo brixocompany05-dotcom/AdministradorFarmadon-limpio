@@ -276,13 +276,13 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * ÚNICA PUERTA DE ENTRADA A UNA CUENTA ACTIVA (una regla, un solo lugar).
+     * íšNICA PUERTA DE ENTRADA A UNA CUENTA ACTIVA (una regla, un solo lugar).
      * La usan tanto el ingreso con clave como la aprobación en vivo desde el
      * cartel de solicitud: verifica que la farmacia exista, que BRIXO no la
      * haya suspendido y que la sede asignada siga viva (reacomodo honesto a
      * Sede Principal si fue dada de baja) ANTES de guardar sesión y moneda.
      * Cada bloqueo pinta su pantalla verdadera aquí mismo; el llamador solo
-     * deja de avanzar (R1/R3 — nadie opera dentro de una farmacia cerrada).
+     * deja de avanzar (R1/R3 —” nadie opera dentro de una farmacia cerrada).
      */
     private enum class PuertaResultado { ENTRO, ACCESO_REVOCADO, PERFIL_EN_PROCESO, FALLA_COMUNICADA }
 
@@ -390,7 +390,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                             LoginIncidenteTipo.ERROR_BASE_DATOS
                         )
                     }
-                    Log.w(TAG, "[LOGIN] Sede $sedeObjetivo muerta → reacomodo verificado a principal")
+                    Log.w(TAG, "[LOGIN] Sede $sedeObjetivo muerta ──†’ reacomodo verificado a principal")
                     sucursalIdFinal = "principal"
                     sucursalNombreFinal = ancla.getString("nombre") ?: "Sede Principal"
                 } else {

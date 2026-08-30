@@ -30,9 +30,9 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
 
-// ════════════════════════════════════════════════════════════════
-// MÓDULO 3: KARDEX Y AUDITORÍA DE MOVIMIENTOS (TRAZABILIDAD TOTAL)
-// ════════════════════════════════════════════════════════════════
+// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+// Mí“DULO 3: KARDEX Y AUDITORíA DE MOVIMIENTOS (TRAZABILIDAD TOTAL)
+// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
 @Composable
 internal fun ModuloKardexYAuditoria(
     movements: List<MovimientoInventario>,
@@ -156,8 +156,8 @@ internal fun ModuloKardexYAuditoria(
                         .padding(horizontal = 24.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("TIPO OPERACIÓN", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.5f))
-                    Text("VARIACIÓN", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1f))
+                    Text("TIPO OPERACIí“N", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.5f))
+                    Text("VARIACIí“N", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1f))
                     Text("VALOR / COSTO", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.2f))
                     Text("RESPONSABLE", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.2f))
                     Text("FECHA Y HORA (SERVIDOR)", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.4f))
@@ -211,7 +211,7 @@ internal fun ModuloKardexYAuditoria(
                                     modifier = Modifier.weight(1f)
                                 )
                                 Text(
-                                    text = if (mov.costoTotal > 0) MonedaHelper.formatearSimple(mov.costoTotal) else "—",
+                                    text = if (mov.costoTotal > 0) MonedaHelper.formatearSimple(mov.costoTotal) else "—”",
                                     style = FDType.Body.copy(color = FDColors.TextSecondary, fontSize = 13.sp),
                                     modifier = Modifier.weight(1.2f)
                                 )

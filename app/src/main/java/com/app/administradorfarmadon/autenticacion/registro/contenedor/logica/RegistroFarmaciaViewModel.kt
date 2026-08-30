@@ -88,7 +88,7 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
 
     /**
      * Escucha viva del catálogo de planes. Relanzable: un blip de red cierra el
-     * flujo con la causa real en errorPlanes y REINTENTAR vuelve a abrirlo —
+     * flujo con la causa real en errorPlanes y REINTENTAR vuelve a abrirlo —”
      * jamás se convierte un fallo de lectura en "no hay planes publicados".
      */
     internal fun observarPlanes() {
@@ -121,7 +121,7 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
 
     internal fun actualizarPlanesDisponibles(currentState: RegistroFarmaciaUiState): RegistroFarmaciaUiState {
         // Catálogo por país: el aspirante solo ve planes publicados para su
-        // país de operación. Sin país (transitorio pre-elección) → NADA:
+        // país de operación. Sin país (transitorio pre-elección) ──†’ NADA:
         // jamás casar con planes legados sin país (la vieja mentira, cerrada).
         val paisActual = currentState.paso1.paisIso.trim().uppercase()
         val delPais = if (paisActual.isBlank()) emptyList()
@@ -132,7 +132,7 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
             delPais
         }
         // Lógica honesta: si el plan precargado fue rechazado/observado, NO puede
-        // seguir siendo la selección — quedaría un botón "ENVIAR" activo con un
+        // seguir siendo la selección —” quedaría un botón "ENVIAR" activo con un
         // plan que no se ve en ninguna tarjeta. Se deselecciona para forzar una
         // elección real y visible.
         val planASeleccionar = currentState.paso2.planSeleccionado?.let { sel ->
@@ -202,7 +202,7 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
             _state.update { currentState ->
                 // País + moneda del borrador: el aspirante reabre en el país que
                 // eligió y el catálogo se filtra para ese país desde este render.
-                // Borrador legado sin país → vacío honesto: vuelve a elegir.
+                // Borrador legado sin país ──†’ vacío honesto: vuelve a elegir.
                 val paisRestaurado = draft.paisIso.uppercase()
                 val monedaRestaurada = CatalogoPaises.monedaDe(paisRestaurado)
                 val p1 = Paso1UiState(
@@ -239,7 +239,7 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
         RegistroDraftManager.clearDraft(getApplication())
     }
 
-    /** País → moneda/prefijo derivan del catálogo (jamás se editan a mano). */
+    /** País ──†’ moneda/prefijo derivan del catálogo (jamás se editan a mano). */
     fun setPaisSeleccionado(iso: String, monedaIso: String, simboloMoneda: String) {
         _state.update { currentState ->
             val isoNormalizado = iso.uppercase()

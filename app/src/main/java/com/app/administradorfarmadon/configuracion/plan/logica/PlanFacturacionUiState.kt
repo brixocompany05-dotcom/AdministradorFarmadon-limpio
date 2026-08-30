@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.configuracion.plan.logica
+﻿package com.app.administradorfarmadon.configuracion.plan.logica
 
 import com.app.administradorfarmadon.configuracion.plan.datos.BrixoCanalesPagoInfo
 import com.app.administradorfarmadon.configuracion.plan.datos.HistorialPagoItem

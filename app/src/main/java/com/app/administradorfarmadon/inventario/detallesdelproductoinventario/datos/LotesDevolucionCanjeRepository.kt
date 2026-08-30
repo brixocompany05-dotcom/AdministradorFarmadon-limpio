@@ -3,9 +3,11 @@ import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 
 import android.util.Log
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.compartido.logica.HoraServidor
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.app.administradorfarmadon.inventario.compartido.modelo.ExpedienteReclamoProveedor
 import com.app.administradorfarmadon.inventario.compartido.logica.CodigoBarraHelper
+import com.app.administradorfarmadon.inventario.compartido.logica.CostoRealLote
 import com.app.administradorfarmadon.inventario.compartido.logica.ProductoParser
 import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
 import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
@@ -14,7 +16,6 @@ import com.app.administradorfarmadon.inventario.crearproductogeneral.datos.Catal
 import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
-import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
@@ -33,8 +35,8 @@ import java.util.UUID
  */
 
 /**
- * Operaciones de lotes — bloqueo, devolución, canje, anulación y merma. Transacciones atómicas todo-o-nada.
- * Extraído de ProductDetailFirestoreRepository (1.268 líneas) — responsabilidad única.
+ * Operaciones de lotes —” bloqueo, devolución, canje, anulación y merma. Transacciones atómicas todo-o-nada.
+ * Extraído de ProductDetailFirestoreRepository (1.268 líneas) —” responsabilidad única.
  */
 class LotesDevolucionCanjeRepository(
     private val db: FirebaseFirestore = FarmadonFirestore.db
@@ -50,7 +52,8 @@ class LotesDevolucionCanjeRepository(
         notaCredito: String,
         motivo: String,
         modalidadCompensacion: String,
-        usuarioEmail: String
+        usuarioEmail: String,
+        idempotenciaId: String = ""
     ): Result<Unit> {
         // R1: el tenant de la sesión es el clienteId de la farmacia (RUC), no el uid de auth.
         if (clienteId != SessionManager.clienteIdGarantizado) return Result.failure(SecurityException("Aislamiento entre farmacias: el registro no pertenece a tu farmacia."))
@@ -61,9 +64,12 @@ class LotesDevolucionCanjeRepository(
 
         return try {
             val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
+            val idemFinal = idempotenciaId.trim().ifBlank { UUID.randomUUID().toString() }
+            val ahoraMs = HoraServidor.ahoraMs()
+            val fechaLegible = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ahoraMs))
 
             val productRef = tiendaRef.collection("inventario").document(productId)
-            val movimientoRef = tiendaRef.collection("movimientos").document(UUID.randomUUID().toString())
+            val movimientoRef = tiendaRef.collection("movimientos").document("idem_$idemFinal")
             val reclamoRef = tiendaRef.collection("reclamos_proveedores").document(UUID.randomUUID().toString())
             val cleanKey = FechaVencimientoHelper.llaveLote(lote.numero)
 
@@ -75,8 +81,8 @@ class LotesDevolucionCanjeRepository(
             db.runTransaction { tx ->
                 val snap = tx.get(productRef)
                 if (!snap.exists()) throw Exception("El producto no existe.")
+                if (tx.get(movimientoRef).exists()) return@runTransaction
 
-                val currentStock = snap.getDouble("stock") ?: snap.getDouble("stockTotal") ?: 0.0
                 val lotesMap = (snap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
                 val res2 = FechaVencimientoHelper.resolverLote(lotesMap, lote.numero) ?: throw Exception("El lote no se encuentra en el inventario.")
                 val (cleanKeyReal, loteData) = res2
@@ -86,19 +92,17 @@ class LotesDevolucionCanjeRepository(
                 val totalLote = cantDisponible + cantBloqueada
 
                 if (cantidadDevuelta > totalLote) {
-                    throw Exception("La cantidad a devolver ($cantidadDevuelta) supera el saldo total del lote ($totalLote).")
+                    throw Exception("Este lote se acaba de actualizar. Intentaste devolver $cantidadDevuelta pero ahora solo hay $totalLote en total. Actualicé el saldo — revisa e intenta con $totalLote o menos.")
                 }
 
-                // 1. Detección automática del costo unitario oficial de compra
-                val costoUnitarioLote = (loteData["costoUnitario"] as? Number)?.toDouble()
-                    ?: (loteData["costoCompraUnitario"] as? Number)?.toDouble()
-                    ?: (loteData["costoUltimoIngresoUnitario"] as? Number)?.toDouble()
-                    ?: if (totalLote > 0) ((loteData["costoCompra"] as? Number)?.toDouble() ?: 0.0) / totalLote else 0.0
-                val montoTotalReclamo = cantidadDevuelta * costoUnitarioLote
+                // 1. Costo unitario oficial: la MISMA fuente que ve la pantalla (CostoRealLote).
+                //    El monto se redondea a 2 decimales: lo que se mostró es lo que se guarda.
+                val costoUnitarioLote = CostoRealLote.costoUnitario(loteData)
+                val montoTotalReclamo = CostoRealLote.monto(cantidadDevuelta, costoUnitarioLote)
 
                 // R3: devolución solo sobre disponible; cuarentena requiere desbloqueo previo
                 if (cantidadDevuelta > cantDisponible) {
-                    throw Exception("No puedes devolver $cantidadDevuelta unidades: solo hay $cantDisponible disponibles ($cantBloqueada en cuarentena, desbloquea primero)." )
+                    throw Exception("Este lote se acaba de actualizar. Intentaste devolver $cantidadDevuelta pero ahora solo hay $cantDisponible disponibles ($cantBloqueada en cuarentena). Actualicé el saldo — si quieres devolver lo de cuarentena, desbloquea primero o ajusta a $cantDisponible.")
                 }
                 loteData["cantidad"] = (cantDisponible - cantidadDevuelta).coerceAtLeast(0.0)
                 loteData["ultimaDevolucion"] = FieldValue.serverTimestamp()
@@ -106,15 +110,27 @@ class LotesDevolucionCanjeRepository(
 
                 val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = calcularResumenStockYFefo(lotesMap)
 
+                val updatesProducto = mutableMapOf<String, Any>(
+                    "lotes" to lotesMap,
+                    "stock" to nuevoStockDisponible,
+                    "stockTotal" to nuevoStockTotal,
+                    "vencimientoMasCercano" to nuevoVencimientoMasCercano,
+                    "actualizadoEl" to FieldValue.serverTimestamp()
+                )
+                // Si el lote principal de consumo queda en 0, se limpia solo.
+                if (((loteData["cantidad"] as? Number)?.toDouble() ?: 0.0) <= 0.0) {
+                    val principalActual = snap.getString("lotePrioritarioId") ?: ""
+                    if (principalActual.isNotBlank() &&
+                        (principalActual.equals(cleanKeyReal, true) || principalActual.equals(lote.numero, true))
+                    ) {
+                        updatesProducto["lotePrioritarioId"] = ""
+                        updatesProducto["lotePrioritarioPor"] = ""
+                        updatesProducto["lotePrioritarioPorRol"] = ""
+                    }
+                }
                 tx.update(
                     productRef,
-                    mapOf(
-                        "lotes" to lotesMap,
-                        "stock" to nuevoStockDisponible,
-                        "stockTotal" to nuevoStockTotal,
-                        "vencimientoMasCercano" to nuevoVencimientoMasCercano,
-                        "actualizadoEl" to FieldValue.serverTimestamp()
-                    )
+                    updatesProducto
                 )
 
                 // 3. Asiento inmutable en Kardex
@@ -162,22 +178,107 @@ class LotesDevolucionCanjeRepository(
                 )
                 tx.set(reclamoRef, reclamoData)
 
-                // 5. Si la factura de origen está registrada en sistema, enlazar el débito
+                // 5. La nota de crédito es información CONTABLE: reduce la deuda real de la factura
+                //    (ajustesFactura, que Cuentas por Pagar lee) y suma el "saldo a favor" del proveedor
+                //    (plata que la droguería nos debe). Todo en la misma transacción, jamás en silencio.
                 if (facturaRef != null) {
                     val snapFactura = tx.get(facturaRef)
                     if (snapFactura.exists()) {
-                        val notasCreditoExistentes = (snapFactura.get("notasCredito") as? List<*>)?.toMutableList() ?: mutableListOf<Any?>()
-                        notasCreditoExistentes.add(
+                        val estadoFacturaOrigen = snapFactura.getString("estadoPago") ?: ""
+                        if (estadoFacturaOrigen.equals("ANULADA", ignoreCase = true)) {
+                            throw IllegalStateException("La factura de origen está ANULADA; no se puede registrar una nota de crédito sobre ella. Resuelve primero el estado de la factura.")
+                        }
+                        @Suppress("UNCHECKED_CAST")
+                        val ajustesExistentes = (snapFactura.get("ajustesFactura") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+                        val totalAjustesActual = ajustesExistentes.sumOf { (it["monto"] as? Number)?.toDouble() ?: 0.0 }
+                        val itemsRaw = snapFactura.get("items") as? List<*>
+                        val totalItems = itemsRaw?.mapNotNull { (it as? Map<*, *>)?.let { m -> (m["costoTotal"] as? Number)?.toDouble() ?: 0.0 } }?.sum() ?: 0.0
+                        val totalPapel = (snapFactura.getDouble("montoTotal") ?: snapFactura.getDouble("montoAcumulado")) ?: totalItems
+                        val maximoAjustable = (totalPapel - totalAjustesActual).coerceAtLeast(0.0)
+                        if (montoTotalReclamo > maximoAjustable + 0.01) {
+                            throw IllegalStateException(
+                                "La nota de crédito de S/ ${String.format(Locale.US, "%.2f", montoTotalReclamo)} supera el saldo ajustable de la factura (S/ ${String.format(Locale.US, "%.2f", maximoAjustable)}). Revisa el costo del lote."
+                            )
+                        }
+                        ajustesExistentes.add(
                             mapOf(
-                                "reclamoId" to reclamoRef.id,
-                                "productoId" to productId,
-                                "lote" to lote.numero,
+                                "id" to reclamoRef.id,
+                                "tipo" to "NOTA_CREDITO",
+                                "numeroDocumento" to notaCredito.trim().uppercase(),
                                 "monto" to montoTotalReclamo,
-                                "notaCreditoNumero" to notaCredito.trim().uppercase(),
-                                "fecha" to FieldValue.serverTimestamp()
+                                "motivo" to motivo,
+                                "fechaLegible" to fechaLegible,
+                                "fechaMs" to ahoraMs,
+                                "usuarioNombre" to "Administración",
+                                "usuarioEmail" to usuarioEmail
                             )
                         )
-                        tx.update(facturaRef, "notasCredito", notasCreditoExistentes)
+                        val nuevoTotalEfectivo = (totalPapel - totalAjustesActual - montoTotalReclamo).coerceAtLeast(0.0)
+                        @Suppress("UNCHECKED_CAST")
+                        val totalAbonado = (snapFactura.get("abonos") as? List<Map<String, Any>>)?.sumOf { (it["monto"] as? Number)?.toDouble() ?: 0.0 }
+                            ?: (snapFactura.getDouble("montoPagado") ?: 0.0)
+                        val saldoRestante = (nuevoTotalEfectivo - totalAbonado).coerceAtLeast(0.0)
+                        val nuevoEstadoPago = when {
+                            saldoRestante <= 0.01 -> "PAGADA"
+                            totalAbonado > 0.01 -> "ABONADO_PARCIAL"
+                            else -> "PENDIENTE"
+                        }
+                        tx.update(
+                            facturaRef,
+                            mapOf(
+                                "ajustesFactura" to ajustesExistentes,
+                                "estadoPago" to nuevoEstadoPago,
+                                "actualizadoEl" to FieldValue.serverTimestamp()
+                            )
+                        )
+
+                        // Proveedor: SOLO si ya pagamos más de lo que la factura ahora vale,
+                        // esa diferencia es plata que la droguería nos debe (saldo a favor).
+                        // Si la factura aún no estaba pagada, la nota solo reduce lo que debemos:
+                        // no se inventa un saldo a favor.
+                        val excesoPagado = (totalAbonado - nuevoTotalEfectivo).coerceAtLeast(0.0)
+                        if (lote.proveedorId.isNotBlank() && excesoPagado > 0.0) {
+                            val provRef = tiendaRef.collection("proveedores").document(lote.proveedorId)
+                            val provSnap = tx.get(provRef)
+                            val entradaSaldo = mapOf(
+                                "id" to reclamoRef.id,
+                                "tipo" to "SALDO_A_FAVOR_NOTA_CREDITO",
+                                "monto" to excesoPagado,
+                                "facturaId" to facturaRef.id,
+                                "facturaNumero" to lote.nroFactura,
+                                "motivo" to motivo,
+                                "fechaLegible" to fechaLegible,
+                                "fechaMs" to ahoraMs,
+                                "usuarioNombre" to "Administración",
+                                "usuarioEmail" to usuarioEmail
+                            )
+                            if (provSnap.exists()) {
+                                val saldoActual = provSnap.getDouble("saldoAFavor") ?: 0.0
+                                @Suppress("UNCHECKED_CAST")
+                                val historial = (provSnap.get("historialSaldoAFavor") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+                                historial.add(entradaSaldo)
+                                tx.update(
+                                    provRef,
+                                    mapOf(
+                                        "saldoAFavor" to saldoActual + excesoPagado,
+                                        "historialSaldoAFavor" to historial,
+                                        "actualizadoEl" to FieldValue.serverTimestamp()
+                                    )
+                                )
+                            } else {
+                                tx.set(
+                                    provRef,
+                                    mapOf(
+                                        "id" to lote.proveedorId,
+                                        "nombre" to (snapFactura.getString("proveedorNombre") ?: lote.proveedorNombre),
+                                        "saldoAFavor" to excesoPagado,
+                                        "historialSaldoAFavor" to listOf<Map<String, Any>>(entradaSaldo),
+                                        "actualizadoEl" to FieldValue.serverTimestamp()
+                                    ),
+                                    com.google.firebase.firestore.SetOptions.merge()
+                                )
+                            }
+                        }
                     }
                 }
             }.await()
@@ -200,7 +301,8 @@ class LotesDevolucionCanjeRepository(
         nuevoVencimiento: String,
         guiaCanje: String,
         motivo: String,
-        usuarioEmail: String
+        usuarioEmail: String,
+        idempotenciaId: String = ""
     ): Result<Unit> {
         // R1: el tenant de la sesión es el clienteId de la farmacia (RUC), no el uid de auth.
         if (clienteId != SessionManager.clienteIdGarantizado) return Result.failure(SecurityException("Aislamiento entre farmacias: el registro no pertenece a tu farmacia."))
@@ -208,17 +310,15 @@ class LotesDevolucionCanjeRepository(
             return Result.failure(Exception("Datos insuficientes para procesar el canje de producto."))
         }
         if (motivo.trim().isBlank()) return Result.failure(Exception("El motivo de canje es obligatorio."))
-        if (nuevoLoteNumero.trim().equals(loteOrigen.numero.trim(), ignoreCase = true)) {
-            return Result.failure(Exception("El lote de reposición no puede ser el mismo que el lote origen (${loteOrigen.numero}). Usa un lote nuevo."))
-        }
         val diasNuevo = FechaVencimientoHelper.diasHastaVencer(nuevoVencimiento.trim())
         if (diasNuevo != null && diasNuevo <= 0) return Result.failure(Exception("El vencimiento nuevo $nuevoVencimiento está vencido o es hoy."))
 
         return try {
             val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
+            val idemFinal = idempotenciaId.trim().ifBlank { UUID.randomUUID().toString() }
 
             val productRef = tiendaRef.collection("inventario").document(productId)
-            val movimientoSalidaRef = tiendaRef.collection("movimientos").document(UUID.randomUUID().toString())
+            val movimientoSalidaRef = tiendaRef.collection("movimientos").document("idem_$idemFinal")
             val movimientoEntradaRef = tiendaRef.collection("movimientos").document(UUID.randomUUID().toString())
             val canjeRef = tiendaRef.collection("canjes_proveedores").document(UUID.randomUUID().toString())
 
@@ -228,6 +328,7 @@ class LotesDevolucionCanjeRepository(
             db.runTransaction { tx ->
                 val snap = tx.get(productRef)
                 if (!snap.exists()) throw Exception("El producto no existe en inventario.")
+                if (tx.get(movimientoSalidaRef).exists()) return@runTransaction
 
                 val lotesMap = (snap.get("lotes") as? Map<String, Any?>)?.toMutableMap() as MutableMap<Any?, Any?>
                 val res3 = FechaVencimientoHelper.resolverLote(lotesMap, loteOrigen.numero) ?: throw Exception("El lote origen no se encuentra en el inventario.")
@@ -256,16 +357,14 @@ class LotesDevolucionCanjeRepository(
                 lotesMap[cleanKeyOrigenReal] = loteDataOrigen
 
                 // 2. Acreditar en el lote nuevo
-                val costoUnitarioHistorico = (loteDataOrigen["costoUnitario"] as? Number)?.toDouble()
-                    ?: (loteDataOrigen["costoCompraUnitario"] as? Number)?.toDouble()
-                    ?: 0.0
+                val costoUnitarioHistorico = CostoRealLote.costoUnitario(loteDataOrigen)
 
                 val loteDataNuevo = (lotesMap[cleanKeyNuevo] as? Map<String, Any?>)?.toMutableMap() ?: mutableMapOf<String, Any?>()
                 val cantNuevoActual = (loteDataNuevo["cantidad"] as? Number)?.toDouble() ?: 0.0
                 val vtoExistenteNuevo = (loteDataNuevo["vencimiento"] as? String)?.takeIf { it.isNotBlank() }?.let { FechaVencimientoHelper.normalizar(it) }
                 val vtoNuevoNorm = FechaVencimientoHelper.normalizar(nuevoVencimiento.trim()) ?: nuevoVencimiento.trim()
                 if (vtoExistenteNuevo != null && vtoExistenteNuevo.isNotBlank() && vtoNuevoNorm.isNotBlank() && vtoExistenteNuevo != vtoNuevoNorm) {
-                    throw IllegalArgumentException("El lote $nuevoLoteNumero ya existe con vencimiento $vtoExistenteNuevo. Ingresaste $vtoNuevoNorm.")
+                    throw IllegalArgumentException("El lote $nuevoLoteNumero ya vive con vencimiento $vtoExistenteNuevo. Ingresaste $vtoNuevoNorm —” si es el mismo lote, usa $vtoExistenteNuevo.")
                 }
                 loteDataNuevo["numero"] = nuevoLoteNumero.trim().uppercase()
                 loteDataNuevo["loteId"] = FechaVencimientoHelper.llaveLote(nuevoLoteNumero)
@@ -283,18 +382,39 @@ class LotesDevolucionCanjeRepository(
                 loteDataNuevo["actualizadoEl"] = FieldValue.serverTimestamp()
                 lotesMap[cleanKeyNuevo] = loteDataNuevo
 
+                // Si el lote origen quedó en 0 (y la reposición NO es el mismo lote),
+                // desaparece del stock activo; su historial queda en el kardex.
+                val cantidadOrigenFinal = (loteDataOrigen["cantidad"] as? Number)?.toDouble() ?: 0.0
+                val bloqueadaOrigenFinal = (loteDataOrigen["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
+                val esMismoLote = cleanKeyNuevo.equals(cleanKeyOrigen, true)
+                if (!esMismoLote && cantidadOrigenFinal <= 0.0 && bloqueadaOrigenFinal <= 0.0) {
+                    lotesMap.remove(cleanKeyOrigen)
+                }
+
                 // 3. Sincronizar stock disponible, stock total y vencimiento FEFO tras el canje
                 val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = calcularResumenStockYFefo(lotesMap)
 
+                val updatesProducto = mutableMapOf<String, Any>(
+                    "lotes" to lotesMap,
+                    "stock" to nuevoStockDisponible,
+                    "stockTotal" to nuevoStockTotal,
+                    "vencimientoMasCercano" to nuevoVencimientoMasCercano,
+                    "actualizadoEl" to FieldValue.serverTimestamp()
+                )
+                // Si el lote origen (principal de consumo) queda en 0, se limpia solo.
+                if (((loteDataOrigen["cantidad"] as? Number)?.toDouble() ?: 0.0) <= 0.0) {
+                    val principalActual = snap.getString("lotePrioritarioId") ?: ""
+                    if (principalActual.isNotBlank() &&
+                        (principalActual.equals(cleanKeyOrigen, true) || principalActual.equals(loteOrigen.numero, true))
+                    ) {
+                        updatesProducto["lotePrioritarioId"] = ""
+                        updatesProducto["lotePrioritarioPor"] = ""
+                        updatesProducto["lotePrioritarioPorRol"] = ""
+                    }
+                }
                 tx.update(
                     productRef,
-                    mapOf(
-                        "lotes" to lotesMap,
-                        "stock" to nuevoStockDisponible,
-                        "stockTotal" to nuevoStockTotal,
-                        "vencimientoMasCercano" to nuevoVencimientoMasCercano,
-                        "actualizadoEl" to FieldValue.serverTimestamp()
-                    )
+                    updatesProducto
                 )
 
                 // 4. Asiento de SALIDA de mercadería dañada
@@ -315,7 +435,7 @@ class LotesDevolucionCanjeRepository(
                 )
                 tx.set(movimientoSalidaRef, movSalida)
 
-                // 5. Asiento de ENTRADA de mercadería sana — costo heredado para no perder valorizado
+                // 5. Asiento de ENTRADA de mercadería sana —” costo heredado para no perder valorizado
                 val movEntrada = mapOf(
                     "id" to movimientoEntradaRef.id,
                     "tipo" to "ENTRADA_CANJE_PROVEEDOR",

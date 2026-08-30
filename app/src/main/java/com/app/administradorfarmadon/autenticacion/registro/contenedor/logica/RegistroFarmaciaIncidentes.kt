@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.autenticacion.registro.contenedor.logica
+﻿package com.app.administradorfarmadon.autenticacion.registro.contenedor.logica
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assignment

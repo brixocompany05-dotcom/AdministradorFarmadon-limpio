@@ -57,6 +57,8 @@ fun PestanaProveedores(
     onCrearProveedor: () -> Unit,
     onEditarProveedor: (Proveedor) -> Unit,
     onEliminarProveedor: (Proveedor) -> Unit = {},
+    onCobrarSaldoAFavor: (Double, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> },
+    onDeclararSaldoPerdido: (Double, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val s = recordarMedidaAdaptativa()
@@ -479,6 +481,215 @@ fun PestanaProveedores(
                                             )
                                         }
                                     }
+
+                                    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.3f), thickness = s.separatorH)
+
+                                    // ── SALDO A FAVOR DEL PROVEEDOR (dinero que él nos debe) ──
+                                    val saldoAFavor = proveedorSeleccionado.saldoAFavor.coerceAtLeast(0.0)
+                                    var modoSaldo by remember { mutableStateOf<String?>(null) }
+                                    var montoSaldo by remember { mutableStateOf("") }
+                                    var detalleSaldo by remember { mutableStateOf("") }
+                                    var procesandoSaldo by remember { mutableStateOf(false) }
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                Text(
+                                                    text = "SALDO A FAVOR DEL PROVEEDOR",
+                                                    style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                                    color = FDColors.TextTertiary
+                                                )
+                                                Text(
+                                                    text = if (saldoAFavor > 0.01) "Dinero que este proveedor te debe. Puedes cobrarlo o declararlo perdido." else "Sin deuda pendiente del proveedor a tu favor.",
+                                                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
+                                                    color = FDColors.TextSecondary
+                                                )
+                                            }
+                                            Text(
+                                                text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", saldoAFavor),
+                                                style = FDType.Numeric.copy(fontSize = 16.sp, fontWeight = FontWeight.Black),
+                                                color = if (saldoAFavor > 0.01) FDColors.Success else FDColors.TextTertiary
+                                            )
+                                        }
+
+                                        if (saldoAFavor > 0.01) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(s.gapSmall)
+                                            ) {
+                                                FDBotonSecundario(
+                                                    texto = "COBRAR SALDO",
+                                                    onClick = { modoSaldo = if (modoSaldo == "COBRAR") null else "COBRAR"; detalleSaldo = ""; montoSaldo = "" },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                FDBotonSecundario(
+                                                    texto = "DECLARAR PERDIDO",
+                                                    onClick = { modoSaldo = if (modoSaldo == "PERDIDO") null else "PERDIDO"; detalleSaldo = ""; montoSaldo = "" },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            }
+
+                                            if (modoSaldo != null) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(FDColors.SurfaceElevated.copy(alpha = 0.5f), FDShapes.Small)
+                                                        .padding(s.padCard * 0.7f),
+                                                    verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                                                ) {
+                                                    Text(
+                                                        text = if (modoSaldo == "COBRAR") "COBRAR SALDO A FAVOR" else "DECLARAR SALDO PERDIDO",
+                                                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
+                                                        color = FDColors.TextPrimary
+                                                    )
+                                                    OutlinedTextField(
+                                                        value = montoSaldo,
+                                                        onValueChange = { nuevo -> montoSaldo = nuevo.filter { it.isDigit() || it == '.' } },
+                                                        label = { Text("Monto a registrar") },
+                                                        singleLine = true,
+                                                        shape = FDShapes.Small,
+                                                        colors = OutlinedTextFieldDefaults.colors(
+                                                            focusedContainerColor = FDColors.InputBackground,
+                                                            unfocusedContainerColor = FDColors.InputBackground,
+                                                            focusedBorderColor = FDColors.BorderFocus,
+                                                            unfocusedBorderColor = FDColors.InputBorder,
+                                                            focusedTextColor = FDColors.InputText,
+                                                            unfocusedTextColor = FDColors.InputText
+                                                        ),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(s.inputMinH)
+                                                    )
+                                                    OutlinedTextField(
+                                                        value = detalleSaldo,
+                                                        onValueChange = { detalleSaldo = it },
+                                                        label = { Text(if (modoSaldo == "COBRAR") "Documento o comprobante del cobro" else "Motivo de la pérdida (mínimo 5 letras)") },
+                                                        singleLine = true,
+                                                        shape = FDShapes.Small,
+                                                        colors = OutlinedTextFieldDefaults.colors(
+                                                            focusedContainerColor = FDColors.InputBackground,
+                                                            unfocusedContainerColor = FDColors.InputBackground,
+                                                            focusedBorderColor = FDColors.BorderFocus,
+                                                            unfocusedBorderColor = FDColors.InputBorder,
+                                                            focusedTextColor = FDColors.InputText,
+                                                            unfocusedTextColor = FDColors.InputText
+                                                        ),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(s.inputMinH)
+                                                    )
+                                                    FDBotonPrimario(
+                                                        texto = if (procesandoSaldo) "REGISTRANDO..." else "CONFIRMAR",
+                                                        onClick = {
+                                                            val monto = montoSaldo.toDoubleOrNull() ?: 0.0
+                                                            val detalle = detalleSaldo.trim()
+                                                            when {
+                                                                monto <= 0.0 -> Toast.makeText(context, "Escribe un monto mayor a cero.", Toast.LENGTH_SHORT).show()
+                                                                monto > saldoAFavor + 0.01 -> Toast.makeText(context, "El monto no puede superar el saldo a favor de $simboloMoneda ${String.format(Locale.US, "%.2f", saldoAFavor)}.", Toast.LENGTH_SHORT).show()
+                                                                modoSaldo == "COBRAR" && detalle.length < 3 -> Toast.makeText(context, "Indica el documento o comprobante del cobro.", Toast.LENGTH_SHORT).show()
+                                                                modoSaldo == "PERDIDO" && detalle.length < 5 -> Toast.makeText(context, "El motivo de la pérdida debe tener al menos 5 letras.", Toast.LENGTH_SHORT).show()
+                                                                else -> {
+                                                                    procesandoSaldo = true
+                                                                    if (modoSaldo == "COBRAR") {
+                                                                        onCobrarSaldoAFavor(monto, detalle) { res ->
+                                                                            procesandoSaldo = false
+                                                                            if (res.isSuccess) {
+                                                                                Toast.makeText(context, "Cobro registrado. El saldo a favor bajó.", Toast.LENGTH_SHORT).show()
+                                                                                modoSaldo = null; montoSaldo = ""; detalleSaldo = ""
+                                                                            } else {
+                                                                                Toast.makeText(context, "No se pudo registrar el cobro: ${res.exceptionOrNull()?.message ?: "revisa tu conexión"}", Toast.LENGTH_LONG).show()
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        onDeclararSaldoPerdido(monto, detalle) { res ->
+                                                                            procesandoSaldo = false
+                                                                            if (res.isSuccess) {
+                                                                                Toast.makeText(context, "Pérdida declarada y registrada con justificación.", Toast.LENGTH_SHORT).show()
+                                                                                modoSaldo = null; montoSaldo = ""; detalleSaldo = ""
+                                                                            } else {
+                                                                                Toast.makeText(context, "No se pudo declarar la pérdida: ${res.exceptionOrNull()?.message ?: "revisa tu conexión"}", Toast.LENGTH_LONG).show()
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        },
+                                                        icono = Icons.Default.Check,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(s.btnMediumH)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // HISTORIAL DEL SALDO A FAVOR — append-only, justificación visible
+                                        val historialSaldo = proveedorSeleccionado.historialSaldoAFavor.sortedByDescending { it.fechaMs }
+                                        if (historialSaldo.isNotEmpty()) {
+                                            var verHistorialSaldo by remember { mutableStateOf(false) }
+                                            FDBotonSecundario(
+                                                texto = if (verHistorialSaldo) "OCULTAR MOVIMIENTOS" else "VER MOVIMIENTOS (${historialSaldo.size})",
+                                                onClick = { verHistorialSaldo = !verHistorialSaldo },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                            if (verHistorialSaldo) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(FDColors.SurfaceElevated.copy(alpha = 0.5f), FDShapes.Small)
+                                                        .padding(s.padCard * 0.7f),
+                                                    verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                                                ) {
+                                                    historialSaldo.forEach { mov ->
+                                                        val esIngreso = mov.tipo == "SALDO_A_FAVOR_ANULACION"
+                                                        Surface(
+                                                            color = FDColors.Surface,
+                                                            shape = FDShapes.XSmall,
+                                                            border = BorderStroke(s.borderWidth * 0.6f, FDColors.Border),
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        ) {
+                                                            Column(
+                                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                                                            ) {
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Text(
+                                                                        text = etiquetaMovimientoSaldo(mov.tipo),
+                                                                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
+                                                                        color = if (esIngreso) FDColors.Success else FDColors.Warning,
+                                                                        modifier = Modifier.weight(1f).padding(end = 6.dp)
+                                                                    )
+                                                                    Text(
+                                                                        text = (if (esIngreso) "+" else "-") + "$simboloMoneda " + String.format(Locale.US, "%.2f", kotlin.math.abs(mov.monto)),
+                                                                        style = FDType.Numeric.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Black),
+                                                                        color = FDColors.TextPrimary
+                                                                    )
+                                                                }
+                                                                Text(
+                                                                    text = (mov.motivo.ifBlank { mov.documento }).ifBlank { "Movimiento registrado" },
+                                                                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
+                                                                    color = FDColors.TextSecondary
+                                                                )
+                                                                Text(
+                                                                    text = (mov.fechaLegible.ifBlank { "—" }) + (if (mov.usuarioNombre.isNotBlank()) " · ${mov.usuarioNombre}" else ""),
+                                                                    style = FDType.Caption.copy(fontSize = 10.sp),
+                                                                    color = FDColors.TextTertiary
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
@@ -599,4 +810,13 @@ fun DatoRegistro(
             }
         }
     }
+}
+
+/** Traducción humana de cada tipo de movimiento del saldo a favor (R12: nada falso). */
+private fun etiquetaMovimientoSaldo(tipo: String): String = when (tipo) {
+    "SALDO_A_FAVOR_ANULACION" -> "Saldo a favor por anulación"
+    "SALDO_USADO_RECEPCION" -> "Usado en recepción"
+    "SALDO_COBRADO_EFECTIVO" -> "Cobrado en efectivo"
+    "SALDO_DECLARADO_PERDIDO" -> "Declarado perdido"
+    else -> tipo.ifBlank { "Movimiento" }
 }

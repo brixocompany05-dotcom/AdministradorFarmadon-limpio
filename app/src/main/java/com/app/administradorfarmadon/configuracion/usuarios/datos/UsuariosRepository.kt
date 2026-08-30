@@ -373,7 +373,7 @@ class UsuariosRepository(
                     llaveRecienNacida.delete().await()
                     Log.w(TAG, "U2 Rollback de acceso aplicado para $emailFinal tras fallo de guardado")
                 } catch (delEx: Exception) {
-                    Log.e(TAG, "CRÍTICO U2: no se pudo revertir la llave de $emailFinal; queda huérfana y requerirá soporte.", delEx)
+                    Log.e(TAG, "CRíTICO U2: no se pudo revertir la llave de $emailFinal; queda huérfana y requerirá soporte.", delEx)
                 }
             }
             throw e

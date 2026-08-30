@@ -41,13 +41,13 @@ object Paso1Validator {
         }
 
         // Teléfono: dígitos locales SIN el prefijo del país (prefijo es visual).
-        // Guarda universal E.164 (7–15 dígitos); la fuerte es del agente BRIXO.
+        // Guarda universal E.164 (7—“15 dígitos); la fuerte es del agente BRIXO.
         val telLimpio = state.telefono.filter { it.isDigit() }
         if (telLimpio.length !in 7..15) {
             errores["telefono"] = "Teléfono inválido (solo números, sin prefijo)"
         }
 
-        // Documento según la regla del país: se quitan espacios/puntos/guiones →
+        // Documento según la regla del país: se quitan espacios/puntos/guiones ──†’
         // longitud en rango + tipo correcto (números o alfanumérico).
         val docLimpio = state.ruc.trim().filter { it.isLetterOrDigit() }
         if (pais != null && (

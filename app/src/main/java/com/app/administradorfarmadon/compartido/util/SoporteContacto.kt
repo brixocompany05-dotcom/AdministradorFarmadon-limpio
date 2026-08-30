@@ -10,11 +10,11 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Canal ÚNICO de contacto con soporte BRIXO (fuente única de verdad).
+ * Canal íšNICO de contacto con soporte BRIXO (fuente única de verdad).
  * El número y el correo viven SOLO aquí: cambiar el contacto toca este
  * archivo y nada más (login y registro lo consumen igual).
  *
- * Cadena honesta de fallback: WhatsApp → correo → aviso visible si no hay
+ * Cadena honesta de fallback: WhatsApp ──†’ correo ──†’ aviso visible si no hay
  * ninguna app disponible (jamás un fallo silencioso).
  */
 object SoporteContacto {

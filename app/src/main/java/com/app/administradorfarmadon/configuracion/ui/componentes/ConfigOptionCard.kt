@@ -27,7 +27,7 @@ import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 
 /**
- * ConfigOptionCard PREMIUM 2026 — Enterprise Atrium
+ * ConfigOptionCard PREMIUM 2026 —” Enterprise Atrium
  * Altura geométrica, accent top único, icon 48dp, jerarquía completa.
  * Cero fijos: todo s.* . Cero Color.White: solo tokens.
  * Sensación: calma + precisión + profundidad sutil.
@@ -68,7 +68,7 @@ fun ConfigOptionCard(
         shadowElevation = if (habilitado) 1.dp else 0.dp
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Accent top — s.separatorH*3 (≈3dp adaptativo) línea sutil única
+            // Accent top —” s.separatorH*3 (──‰ˆ3dp adaptativo) línea sutil única
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

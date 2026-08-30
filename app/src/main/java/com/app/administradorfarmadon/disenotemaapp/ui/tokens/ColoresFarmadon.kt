@@ -8,40 +8,40 @@ import androidx.compose.ui.graphics.Color
  * Sistema de Colores Comercial y Armónico de Farmadon (Enterprise 2026).
  *
  * REGLAS FUNDAMENTALES:
- * 1. CERO AZUL CHILLÓN: No se usan azules saturados ni colores fluorescentes.
- * 2. ARMONÍA Y ALTO CONTRASTE: Tonalidades grafito, platino, carbón y obsidiana con
+ * 1. CERO AZUL CHILLí“N: No se usan azules saturados ni colores fluorescentes.
+ * 2. ARMONíA Y ALTO CONTRASTE: Tonalidades grafito, platino, carbón y obsidiana con
  *    estados semánticos sobrios (esmeralda, ámbar, carmesí).
  * 3. CONTROL TOTAL POR TEMA: Cada elemento (pantalla, card, texto, botón, sidebar,
  *    divisor y estados) tiene su token exacto tanto para Tema Claro como Oscuro.
  */
 @Immutable
 data class ColoresFarmadon(
-    // ── 1. Pantallas y Fondos ───────────────────────────────────────────
+    // ──”€──”€ 1. Pantallas y Fondos ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val fondoBase: Color,
     val fondoSidebar: Color,
     val fondoModal: Color,
     val fondoOverlay: Color,
 
-    // ── 2. Cards y Superficies ──────────────────────────────────────────
+    // ──”€──”€ 2. Cards y Superficies ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val cardBase: Color,
     val cardElevada: Color,
     val cardHover: Color,
     val cardBorde: Color,
 
-    // ── 3. Controles e Inputs (Legibilidad) ─────────────────────────────
+    // ──”€──”€ 3. Controles e Inputs (Legibilidad) ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val inputFondo: Color,
     val inputFondoFoco: Color,
     val inputBorde: Color,
     val inputTexto: Color,
     val inputPlaceholder: Color,
 
-    // ── 4. Jerarquía de Textos ─────────────────────────────────────────
+    // ──”€──”€ 4. Jerarquía de Textos ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val textoPrincipal: Color,
     val textoSecundario: Color,
     val textoTerciario: Color,
     val textoInvertido: Color,
 
-    // ── 4. Botones y Controles ──────────────────────────────────────────
+    // ──”€──”€ 4. Botones y Controles ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val botonPrimarioFondo: Color,
     val botonPrimarioTexto: Color,
     val botonSecundarioFondo: Color,
@@ -49,7 +49,7 @@ data class ColoresFarmadon(
     val botonSecundarioTexto: Color,
     val botonGhostTexto: Color,
 
-    // ── 5. Sidebar y Navegación ────────────────────────────────────────
+    // ──”€──”€ 5. Sidebar y Navegación ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val sidebarFondo: Color,
     val sidebarBorde: Color,
     val sidebarItemActivoFondo: Color,
@@ -58,13 +58,13 @@ data class ColoresFarmadon(
     val sidebarItemInactivoTexto: Color,
     val sidebarItemInactivoIcono: Color,
 
-    // ── 6. Bordes y Divisores ──────────────────────────────────────────
+    // ──”€──”€ 6. Bordes y Divisores ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val bordeSutil: Color,
     val bordeDefecto: Color,
     val bordeEnfoque: Color,
     val divisor: Color,
 
-    // ── 7. Estados Comerciales Sobrios (Sin estridencias) ───────────────
+    // ──”€──”€ 7. Estados Comerciales Sobrios (Sin estridencias) ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val estadoExito: Color,
     val exitoSutil: Color,
     val estadoAlerta: Color,
@@ -74,7 +74,7 @@ data class ColoresFarmadon(
     val estadoNeutral: Color,
     val neutroSutil: Color,
 
-    // ── 8. Efectos y Transparencias ────────────────────────────────────
+    // ──”€──”€ 8. Efectos y Transparencias ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
     val cristal: Color,
     val velo: Color,
     val esTemaClaro: Boolean
@@ -153,22 +153,22 @@ val ColoresOscurosFarmadon = ColoresFarmadon(
 /** Paleta Comercial Modo Claro (Platino Puro · Enterprise Mate) */
 val ColoresClarosFarmadon = ColoresFarmadon(
     // Fondos
-    fondoBase = Color(0xFFE2E2E7), // Gris Ceniza Mate (Baja fatiga, cero brillo)
+    fondoBase = Color(0xFFF8FAFC), // Neutro Níveo (Fondo de página limpio)
     fondoSidebar = Color(0xFFFFFFFF),
     fondoModal = Color(0xFFFFFFFF),
-    fondoOverlay = Color(0x66000000),
+    fondoOverlay = Color(0xB3000000), // Negro 70% para enfoque total (Enterprise Focus)
 
     // Cards
-    cardBase = Color(0xFFD1D5DB), // Gris Zinc (Panel sólido y descansado)
-    cardElevada = Color(0xFFBCC1C9), // Gris Mercurio para sub-secciones
-    cardHover = Color(0xFFB1B7C1),
-    cardBorde = Color(0xFF9CA3AF), // Borde más presente para definición
+    cardBase = Color(0xFFE2E8F0), // Gris Acero (Estructura sólida y definida)
+    cardElevada = Color(0xFFCBD5E1), // Gris Mercurio para sub-secciones
+    cardHover = Color(0xFFBCC1C9),
+    cardBorde = Color(0xFF94A3B8), // Borde más presente para definición
 
     // Inputs
-    inputFondo = Color(0xFFF9FAFB), // Casi blanco (Diferenciado de cardElevada)
-    inputFondoFoco = Color(0xFFF1F3F5), // Sutilmente más oscuro al enfocar (-3% aprox)
-    inputBorde = Color(0xFF6B7280),
-    inputTexto = Color(0xFF111827),
+    inputFondo = Color(0xFFFFFFFF), // Blanco puro para inputs
+    inputFondoFoco = Color(0xFFF1F3F5),
+    inputBorde = Color(0xFF64748B),
+    inputTexto = Color(0xFF0F172A),
     inputPlaceholder = Color(0xFF4B5563),
 
     // Textos
@@ -178,40 +178,40 @@ val ColoresClarosFarmadon = ColoresFarmadon(
     textoInvertido = Color(0xFFFFFFFF),
 
     // Botones
-    botonPrimarioFondo = Color(0xFF111827),
-    botonPrimarioTexto = Color(0xFFFFFFFF),
+    botonPrimarioFondo = Color(0xFF000000), // Negro Puro para máxima autoridad
+    botonPrimarioTexto = Color(0xFFFFFFFF), // Blanco Puro
     botonSecundarioFondo = Color(0xFFFFFFFF),
     botonSecundarioBorde = Color(0xFF9CA3AF),
-    botonSecundarioTexto = Color(0xFF111827),
+    botonSecundarioTexto = Color(0xFF000000),
     botonGhostTexto = Color(0xFF374151),
 
     // Sidebar
-    sidebarFondo = Color(0xFFDFDFE6), // Gris Perla Estructurado
-    sidebarBorde = Color(0xFFBCC1C9),
-    sidebarItemActivoFondo = Color(0xFFCDD1D9), // Selección "Hundida" Sólida
-    sidebarItemActivoTexto = Color(0xFF111827),
-    sidebarItemActivoIcono = Color(0xFF111827),
-    sidebarItemInactivoTexto = Color(0xFF4B5563),
-    sidebarItemInactivoIcono = Color(0xFF6B7280),
+    sidebarFondo = Color(0xFFF1F5F9),
+    sidebarBorde = Color(0xFFCBD5E1),
+    sidebarItemActivoFondo = Color(0xFFE2E8F0),
+    sidebarItemActivoTexto = Color(0xFF000000),
+    sidebarItemActivoIcono = Color(0xFF000000),
+    sidebarItemInactivoTexto = Color(0xFF64748B),
+    sidebarItemInactivoIcono = Color(0xFF64748B),
 
     // Bordes y Divisores
-    bordeSutil = Color(0xFFD1D5DB),
-    bordeDefecto = Color(0xFFBCC1C9), // Gris más oscuro para cajones de texto
-    bordeEnfoque = Color(0xFF111827), // Negro para cuando el usuario está escribiendo
-    divisor = Color(0xFFD1D5DB),
+    bordeSutil = Color(0xFFE2E8F0),
+    bordeDefecto = Color(0xFFCBD5E1),
+    bordeEnfoque = Color(0xFF000000),
+    divisor = Color(0xFFCBD5E1),
 
     // Estados
     estadoExito = Color(0xFF059669),
-    exitoSutil = Color(0xFFECFDF5), // Fondo de éxito mucho más limpio en blanco
+    exitoSutil = Color(0xFFECFDF5),
     estadoAlerta = Color(0xFFD97706),
     alertaSutil = Color(0xFFFFFBEB),
     estadoPeligro = Color(0xFFDC2626),
     peligroSutil = Color(0xFFFEF2F2),
-    estadoNeutral = Color(0xFF6B7280),
-    neutroSutil = Color(0xFFF9FAFB),
+    estadoNeutral = Color(0xFF64748B),
+    neutroSutil = Color(0xFFF1F5F9),
 
     // Efectos
-    cristal = Color(0x0F000000), // Un toque más de presencia en cristal claro
+    cristal = Color(0x0F000000),
     velo = Color(0xB3FFFFFF),
     esTemaClaro = true
 )

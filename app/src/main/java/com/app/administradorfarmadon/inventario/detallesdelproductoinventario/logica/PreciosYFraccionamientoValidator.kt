@@ -86,11 +86,13 @@ object PreciosYFraccionamientoValidator {
                 val empOkP = famPres.empaquesCompatibles.any { it.equals(pres.empaque, ignoreCase = true) }
                 val uniOkP = famPres.unidadesCompatibles.any { it.equals(pres.unidadMedida, ignoreCase = true) }
                 if (!empOkP || !uniOkP) {
+                    // Nace compatible: si la ficha nació bien, esta incoherencia es error de tipeo y debe bloquear
                     listaErrores.add(ErrorFila(
                         pres.presentacionId,
                         "Envase '${pres.empaque}' no combina con unidad '${pres.unidadMedida}'. Usa: ${famPres.empaquesCompatibles.take(3).joinToString(", ")}",
-                        esBloqueante = false
+                        esBloqueante = true
                     ))
+                    hayBloqueante = true
                 }
             }
 
@@ -131,7 +133,7 @@ object PreciosYFraccionamientoValidator {
                     if (pres.presentacionId != otra.presentacionId && pres.cantidad > otra.cantidad && pres.precioventa <= otra.precioventa && pres.precioventa > 0 && otra.precioventa > 0) {
                         listaErrores.add(ErrorFila(
                             pres.presentacionId,
-                            "Inconsistencia: Contiene más unidades (${pres.cantidad}) pero cuesta igual o menos que '${otra.nombre.ifBlank { "otra presentación" }}' — revisa promoción",
+                            "Inconsistencia: Contiene más unidades (${pres.cantidad}) pero cuesta igual o menos que '${otra.nombre.ifBlank { "otra presentación" }}' —” revisa promoción",
                             esBloqueante = false
                         ))
                     }

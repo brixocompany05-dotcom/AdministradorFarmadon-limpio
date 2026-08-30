@@ -44,6 +44,7 @@ data class RecepcionEntrega(
     val condicionPago: String = "Contado",
     val fechaVencimientoPago: String = "",
     val montoFactura: Double = 0.0,
+    val montoPagado: Double = 0.0,
     val items: List<ItemRecepcionEntrega> = emptyList(),
     val notas: String = "",
     val cierreConAjuste: Boolean = false
@@ -85,6 +86,22 @@ data class LoteExistenteVista(
     val vencimiento: String
 )
 
+/**
+ * Carrito compartido: total de unidades + quién aportó cada una.
+ * El total es la verdad del pedido; los contribuidores solo sirven para que
+ * el equipo vea "Carlos puso 2, Ana puso 1" y nadie duplique ni pise a otro.
+ */
+data class CarritoProductoVista(
+    val cantidad: Int = 0,
+    val contribuidores: Map<String, Int> = emptyMap()
+)
+
+/** Foto viva del carrito compartido: totales + quién aportó cada producto. */
+data class CarritoReposicionSnapshot(
+    val totales: Map<String, Map<String, Int>> = emptyMap(),
+    val contribuidores: Map<String, Map<String, Map<String, Int>>> = emptyMap()
+)
+
 class PedidoCompraRepository(
     private val firestore: FirebaseFirestore = FarmadonFirestore.db
 ) {
@@ -99,15 +116,14 @@ class PedidoCompraRepository(
         return Pair(farmaciaId, sucursalId)
     }
 
-    // ══ CARRITO DE REPOSICIÓN COMPARTIDO EN FIRESTORE ══
+    // ──•──• CARRITO DE REPOSICIí“N COMPARTIDO EN FIRESTORE ──•──•
     // Un documento por proveedor. Todos los usuarios de la sucursal ven el mismo carrito.
     // Estructura: {items: {productoId: cantidad}, actualizadoPor: email}
 
-    fun observarCarritosReposicion(onErrorEscucha: ((String) -> Unit)? = null): Flow<Map<String, Map<String, Int>>> = callbackFlow {
+    fun observarCarritosReposicion(onErrorEscucha: ((String) -> Unit)? = null): Flow<CarritoReposicionSnapshot> = callbackFlow {
         val ids = obtenerFarmaciaYSucursal()
         if (ids == null) {
-            trySend(emptyMap())
-            close()
+            close(IllegalStateException("No hay una farmacia y sucursal activas para cargar el carrito."))
             return@callbackFlow
         }
         val (farmaciaId, sucursalId) = ids
@@ -116,12 +132,13 @@ class PedidoCompraRepository(
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.e(TAG, "Error escuchando carrito reposición: ${error.message}", error)
-                    onErrorEscucha?.invoke(error.message ?: "Sin detalle del servidor")
-                    trySend(emptyMap())
+                    onErrorEscucha?.invoke(error.message ?: error.toString())
+                    close(error)
                     return@addSnapshotListener
                 }
 
                 val mapa = mutableMapOf<String, MutableMap<String, Int>>()
+                val mapaContribuidores = mutableMapOf<String, MutableMap<String, Map<String, Int>>>()
                 snapshot?.documents?.forEach { doc ->
                     // La clave para la pantalla es el NOMBRE REAL guardado en el campo,
                     // jamás el ID del documento (que va saneado y puede diferir).
@@ -129,13 +146,23 @@ class PedidoCompraRepository(
                     @Suppress("UNCHECKED_CAST")
                     val itemsRaw = doc.get("items") as? Map<*, *> ?: return@forEach
                     val carroProv = mutableMapOf<String, Int>()
+                    val contribProv = mutableMapOf<String, Map<String, Int>>()
                     itemsRaw.forEach { (clave, valor) ->
-                        val c = (valor as? Number)?.toInt() ?: 0
+                        val item = valor as? Map<*, *>
+                        val c = (item?.get("cantidad") as? Number)?.toInt()
+                            ?: (valor as? Number)?.toInt()
+                            ?: 0
+                        @Suppress("UNCHECKED_CAST")
+                        val contribuidores = (item?.get("contribuidores") as? Map<String, Any>)
+                            ?.mapValues { (_, v) -> (v as? Number)?.toInt() ?: 0 }
+                            ?: emptyMap()
                         if (c > 0 && clave != null) carroProv[clave.toString()] = c
+                        if (contribuidores.isNotEmpty() && clave != null) contribProv[clave.toString()] = contribuidores
                     }
                     if (carroProv.isNotEmpty()) mapa[provNombre] = carroProv
+                    if (contribProv.isNotEmpty()) mapaContribuidores[provNombre] = contribProv
                 }
-                trySend(mapa)
+                trySend(CarritoReposicionSnapshot(mapa, mapaContribuidores))
             }
 
         awaitClose { listener.remove() }
@@ -150,39 +177,83 @@ class PedidoCompraRepository(
         proveedorNombre.trim().replace("/", "-")
 
     /**
-     * Escritura POR PRODUCTO del carrito compartido (multiusuario seguro):
-     * cada producto escribe su propio casillero y Firestore fusiona — dos usuarios
-     * editando productos distintos jamás se borran mutuamente.
-     * cambios: productoId -> nueva cantidad (cantidad <= 0 quita el producto).
+     * Escritura POR PRODUCTO del carrito compartido, ATÓMICA (multiusuario seguro).
+     *
+     * Cada producto vive en su propio casillero con { cantidad, contribuidores }.
+     * La escritura se hace dentro de una transacción que LEE la verdad vigente y
+     * aplica solo la DIFERENCIA respecto a lo que la persona tocó. Dos usuarios que
+     * suman al mismo producto al mismo tiempo jamás se pisan: el total siempre suma
+     * ambas decisiones y cada contribuidor registra cuánto puso.
+     *
+     * cambios: productoId -> cantidad objetivo (0 quita el producto).
      */
-    suspend fun guardarProductosCarrito(proveedorNombre: String, cambios: Map<String, Int>, farmaciaIdParam: String? = null, sucursalIdParam: String? = null): Boolean {
+    suspend fun guardarProductosCarrito(
+        proveedorNombre: String,
+        cambios: Map<String, Int>,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null,
+        usuarioId: String = "",
+        usuarioNombre: String = "",
+        esDelta: Boolean = true
+    ): Boolean {
         val ids = if (farmaciaIdParam != null && sucursalIdParam != null) Pair(farmaciaIdParam, sucursalIdParam) else obtenerFarmaciaYSucursal() ?: return false
         val (farmaciaId, sucursalId) = ids
         if (proveedorNombre.isBlank() || cambios.isEmpty()) return true
         val docRef = FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId).document(claveCarritoDoc(proveedorNombre))
         var todoOk = true
-        for ((productoId, cantidad) in cambios) {
+        val usuarioKey = usuarioId.ifBlank { usuarioNombre.ifBlank { "Sistema" } }
+        for ((productoId, valor) in cambios) {
             try {
-                if (cantidad > 0) {
-                    // merge escribe SOLO el casillero de este producto (y crea el documento
-                    // con su nombre real si aún no existe) sin pisar lo de otros usuarios.
-                    docRef.set(
+                // Transacción atómica por producto: lee la verdad actual y aplica la
+                // diferencia. Con esDelta=true el valor ES el incremento del clic (+1/-1),
+                // así dos usuarios que suman al mismo producto al mismo tiempo jamás se
+                // pisan: la transacción que pierde la carrera se reintenta y suma encima.
+                // Con esDelta=false el valor es un objetivo absoluto (rellenar/remover).
+                firestore.runTransaction { tx ->
+                    val snap = tx.get(docRef)
+                    @Suppress("UNCHECKED_CAST")
+                    val itemsRaw = (snap.get("items") as? Map<String, Any>) ?: emptyMap()
+                    val itemActual = itemsRaw[productoId] as? Map<*, *>
+                    val cantidadVigente = (itemActual?.get("cantidad") as? Number)?.toInt() ?: 0
+                    @Suppress("UNCHECKED_CAST")
+                    val contribuidoresActuales = (itemActual?.get("contribuidores") as? Map<String, Any>)
+                        ?.mapValues { (_, v) -> (v as? Number)?.toInt() ?: 0 }
+                        ?: emptyMap()
+
+                    val aporteActual = contribuidoresActuales[usuarioKey] ?: 0
+                    val delta = if (esDelta) valor else valor - cantidadVigente
+                    val nuevaCantidad = (cantidadVigente + delta).coerceAtLeast(0)
+                    val nuevoAporte = (aporteActual + delta).coerceAtLeast(0)
+
+                    val nuevoContribuidores = contribuidoresActuales.toMutableMap()
+                    if (nuevoAporte <= 0) {
+                        nuevoContribuidores.remove(usuarioKey)
+                    } else {
+                        nuevoContribuidores[usuarioKey] = nuevoAporte
+                    }
+
+                    val itemsNuevos = itemsRaw.toMutableMap()
+                    if (nuevaCantidad <= 0) {
+                        itemsNuevos.remove(productoId)
+                    } else {
+                        itemsNuevos[productoId] = mapOf(
+                            "cantidad" to nuevaCantidad,
+                            "contribuidores" to nuevoContribuidores
+                        )
+                    }
+
+                    tx.set(
+                        docRef,
                         mapOf(
-                            "items" to mapOf(productoId to cantidad),
+                            "items" to itemsNuevos,
                             "proveedorNombre" to proveedorNombre.trim()
                         ),
                         com.google.firebase.firestore.SetOptions.merge()
-                    ).await()
-                } else {
-                    try {
-                        docRef.update("items.$productoId", FieldValue.delete()).await()
-                    } catch (e: FirebaseFirestoreException) {
-                        if (e.code != FirebaseFirestoreException.Code.NOT_FOUND) throw e
-                    }
-                }
+                    )
+                }.await()
             } catch (e: Exception) {
                 todoOk = false
-                Log.e(TAG, "Error sincronizando carrito ($proveedorNombre / $productoId = $cantidad): ${e.message}", e)
+                Log.e(TAG, "Error sincronizando carrito ($proveedorNombre / $productoId = $valor): ${e.message}", e)
             }
         }
         return todoOk
@@ -203,7 +274,7 @@ class PedidoCompraRepository(
     /**
      * Reserva atómica del borrador compartido para envío:
      * retorna la versión VIGENTE de los items (con cambios de otros usuarios) y retira el borrador.
-     * Éxito con mapa vacío = el borrador ya no existe (otro usuario lo envió o lo vació).
+     * í‰xito con mapa vacío = el borrador ya no existe (otro usuario lo envió o lo vació).
      * Failure = falla real de red/servidor (jamás se confunde con "otro usuario").
      */
     suspend fun consumirCarritoParaEnvio(proveedorNombre: String): Result<Map<String, Int>> {
@@ -220,7 +291,10 @@ class PedidoCompraRepository(
 
                 val carro = mutableMapOf<String, Int>()
                 itemsRaw.forEach { (clave, valor) ->
-                    val cantidad = (valor as? Number)?.toInt() ?: 0
+                    val item = valor as? Map<*, *>
+                    val cantidad = (item?.get("cantidad") as? Number)?.toInt()
+                        ?: (valor as? Number)?.toInt()
+                        ?: 0
                     if (cantidad > 0 && clave != null) carro[clave.toString()] = cantidad
                 }
                 if (carro.isNotEmpty()) tx.delete(docRef)
@@ -239,8 +313,7 @@ class PedidoCompraRepository(
     fun observarPedidosRecientes(onErrorEscucha: ((String) -> Unit)? = null): Flow<List<PedidoCompra>> = callbackFlow {
         val ids = obtenerFarmaciaYSucursal()
         if (ids == null) {
-            trySend(emptyList())
-            close()
+            close(IllegalStateException("No hay una farmacia y sucursal activas para cargar pedidos."))
             return@callbackFlow
         }
         val (farmaciaId, sucursalId) = ids
@@ -252,8 +325,8 @@ class PedidoCompraRepository(
         val listener = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 Log.e(TAG, "Error escuchando pedidos_compra: ${error.message}", error)
-                onErrorEscucha?.invoke(error.message ?: "Sin detalle del servidor")
-                trySend(emptyList())
+                onErrorEscucha?.invoke(error.message ?: error.toString())
+                close(error)
                 return@addSnapshotListener
             }
 
@@ -293,7 +366,7 @@ class PedidoCompraRepository(
             val ahoraMs = HoraServidor.ahoraMs()
             val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
             val fechaLegible = sdf.format(Date(ahoraMs))
-            // Últimos 8 dígitos del ms del servidor: identidad única por ~115 días,
+            // íšltimos 8 dígitos del ms del servidor: identidad única por ~115 días,
             // jamás el módulo de 1e6 que repetía numeración cada ~17 minutos.
             val numeroGenerado = if (pedido.numeroOrden.isNotBlank()) pedido.numeroOrden else "ORD-${ahoraMs.toString().takeLast(8)}"
 
@@ -344,6 +417,35 @@ class PedidoCompraRepository(
     }
 
     /**
+     * Búsqueda puntual de decisión (R8): pedido pendiente del MISMO proveedor para un producto.
+     * Solo orienta el flujo (vincular o ingreso suelto); la transacción final re-verifica.
+     */
+    suspend fun buscarPedidoPendienteParaIngreso(
+        productoId: String,
+        proveedorId: String,
+        proveedorNombre: String
+    ): PedidoCompra? {
+        val ids = obtenerFarmaciaYSucursal() ?: return null
+        val (farmaciaId, sucursalId) = ids
+        if (productoId.isBlank()) return null
+        return try {
+            val snap = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId)
+                .whereIn("estado", listOf("ENVIADO", "ENTREGA_PARCIAL"))
+                .limit(50)
+                .get()
+                .await()
+            snap.documents.mapNotNull { mapearPedido(it) }.firstOrNull { pedido ->
+                val mismoProveedor = (proveedorId.isNotBlank() && pedido.proveedorId == proveedorId) ||
+                    (proveedorNombre.isNotBlank() && pedido.proveedorNombre.equals(proveedorNombre.trim(), ignoreCase = true))
+                mismoProveedor && pedido.items.any { it.productoId == productoId && it.saldoPendiente > 0 }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error buscando pedido pendiente para ingreso (producto=$productoId): ${e.message}", e)
+            null
+        }
+    }
+
+    /**
      * Asienta de forma atómica y completa la recepción de mercadería física de una orden:
      * 1. Actualiza stock y lote FEFO de cada producto en inventario.
      * 2. Registra los movimientos en Kardex (ENTRADA_COMPRA).
@@ -356,115 +458,33 @@ class PedidoCompraRepository(
         condicionPago: String,
         fechaVencimientoPago: String,
         montoFactura: Double,
+        montoPagado: Double = 0.0,
+        metodoPago: String = "",
+        pagosRecepcion: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle> = emptyList(),
+        saldoAFavorUsado: Double = 0.0,
         itemsRecepcion: List<ItemRecepcionEntrega>,
         cerrarConAjuste: Boolean = false,
         usuarioEmail: String = "",
         usuarioNombre: String = "",
         idempotenciaId: String = ""
     ): Result<Unit> {
-        // Fuente única — delega al repositorio unificado (1 tx para lote+stock+kardex+factura inmutable+pedido)
+        // Fuente única —” delega al repositorio unificado (1 tx para lote+stock+kardex+factura inmutable+pedido)
         return IngresoMercaderiaRepository(firestore).ingresar(
             pedidoId = pedidoId,
             numeroFactura = numeroFactura,
             condicionPago = condicionPago,
             fechaVencimientoPago = fechaVencimientoPago,
             montoFactura = montoFactura,
+            montoPagadoEnRecepcion = montoPagado,
+            metodoPago = metodoPago,
+            pagosRecepcion = pagosRecepcion,
+            saldoAFavorUsado = saldoAFavorUsado,
             items = itemsRecepcion,
             cerrarConAjuste = cerrarConAjuste,
             usuarioEmail = usuarioEmail,
             usuarioNombre = usuarioNombre,
             idempotenciaId = idempotenciaId
         )
-    }
-
-    suspend fun conciliarIngresoDeStockIndividual(
-        productoId: String,
-        proveedorId: String,
-        cantidadIngresada: Int,
-        numeroFactura: String
-    ): Result<Unit> {
-        // Blindaje de vida real: si el ingreso no tiene proveedor identificado
-        // (devolución, ajuste, donación), NO se asigna a ninguna orden pendiente.
-        // Conciliar sin origen produce órdenes mentirosas y droguerías confundidas.
-        if (proveedorId.isBlank()) return Result.success(Unit)
-        val ids = obtenerFarmaciaYSucursal() ?: return Result.failure(IllegalStateException("Sin sesión activa."))
-        val (farmaciaId, sucursalId) = ids
-        if (productoId.isBlank() || cantidadIngresada <= 0) return Result.success(Unit)
-
-        return try {
-            val pedidosPendientesSnap = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId)
-                .whereIn("estado", listOf("ENVIADO", "ENTREGA_PARCIAL"))
-                .get()
-                .await()
-
-            val pedidos = pedidosPendientesSnap.documents.mapNotNull { mapearPedido(it) }
-
-            // Conciliación ESTRICTA por proveedor: la mercadería de una droguería jamás
-            // descuenta la orden de OTRA droguería. Si el proveedor del ingreso no tiene
-            // orden pendiente para este producto, no se concilia nada: la orden verdadera
-            // se resuelve por su propio camino (cancelar / cerrar con ajuste / descartar faltante).
-            val pedidoMatch = pedidos.firstOrNull { p ->
-                p.proveedorId == proveedorId &&
-                        p.items.any { it.productoId == productoId && it.saldoPendiente > 0 }
-            }
-
-            if (pedidoMatch != null) {
-                val docRef = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId).document(pedidoMatch.id)
-                val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-                val ahoraLegible = sdf.format(Date(HoraServidor.ahoraMs()))
-
-                firestore.runTransaction { tx ->
-                    val snapFresh = tx.get(docRef)
-                    val pedidoFresco = mapearPedido(snapFresh)
-                        ?: throw IllegalStateException("La orden conciliada ya no existe.")
-                    if (pedidoFresco.estado !in listOf("ENVIADO", "ENTREGA_PARCIAL")) {
-                        return@runTransaction
-                    }
-
-                    var restanteIngreso = cantidadIngresada
-                    val updatedItems = pedidoFresco.items.map { item ->
-                        if (item.productoId == productoId && restanteIngreso > 0 && item.saldoPendiente > 0) {
-                            val tomar = minOf(item.saldoPendiente, restanteIngreso)
-                            restanteIngreso -= tomar
-                            item.copy(cantidadRecibida = item.cantidadRecibida + tomar)
-                        } else {
-                            item
-                        }
-                    }
-
-                    val todasCompletas = updatedItems.all { it.cantidadRecibida >= it.cantidad }
-                    val nuevoEstado = if (todasCompletas) "RECIBIDO" else "ENTREGA_PARCIAL"
-
-                    val itemsMap = updatedItems.map { item ->
-                        mapOf(
-                            "productoId" to item.productoId,
-                            "productoNombre" to item.productoNombre,
-                            "presentacion" to item.presentacion,
-                            "categoria" to item.categoria,
-                            "codigo" to item.codigo,
-                            "precioCompra" to item.precioCompra,
-                            "cantidad" to item.cantidad,
-                            "cantidadRecibida" to item.cantidadRecibida
-                        )
-                    }
-
-                    tx.update(
-                        docRef,
-                        mapOf(
-                            "items" to itemsMap,
-                            "estado" to nuevoEstado,
-                            "fechaRecepcion" to ahoraLegible,
-                            "actualizadoEl" to FieldValue.serverTimestamp()
-                        )
-                    )
-                }.await()
-            }
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error conciliando ingreso de stock individual: ${e.message}", e)
-            Result.failure(e)
-        }
     }
 
     /**
@@ -578,7 +598,7 @@ class PedidoCompraRepository(
      * ya recibió mercadería o cerró la orden, se rechaza con la verdad real.
      */
     /**
-     * Índice de lotes EXISTENTES para los productos de una orden (lectura puntual al abrir
+     * índice de lotes EXISTENTES para los productos de una orden (lectura puntual al abrir
      * la recepción). Llave = número de lote en mayúsculas. Si falla la lectura retorna vacío:
      * el flujo de recepción continúa normal, solo sin avisos inteligentes.
      */
@@ -691,6 +711,7 @@ class PedidoCompraRepository(
                     condicionPago = r["condicionPago"] as? String ?: "Contado",
                     fechaVencimientoPago = r["fechaVencimientoPago"] as? String ?: "",
                     montoFactura = (r["montoFactura"] as? Number)?.toDouble() ?: 0.0,
+                    montoPagado = (r["montoPagado"] as? Number)?.toDouble() ?: 0.0,
                     items = rItems,
                     notas = r["notas"] as? String ?: "",
                     cierreConAjuste = r["cierreConAjuste"] as? Boolean ?: false

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Place
@@ -50,6 +51,7 @@ enum class SeccionConfiguracion(
     UBICACION("Ubicación y Almacén", "Estante, vitrina o pasillo asignado", Icons.Outlined.Place),
     STOCK_MINIMO("Alerta de Stock Mínimo", "Umbral crítico de reabastecimiento", Icons.Outlined.NotificationsActive),
     ALERTA_VENCIMIENTO("Alerta Preventiva de Vencimiento", "Anticipación para canjes y devoluciones", Icons.Outlined.HourglassBottom),
+    CONSUMO_FEFO("Consumo de Lotes (FEFO)", "Orden automático por vencimiento o elección manual", Icons.Outlined.DateRange),
     ESTADO_OPERATIVO("Estado de Venta en Mostrador", "Habilitado o pausado para facturación", Icons.Outlined.ToggleOn),
     CODIGO_BARRAS("Código de Barras y Etiquetas", "Generador, escáner e impresión de góndola", Icons.Outlined.QrCode)
 }
@@ -194,7 +196,7 @@ fun AutoSaveBadge(
                 FDColors.Success.copy(alpha = 0.12f),
                 FDColors.Success.copy(alpha = 0.4f),
                 FDColors.Success,
-                "✓ Guardado automáticamente"
+                "──œ“ Guardado automáticamente"
             )
             EstadoAutoGuardado.ERROR -> listOf(
                 FDColors.Error.copy(alpha = 0.12f),

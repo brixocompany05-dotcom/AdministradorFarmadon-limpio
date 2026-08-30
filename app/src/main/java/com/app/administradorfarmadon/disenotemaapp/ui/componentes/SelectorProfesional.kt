@@ -22,7 +22,7 @@ import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
  * Control de Selección Profesional (Estética Tablet SaaS).
  * Rompe el patrón de "input de texto" para ofrecer una experiencia de configuración premium.
  *
- * Diseño Horizontal: [Icono] Etiqueta ───────────── [Valor Seleccionado] > */
+ * Diseño Horizontal: [Icono] Etiqueta ——— [Valor Seleccionado] > */
 @Composable
 fun FDSelectorProfesional(
     etiqueta: String,

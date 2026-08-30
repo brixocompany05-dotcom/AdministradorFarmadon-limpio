@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.editarproductosinventario.logica
+﻿package com.app.administradorfarmadon.inventario.editarproductosinventario.logica
 
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques

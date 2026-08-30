@@ -29,6 +29,7 @@ class SucursalesViewModel @JvmOverloads constructor(
 
     // Escuchas en vivo (R8): se cancelan limpio al salir de la pantalla.
     private val jobsObservacion = mutableListOf<Job>()
+    private var jobMetodosPrincipal: Job? = null
 
     init {
         cargarDatos()
@@ -37,12 +38,14 @@ class SucursalesViewModel @JvmOverloads constructor(
     override fun onCleared() {
         jobsObservacion.forEach { it.cancel() }
         jobsObservacion.clear()
+        jobMetodosPrincipal?.cancel()
         super.onCleared()
     }
 
     fun cargarDatos() {
         jobsObservacion.forEach { it.cancel() }
         jobsObservacion.clear()
+        jobMetodosPrincipal?.cancel()
 
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true) }
@@ -84,6 +87,9 @@ class SucursalesViewModel @JvmOverloads constructor(
                         }
                     }
                     .collect { lista ->
+                    // Orden de creación: la más antigua primero (SEDE-01, SEDE-02…).
+                    // El código interno es secuencial y nunca miente sobre el orden.
+                    val ordenada = lista.sortedBy { it.codigoInterno }
                     _uiState.update { currentState ->
                         val seleccionada = if (currentState.esModoCreacion) {
                             null
@@ -94,9 +100,9 @@ class SucursalesViewModel @JvmOverloads constructor(
                         }
 
                         val updated = currentState.copy(
-                            sucursales = lista,
+                            sucursales = ordenada,
                             cargando = false,
-                            mensajeError = if (lista.isNotEmpty() && currentState.mensajeError?.contains("cargar", ignoreCase = true) == true) null else currentState.mensajeError,
+                            mensajeError = if (ordenada.isNotEmpty() && currentState.mensajeError?.contains("cargar", ignoreCase = true) == true) null else currentState.mensajeError,
                             sucursalSeleccionada = seleccionada
                         )
 
@@ -117,6 +123,23 @@ class SucursalesViewModel @JvmOverloads constructor(
                         }
                     }
                 }
+            }
+
+            // Métodos de pago configurados en la Sede Principal: son la plantilla
+            // real de lo que una sede nueva puede heredar al nacer.
+            jobMetodosPrincipal = launch {
+                com.app.administradorfarmadon.configuracion.metodospago.datos.MetodosPagoRepository()
+                    .observarMetodosPago("principal")
+                    .catch { e ->
+                        Log.e("SucursalesViewModel", "Error observando métodos de la principal: ${e.message}", e)
+                    }
+                    .collect { instancias ->
+                        val tipos = instancias
+                            .filter { it.activa }
+                            .mapNotNull { it.tipoId.takeIf { t -> t.isNotBlank() } }
+                            .toSet()
+                        _uiState.update { it.copy(principalPagosDisponibles = tipos) }
+                    }
             }
         }
     }
@@ -220,20 +243,11 @@ class SucursalesViewModel @JvmOverloads constructor(
                 formLatitud = null,
                 formLongitud = null,
                 formActiva = true,
+                formPagosSeleccionados = com.app.administradorfarmadon.configuracion.metodospago.modelo.TIPOS_PAGO_FIJOS.map { it.id }.toSet(),
                 formErrores = emptyMap(),
                 mensajeExito = null,
                 mensajeError = null
             )
-        }
-    }
-
-    fun cancelarCreacion() {
-        val s = _uiState.value
-        val primera = s.sucursales.firstOrNull()
-        if (primera != null) {
-            seleccionarSucursal(primera)
-        } else {
-            _uiState.update { it.copy(esModoCreacion = false) }
         }
     }
 
@@ -253,6 +267,14 @@ class SucursalesViewModel @JvmOverloads constructor(
 
     fun onActivaChanged(activa: Boolean) {
         _uiState.update { it.copy(formActiva = activa) }
+    }
+
+    fun onPagoSeleccionadoChanged(tipoId: String, seleccionado: Boolean) {
+        _uiState.update { current ->
+            val actuales = current.formPagosSeleccionados.toMutableSet()
+            if (seleccionado) actuales.add(tipoId) else actuales.remove(tipoId)
+            current.copy(formPagosSeleccionados = actuales)
+        }
     }
 
     fun setFiltroEstado(estado: String) {
@@ -291,11 +313,12 @@ class SucursalesViewModel @JvmOverloads constructor(
             errores["nombre"] = "Ya tienes una sede registrada con este nombre"
         }
 
-        if (direccionTrim.isBlank()) {
+        // Las sedes hijas no necesitan dirección; solo la principal la tiene.
+        if (!s.esModoCreacion && direccionTrim.isBlank()) {
             errores["direccion"] = "La dirección física de la sede es obligatoria"
-        } else if (direccionTrim.length < 5) {
+        } else if (!s.esModoCreacion && direccionTrim.length < 5) {
             errores["direccion"] = "Ingresa una dirección completa (calle, número o referencia)"
-        } else if (s.sucursales.any { it.direccion.trim().equals(direccionTrim, ignoreCase = true) && it.id != idAguardar }) {
+        } else if (direccionTrim.isNotBlank() && s.sucursales.any { it.direccion.trim().equals(direccionTrim, ignoreCase = true) && it.id != idAguardar }) {
             errores["direccion"] = "Ya tienes una sede registrada en esta misma dirección"
         }
 
@@ -308,6 +331,10 @@ class SucursalesViewModel @JvmOverloads constructor(
 
         if (responsableTrim.isBlank()) {
             errores["responsable"] = "El nombre del responsable o encargado es obligatorio"
+        }
+
+        if (s.esModoCreacion && s.formPagosSeleccionados.isEmpty()) {
+            errores["pagos"] = "Elige al menos un método de pago para esta sede"
         }
 
         if (errores.isNotEmpty()) {
@@ -334,6 +361,9 @@ class SucursalesViewModel @JvmOverloads constructor(
         val esSedePrincipal = !s.esModoCreacion && s.sucursalSeleccionada?.esPrincipal == true
         val codigoFijo = if (esSedePrincipal) "SEDE-01" else (s.sucursalSeleccionada?.codigoInterno?.ifBlank { s.formCodigoInterno } ?: s.formCodigoInterno).trim()
         val estadoActivoReal = if (esSedePrincipal) true else s.formActiva
+        val pagosSucursalNueva: Set<String>? = if (s.esModoCreacion) {
+            s.formPagosSeleccionados
+        } else null
 
         // Bloqueo inmediato del botón (<50ms)
         _uiState.update { it.copy(guardando = true, mensajeError = null, mensajeExito = null) }
@@ -353,7 +383,7 @@ class SucursalesViewModel @JvmOverloads constructor(
                     codigoInterno = codigoFijo
                 )
 
-                repository.guardarSucursal(clienteId, sucursalAguardar)
+                repository.guardarSucursal(clienteId, sucursalAguardar, pagosSucursalNueva)
 
                 _uiState.update {
                     it.copy(

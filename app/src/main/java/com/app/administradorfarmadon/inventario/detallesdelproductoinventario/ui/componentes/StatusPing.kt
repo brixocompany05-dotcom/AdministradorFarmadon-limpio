@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui.componentes
+﻿package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui.componentes
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background

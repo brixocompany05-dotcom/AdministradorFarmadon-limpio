@@ -22,7 +22,7 @@ sealed interface InventarioCargaEstado {
 }
 
 /**
- * Estados honestos para búsqueda server-side — 100% en ViewModel.
+ * Estados honestos para búsqueda server-side —” 100% en ViewModel.
  * Nunca filtra local; Repo hace whereGreaterThanOrEqualTo...limit(50).
  * Cargando / BusquedaVacia (alias BusquedaVacía) / Error
  */
@@ -30,25 +30,25 @@ sealed interface InventarioBusquedaEstado {
     data object Idle : InventarioBusquedaEstado
     data object Cargando : InventarioBusquedaEstado
     data object BusquedaVacia : InventarioBusquedaEstado
-    data object BusquedaVacía : InventarioBusquedaEstado
+    data object BusquedaVaciaAlias : InventarioBusquedaEstado
     data class Error(val mensaje: String) : InventarioBusquedaEstado
     data class Exito(val resultados: List<PharmProduct>) : InventarioBusquedaEstado
 }
 
 @Immutable
 data class InventarioUiState(
-    // Estado honesto central — gobierna toda la pantalla
+    // Estado honesto central —” gobierna toda la pantalla
     val estadoCarga: InventarioCargaEstado = InventarioCargaEstado.Cargando,
     // Alias compatibilidad con código que lee isLoading / errorMessage
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
-    // Lista acumulada silenciosa — crece con cada página de 50, UI ve infinita
+    // Lista acumulada silenciosa —” crece con cada página de 50, UI ve infinita
     val productsList: List<PharmProduct> = emptyList(),
     val listaAcumulada: List<PharmProduct> = emptyList(),
     // Cursor para paginación Firestore: último DocumentSnapshot de la página anterior
     val ultimoDoc: DocumentSnapshot? = null,
     val ultimoDocumento: DocumentSnapshot? = null,
-    // Flag silencioso de carga incremental — dispara pie "Cargando más..."
+    // Flag silencioso de carga incremental —” dispara pie "Cargando más..."
     val isLoadingMore: Boolean = false,
     val isNextPageLoading: Boolean = false,
     // Búsqueda con debounce 300ms (gestionado en ViewModel, reflejado aquí)
@@ -81,11 +81,11 @@ data class InventarioUiState(
     val pendingNewProductIds: Set<String> = emptySet(),
     val isRealtimeConnected: Boolean = false,
     val activeProductsCount: Int = 0,
-    // Compatibilidad paginación visible deprecada — no usada por UI infinita
+    // Compatibilidad paginación visible deprecada —” no usada por UI infinita
     val currentPage: Int = 1,
     val itemsPerPage: Int = 10,
     val totalPages: Int = 1,
-    // Búsqueda server-side silenciosa — estados honestos 300ms debounce
+    // Búsqueda server-side silenciosa —” estados honestos 300ms debounce
     val busquedaEstado: InventarioBusquedaEstado = InventarioBusquedaEstado.Idle,
     val isEnBusqueda: Boolean = false,
     val resultadosBusqueda: List<PharmProduct> = emptyList(),

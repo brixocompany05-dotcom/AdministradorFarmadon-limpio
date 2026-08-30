@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.suscripcion.modelo
+﻿package com.app.administradorfarmadon.suscripcion.modelo
 
 import com.google.firebase.firestore.DocumentSnapshot
 

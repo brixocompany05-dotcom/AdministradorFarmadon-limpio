@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.configuracion.sucursales.logica
+﻿package com.app.administradorfarmadon.configuracion.sucursales.logica
 
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 
@@ -30,6 +30,12 @@ data class SucursalesUiState(
     val formLatitud: Double? = null,
     val formLongitud: Double? = null,
     val formActiva: Boolean = true,
+    // Métodos de pago de la sucursal nueva. Todos vienen marcados por defecto;
+    // el administrador solo desmarca los que esta sede no debe manejar.
+    val formPagosSeleccionados: Set<String> = emptySet(),
+    // Tipos de pago que la Sede Principal tiene configurados (con cuenta activa).
+    // Se usan para avisar qué marcado no se podrá copiar al nacer.
+    val principalPagosDisponibles: Set<String> = emptySet(),
     val formErrores: Map<String, String> = emptyMap()
 ) {
     val totalSucursales: Int get() = sucursales.size
@@ -44,6 +50,10 @@ data class SucursalesUiState(
 
     val puedeCrearMas: Boolean get() = totalSucursales < maxSucursales
     val porcentajeOcupado: Float get() = if (maxSucursales > 0) (totalSucursales.toFloat() / maxSucursales.toFloat()).coerceIn(0f, 1f) else 1f
+
+    /** Métodos marcados que NO podrán copiarse porque la principal no los tiene configurados. */
+    val pagosMarcadosSinDisponibilidad: Set<String>
+        get() = formPagosSeleccionados - principalPagosDisponibles
 
     val hayCambiosSinGuardar: Boolean
         get() {

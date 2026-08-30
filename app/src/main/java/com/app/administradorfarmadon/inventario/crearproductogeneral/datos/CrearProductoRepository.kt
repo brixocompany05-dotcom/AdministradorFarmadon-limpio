@@ -80,14 +80,14 @@ class CrearProductoRepository(
         val actorEmail = auth.currentUser?.email ?: "usuario@farmacia"
         val effectiveSucursalId = sucursalId.ifBlank { SessionManager.sucursalIdEfectiva }
 
-        val catFinal = producto.categoriaNombre.ifBlank { "General" }
-        val empFinal = producto.empaque.ifBlank { "Caja" }
+        val catFinal = producto.categoriaNombre.trim().ifBlank { "N/A" }
+        val empFinal = producto.empaque.trim().ifBlank { "N/A" }
         // Blindaje de coherencia: envase + unidad deben pertenecer a la misma familia
         val uniTemp = producto.contenidoUnidad.ifBlank {
             val (_, u) = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.separarContenidoYUnidad(producto.medidaConcentracion)
             u
         }
-        if (empFinal.isNotBlank() && uniTemp.isNotBlank()) {
+        if (empFinal.isNotBlank() && uniTemp.isNotBlank() && empFinal != "N/A" && uniTemp != "N/A") {
             val fam = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.detectarFamiliaFisica(empFinal, uniTemp)
             val empOk2 = fam.empaquesCompatibles.any { it.equals(empFinal, ignoreCase = true) }
             val uniOk2 = fam.unidadesCompatibles.any { it.equals(uniTemp, ignoreCase = true) }
@@ -106,10 +106,10 @@ class CrearProductoRepository(
             "comprimido", "comprimidos",
             "gragea", "grageas"
         )
-        if (producto.permiteFraccionar && empFinal.lowercase() in empaquesSellados && uniTemp.lowercase() in unidadesSolidas) {
+        if (producto.permiteFraccionar && empFinal != "N/A" && uniTemp != "N/A" && empFinal.lowercase() in empaquesSellados && uniTemp.lowercase() in unidadesSolidas) {
             throw IllegalArgumentException("'$empFinal' es empaque sellado: no puede venderse fraccionado. Usa Granel o Bolsa si necesitas vender por unidad.")
         }
-        val labFinal = producto.laboratorio.trim().ifBlank { "Genérico" }
+        val labFinal = producto.laboratorio.trim().ifBlank { "N/A" }
         val (cantFromConcentracion, unitFromConcentracion) = CatalogoEmpaques.separarContenidoYUnidad(producto.medidaConcentracion)
         val cantVal = producto.contenido.ifBlank { cantFromConcentracion }
         val unidadVal = producto.contenidoUnidad.ifBlank { unitFromConcentracion }
@@ -128,7 +128,7 @@ class CrearProductoRepository(
             throw IllegalArgumentException("Ya tienes registrado '${producto.nombre}' con la presentación '$empFinal · ${producto.medidaConcentracion}'.")
         }
 
-        // 2. Validación rápida fuera de transacción (UX) — el blindaje real está DENTRO de la transacción
+        // 2. Validación rápida fuera de transacción (UX) —” el blindaje real está DENTRO de la transacción
         val codLimpioPrevio = CodigoBarraHelper.limpiar(producto.codigoBarras)
         if (codLimpioPrevio.isNotBlank()) {
             val existente = buscarProductoPorCodigoBarras(clienteId, producto.codigoBarras, effectiveSucursalId)
@@ -153,6 +153,7 @@ class CrearProductoRepository(
         val payload = linkedMapOf<String, Any>(
             "id" to productoId,
             "indice" to productoId,
+            "presentacionPrincipalId" to productoId,
             "clienteId" to clienteId,
             "farmaciaId" to clienteId,
             "sucursalId" to effectiveSucursalId,
@@ -170,7 +171,7 @@ class CrearProductoRepository(
             "categoriasLista" to listOf(catFinal),
             "etiquetas" to etiquetasList,
             "laboratorio" to labFinal,
-            "proveedorBaseNombre" to labFinal,
+            "proveedorBaseNombre" to "N/A",
             "empaque" to empFinal,
             "contenido" to cantVal,
             "contenidoUnidad" to unidadVal,
@@ -190,6 +191,7 @@ class CrearProductoRepository(
             "stockMinimo" to 0.0,
             "stockMinimoBase" to 0.0,
             "diasAlertaVencimiento" to 90,
+            "fefoAutomatico" to true,
             "precioCompra" to 0.0,
             "activo" to true,
             "permiteFraccionar" to producto.permiteFraccionar,
@@ -214,17 +216,17 @@ class CrearProductoRepository(
         val claveFicha = CodigoBarraHelper.claveFicha(producto.nombre, empFinal, producto.medidaConcentracion)
 
         db.runTransaction { tx ->
-            // BLINDAJE ATÓMICO ficha idéntica (nombre+empaque+medida) — evita duplicado fantasma en carrera sin parche
+            // BLINDAJE ATí“MICO ficha idéntica (nombre+empaque+medida) —” evita duplicado fantasma en carrera sin parche
             CodigoBarraHelper.verificarFichaUnicidadEnTransaccion(tx, db, clienteId, claveFicha)
 
-            // BLINDAJE ATÓMICO código de barras vía índice
+            // BLINDAJE ATí“MICO código de barras vía índice
             if (codLimpio.isNotBlank()) {
                 CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codLimpio, productoId)
             }
 
             tx.set(nuevoDocRef, payload)
 
-            // Índices atómicos para futuras verificaciones sin carrera
+            // índices atómicos para futuras verificaciones sin carrera
             CodigoBarraHelper.crearIndiceFichaEnTransaccion(tx, db, clienteId, claveFicha, productoId)
             if (codLimpio.isNotBlank()) {
                 CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codLimpio, productoId, producto.nombre.trim())

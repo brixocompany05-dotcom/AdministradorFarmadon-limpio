@@ -41,27 +41,39 @@ import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compras.datos.ItemRecepcionEntrega
 import com.app.administradorfarmadon.compras.datos.PedidoCompra
 import com.app.administradorfarmadon.compras.recepcion.logica.RecepcionMercaderiaEstado
+import com.app.administradorfarmadon.compras.saldoafavor.ui.SaldoAFavorBanner
+import com.app.administradorfarmadon.compras.pagos.logica.EtiquetaMetodoPago
+import com.app.administradorfarmadon.compras.pagos.ui.PagosMixtosEditor
+import com.app.administradorfarmadon.configuracion.metodospago.modelo.InstanciaPago
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.bounceClick
+import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 
 @Composable
 fun RecepcionMercaderiaPanel(
     pedido: PedidoCompra,
+    facturaExistente: FacturaCompra? = null,
     procesando: Boolean = false,
     indiceLotes: Map<String, List<com.app.administradorfarmadon.compras.datos.LoteExistenteVista>> = emptyMap(),
+    saldoAFavorDisponible: Double = 0.0,
+    metodosPago: List<InstanciaPago> = emptyList(),
     onDismiss: () -> Unit,
     onAsentarRecepcion: (
         numeroFactura: String,
         condicionPago: String,
         fechaVencimientoPago: String,
         montoFactura: Double,
+        montoPagado: Double,
+        metodoPago: String,
+        pagosRecepcion: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle>,
+        saldoAFavorUsado: Double,
         itemsRecepcion: List<ItemRecepcionEntrega>,
         cerrarConAjuste: Boolean
     ) -> Unit
 ) {
     val colores = TokensFarmadon.colores
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
-    val estado = remember(pedido.id) { RecepcionMercaderiaEstado(pedido, indiceLotes) }
+    val estado = remember(pedido.id, facturaExistente?.id, saldoAFavorDisponible, metodosPago) { RecepcionMercaderiaEstado(pedido, indiceLotes, facturaExistente, saldoAFavorDisponible, metodosPago) }
 
     var indexFilaEnFoco by remember { mutableIntStateOf(-1) }
     var yFilaSeleccionada by remember { mutableFloatStateOf(0f) }
@@ -79,10 +91,10 @@ fun RecepcionMercaderiaPanel(
         modifier = Modifier.fillMaxSize().onGloballyPositioned { rootY = it.positionInRoot().y }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ══ TOP BAR EJECUTIVA ══
+            // ──•──• TOP BAR EJECUTIVA ──•──•
             Row(modifier = Modifier.fillMaxWidth().background(colores.textoPrincipal).padding(horizontal = 28.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text("RECEPCIÓN FÍSICA · ${pedido.numeroOrden}", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.2.sp, color = colores.botonPrimarioTexto.copy(alpha = 0.6f)))
+                    Text("RECEPCIí“N FíSICA · ${pedido.numeroOrden}", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.2.sp, color = colores.botonPrimarioTexto.copy(alpha = 0.6f)))
                     Text(pedido.proveedorNombre, style = TokensFarmadon.tipografia.titulo2.copy(fontSize = 18.sp), color = colores.botonPrimarioTexto)
                 }
                 IconButton(onClick = { if (!procesando) onDismiss() }, modifier = Modifier.clip(CircleShape).background(colores.botonPrimarioTexto.copy(alpha = 0.1f))) {
@@ -95,12 +107,12 @@ fun RecepcionMercaderiaPanel(
                 Surface(modifier = Modifier.weight(1.5f).fillMaxHeight(), color = colores.cardBase, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, colores.cardBorde.copy(alpha = 0.5f))) {
                     Column {
                         Row(modifier = Modifier.fillMaxWidth().background(colores.textoPrincipal.copy(alpha = 0.03f)).padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("DESCRIPCIÓN DEL PRODUCTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(2f))
-                            Text("CANT", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.7f))
+                            Text("DESCRIPCIí“N DEL PRODUCTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(2f))
+                            Text("HOY", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.7f))
                             Text("LOTE", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(1.1f))
                             Text("VENCE", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.9f))
                             Text("COSTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
-                            Text("REG", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.6f))
+                            Text("REG HOY", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.6f))
                             Text("SUBTOTAL", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
                         }
                         HorizontalDivider(thickness = 1.dp, color = colores.cardBorde.copy(alpha = 0.4f))
@@ -109,13 +121,12 @@ fun RecepcionMercaderiaPanel(
                                 val subtotal = (item.cantidadRecibir.toDoubleOrNull() ?: 0.0) * (item.costoUnitario.toDoubleOrNull() ?: 0.0)
                                 val enfocado = indexFilaEnFoco == index
                                 val coincidencias = item.coincidenciasLote(indiceLotes)
-                                val loteNuevo = item.loteNumero.isNotBlank() && !indiceLotes.containsKey(item.loteNumero.trim().uppercase())
                                 Surface(modifier = Modifier.fillMaxWidth().onGloballyPositioned { if (enfocado) yFilaSeleccionada = it.positionInRoot().y - rootY + (it.size.height / 2f) }.clickable { indexFilaEnFoco = index }, color = if (enfocado) colores.textoPrincipal.copy(alpha = 0.04f) else Color.Transparent) {
                                     Column {
                                         Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Column(Modifier.weight(2f).padding(end = 8.dp)) {
                                                 Text(item.productoNombre, style = TokensFarmadon.tipografia.titulo3.copy(fontSize = 13.5.sp, fontWeight = if(enfocado) FontWeight.Black else FontWeight.Bold), color = if (item.esCompleta) colores.textoTerciario else colores.textoPrincipal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                Text("${item.presentacion.ifBlank { "Und" }} · ${item.cantidadPedida} ped", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 10.sp), color = if (item.esCompleta) colores.estadoExito else colores.textoTerciario)
+                                                Text("${item.presentacion.ifBlank { "Und" }} · pedido ${item.cantidadPedida} · antes ${item.cantidadPrevia} · falta ${item.saldoPendiente}", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 9.5.sp), color = if (item.esCompleta) colores.estadoExito else colores.textoTerciario, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             }
                                             CeldaIndustrialInput(item.cantidadRecibir, { item.cantidadRecibir = it.filter { c -> c.isDigit() } }, 0.7f, TextAlign.Center, KeyboardType.Number, enfocado = enfocado)
                                             CeldaIndustrialInput(item.loteNumero, { item.loteNumero = it.uppercase() }, 1.1f, pista = "LOTE", enfocado = enfocado)
@@ -136,14 +147,6 @@ fun RecepcionMercaderiaPanel(
                                                         color = colores.estadoAlerta
                                                     )
                                                 }
-                                            }
-                                            loteNuevo -> {
-                                                Text(
-                                                    "Lote nuevo para este inventario",
-                                                    style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 10.sp),
-                                                    color = colores.textoTerciario,
-                                                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 6.dp)
-                                                )
                                             }
                                         }
                                         // Aviso de sobreentrega: llegó más de lo pedido (legítimo, pero nunca silencioso).
@@ -168,47 +171,96 @@ fun RecepcionMercaderiaPanel(
 
                 VinculoElectricoLocal(yInicio = yAnimada, yFin = yTotalLiquidacion, colorEnergia = colores.textoPrincipal)
 
-                // PANEL DERECHA: LIQUIDACIÓN
+                // PANEL DERECHA: LIQUIDACIí“N
                 Surface(modifier = Modifier.weight(0.9f).fillMaxHeight(), color = colores.cardBase, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, colores.cardBorde.copy(alpha = 0.5f))) {
                     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.SpaceBetween) {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Text("LIQUIDACIÓN", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = colores.textoTerciario)
+                            Text("LIQUIDACIí“N", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = colores.textoTerciario)
                             Surface(color = colores.fondoBase, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colores.cardBorde), modifier = Modifier.fillMaxWidth().onGloballyPositioned { yTotalLiquidacion = it.positionInRoot().y - rootY + 40f }) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     FilaResumenIndustrial("Items Inspeccionados", "${estado.items.count { (it.cantidadRecibir.toIntOrNull() ?: 0) > 0 }}")
                                     FilaResumenIndustrial("Total Unidades", "${estado.unidadesCompradas + estado.unidadesRegalo}")
                                     HorizontalDivider(color = colores.cardBorde.copy(alpha = 0.4f), thickness = 0.5.dp)
-                                    Text("TOTAL A PAGAR", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = colores.textoTerciario)
+                                    FilaResumenIndustrial("Recibido antes", estado.unidadesRecibidasAntes.toString())
+                                    FilaResumenIndustrial("Esta entrega", estado.unidadesEstaEntrega.toString())
+                                    FilaResumenIndustrial("Faltará después", estado.unidadesPendientesDespues.toString())
+                                    FilaResumenIndustrial("Costo de mercadería hoy", "$simboloMoneda " + String.format(java.util.Locale.US, "%,.2f", estado.totalCostoCalculado))
+                                    HorizontalDivider(color = colores.cardBorde.copy(alpha = 0.4f), thickness = 0.5.dp)
+                                    Text("TOTAL DEL DOCUMENTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = colores.textoTerciario)
                                     Text("$simboloMoneda " + String.format(java.util.Locale.US, "%,.2f", estado.totalFacturaFinal), style = TokensFarmadon.tipografia.titulo1.copy(fontSize = 28.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace), color = colores.textoPrincipal)
+                                    FilaResumenIndustrial("Pagado antes", "$simboloMoneda " + String.format(java.util.Locale.US, "%,.2f", estado.montoPagadoAntes))
+                                    Text("Pagado ahora: $simboloMoneda " + String.format(java.util.Locale.US, "%,.2f", estado.montoPagadoFinal.coerceAtLeast(0.0)), style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = colores.textoSecundario)
+                                    FilaResumenIndustrial("Saldo después", "$simboloMoneda " + String.format(java.util.Locale.US, "%,.2f", (estado.totalFacturaFinal - estado.montoPagadoAntes - estado.montoPagadoFinal.coerceAtLeast(0.0) - estado.saldoAFavorAplicado).coerceAtLeast(0.0)))
+                                    Text(
+                                        text = if (estado.unidadesPendientesDespues > 0) "El proveedor aún debe ${estado.unidadesPendientesDespues} unidad(es)" else "El pedido quedará completo",
+                                        style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                                        color = if (estado.unidadesPendientesDespues > 0) colores.estadoAlerta else colores.estadoExito
+                                    )
                                 }
                             }
                         }
+                        SaldoAFavorBanner(
+                            liquidacion = estado.liquidacionSaldoAFavor,
+                            usar = estado.usarSaldoAFavor,
+                            onUsarChange = { estado.onUsarSaldoAFavorChanged(it) },
+                            simboloMoneda = simboloMoneda
+                        )
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedTextField(value = estado.numeroFactura, onValueChange = { estado.onFacturaChanged(it) }, label = { Text("N° FACTURA PROVEEDOR", fontSize = 10.sp) }, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = colores.textoPrincipal, unfocusedBorderColor = colores.cardBorde, focusedContainerColor = colores.fondoBase, unfocusedContainerColor = colores.fondoBase))
+                            OutlinedTextField(value = estado.numeroFactura, onValueChange = { estado.onFacturaChanged(it) }, readOnly = estado.facturaContinua, label = { Text("N° FACTURA PROVEEDOR", fontSize = 10.sp) }, supportingText = if (estado.facturaContinua) ({ Text("Continuando la misma factura", fontSize = 10.sp) }) else null, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = colores.textoPrincipal, unfocusedBorderColor = colores.cardBorde, focusedContainerColor = colores.fondoBase, unfocusedContainerColor = colores.fondoBase))
+                            OutlinedTextField(
+                                value = estado.montoFacturaManual,
+                                onValueChange = { estado.onMontoFacturaChanged(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+                                readOnly = estado.facturaContinua,
+                                label = { Text("TOTAL DE LA FACTURA", fontSize = 10.sp) },
+                                supportingText = if (estado.facturaContinua) ({ Text("Continuando la misma factura", fontSize = 10.sp) }) else null,
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = colores.textoPrincipal, unfocusedBorderColor = colores.cardBorde, focusedContainerColor = colores.fondoBase, unfocusedContainerColor = colores.fondoBase)
+                            )
+                            OutlinedTextField(
+                                value = estado.montoPagadoManual,
+                                onValueChange = { estado.onMontoPagadoChanged(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+                                label = { Text("PAGO REGISTRADO AHORA", fontSize = 10.sp) },
+                                supportingText = { Text("Si no pagaste todavía, deja 0.00", fontSize = 10.sp) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = colores.textoPrincipal, unfocusedBorderColor = colores.cardBorde, focusedContainerColor = colores.fondoBase, unfocusedContainerColor = colores.fondoBase)
+                            )
+                            if (estado.montoPagadoFinal > 0.0) {
+                                PagosMixtosEditor(
+                                    estado = estado.editorPagos
+                                )
+                            }
                             Row(Modifier.fillMaxWidth().height(48.dp).background(colores.fondoBase, RoundedCornerShape(12.dp)).border(1.dp, colores.cardBorde, RoundedCornerShape(12.dp)).padding(4.dp)) {
                                 listOf("Contado", "Crédito").forEach { cond ->
                                     val sel = estado.condicionPago == cond
-                                    Surface(modifier = Modifier.weight(1f).fillMaxHeight().clickable { estado.onCondicionPagoChanged(cond) }, color = if (sel) colores.cardElevada else Color.Transparent, shape = RoundedCornerShape(9.dp), border = if (sel) BorderStroke(1.dp, colores.cardBorde) else null) { Box(contentAlignment = Alignment.Center) { Text(cond.uppercase(), style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = if (sel) FontWeight.Black else FontWeight.Medium), color = if (sel) colores.textoPrincipal else colores.textoTerciario) } }
+                                    Surface(modifier = Modifier.weight(1f).fillMaxHeight().clickable(enabled = !estado.facturaContinua) { estado.onCondicionPagoChanged(cond) }, color = if (sel) colores.cardElevada else Color.Transparent, shape = RoundedCornerShape(9.dp), border = if (sel) BorderStroke(1.dp, colores.cardBorde) else null) { Box(contentAlignment = Alignment.Center) { Text(cond.uppercase(), style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = if (sel) FontWeight.Black else FontWeight.Medium), color = if (sel) colores.textoPrincipal else colores.textoTerciario) } }
                                 }
                             }
-                            if (estado.condicionPago == "Crédito") {
+                            if (estado.condicionPago == "Crédito" && estado.fechaVencimientoPagoVisible.isNullOrBlank()) {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("DÍAS DE CRÉDITO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = colores.textoTerciario)
+                                    Text("DíAS DE CRí‰DITO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = colores.textoTerciario)
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         listOf(15, 30, 45, 60).forEach { dias ->
                                             val selDias = estado.diasCredito == dias
                                             Surface(modifier = Modifier.weight(1f).clickable { estado.onDiasCreditoChanged(dias) }, color = if (selDias) colores.cardElevada else colores.fondoBase, shape = RoundedCornerShape(9.dp), border = BorderStroke(1.dp, if (selDias) colores.textoPrincipal.copy(alpha = 0.5f) else colores.cardBorde)) {
                                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 9.dp)) {
-                                                    Text("$dias DÍAS", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = if (selDias) FontWeight.Black else FontWeight.Medium), color = if (selDias) colores.textoPrincipal else colores.textoTerciario)
+                                                    Text("$dias DíAS", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = if (selDias) FontWeight.Black else FontWeight.Medium), color = if (selDias) colores.textoPrincipal else colores.textoTerciario)
                                                 }
                                             }
                                         }
                                     }
                                 }
+                            } else if (estado.condicionPago == "Crédito") {
+                                Text("Vencimiento guardado: ${estado.fechaVencimientoPagoVisible}", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold), color = colores.textoSecundario)
                             }
                             if (estado.lotesRepetidosNuevos.isNotEmpty()) {
                                 Text(
-                                    "⚠ Mismo lote nuevo en varias filas: ${estado.lotesRepetidosNuevos.joinToString()}. Revisa antes de asentar.",
+                                    "──š  Mismo lote nuevo en varias filas: ${estado.lotesRepetidosNuevos.joinToString()}. Revisa antes de asentar.",
                                     style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                                     color = colores.estadoPeligro
                                 )
@@ -224,7 +276,7 @@ fun RecepcionMercaderiaPanel(
                             if (!estado.puedeAsentar && !procesando && estado.errorGeneral == null) {
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     estado.razonesBloqueo.forEach { razon ->
-                                        Text("• $razon", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp), color = colores.textoTerciario)
+                                        Text("—¢ $razon", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp), color = colores.textoTerciario)
                                     }
                                 }
                             }
@@ -233,11 +285,11 @@ fun RecepcionMercaderiaPanel(
                             val items = estado.construirItemsAAsentar()
                             if (items != null) {
                                 estado.onErrorMostrado()
-                                onAsentarRecepcion(estado.numeroFactura.trim().uppercase(), estado.condicionPago, if (estado.condicionPago == "Crédito") estado.fechaPagoCredito() ?: "" else "", estado.totalFacturaFinal, items, estado.decisionFaltante == "AJUSTE")
+                                onAsentarRecepcion(estado.numeroFactura.trim().uppercase(), estado.condicionPago, if (estado.condicionPago == "Crédito") estado.fechaPagoCredito() ?: "" else "", estado.totalFacturaFinal, estado.montoPagadoFinal, estado.editorPagos.pagos.firstOrNull()?.metodoPago ?: "", estado.editorPagos.pagos, estado.saldoAFavorAplicado, items, estado.decisionFaltante == "AJUSTE")
                             }
                         }, enabled = estado.puedeAsentar && !procesando, modifier = Modifier.fillMaxWidth().height(54.dp).bounceClick(), colors = ButtonDefaults.buttonColors(containerColor = colores.textoPrincipal, contentColor = colores.botonPrimarioTexto), shape = RoundedCornerShape(14.dp)) {
                             if (procesando) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colores.botonPrimarioTexto, strokeWidth = 2.dp)
-                            else Text("ASENTAR RECEPCIÓN", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 12.sp))
+                            else Text("ASENTAR RECEPCIí“N", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 12.sp))
                         }
                     }
                 }

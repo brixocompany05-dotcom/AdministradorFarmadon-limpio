@@ -1,7 +1,7 @@
 package com.app.administradorfarmadon.inventario.compartido.modelo
 
 /**
- * Lotes, vencimientos y logística — dónde está y cuándo vence.
+ * Lotes, vencimientos y logística —” dónde está y cuándo vence.
  * Responsabilidad única: trazabilidad sanitaria y ubicación física.
  * Extraído de MoldeProductos para evitar God-Model.
  */
@@ -10,9 +10,11 @@ data class LoteInfo(
     var lotePrioritarioId: String = "",
     var lotePrioritarioPor: String = "",
     var lotePrioritarioPorRol: String = "",
+    var fefoAutomatico: Boolean = true,
     var diasAlertaVencimiento: Int = 90,
     var ubicacionId: String = "",
     var ubicacion: String = "",
+    var ubicacionSecundaria: String = "",
     var proveedorBaseId: String = "",
     var proveedorBaseNombre: String = "",
     var clasificacionControl: String = "",
@@ -35,9 +37,11 @@ fun MoldeProductos.toLoteInfo(): LoteInfo = LoteInfo(
     lotePrioritarioId = lotePrioritarioId,
     lotePrioritarioPor = lotePrioritarioPor,
     lotePrioritarioPorRol = lotePrioritarioPorRol,
+    fefoAutomatico = fefoAutomatico,
     diasAlertaVencimiento = diasAlertaVencimiento,
     ubicacionId = ubicacionId,
     ubicacion = ubicacion,
+    ubicacionSecundaria = ubicacionSecundaria,
     proveedorBaseId = proveedorBaseId,
     proveedorBaseNombre = proveedorBaseNombre,
     clasificacionControl = clasificacionControl,

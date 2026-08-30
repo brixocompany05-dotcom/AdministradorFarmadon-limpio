@@ -41,7 +41,7 @@ import com.app.administradorfarmadon.inventario.crearproductogeneral.logica.Esta
 
 /**
  * Panel Derecho (40%): Resumen Ejecutivo y Feedback de Guardado en Vivo.
- * Transición fluida entre estados: Ficha ➔ Subiendo ➔ Éxito ➔ Error con Reintento.
+ * Transición fluida entre estados: Ficha ──ž” Subiendo ──ž” í‰xito ──ž” Error con Reintento.
  */
 @Composable
 fun CrearResumenPanel(
@@ -108,7 +108,7 @@ fun CrearResumenPanel(
     }
 }
 
-// ── 1. ESTADO IDLE: FICHA Y BOTÓN PRIMARIO DOMINANTE ──
+// ──”€──”€ 1. ESTADO IDLE: FICHA Y BOTí“N PRIMARIO DOMINANTE ──”€──”€
 @Composable
 private fun EstadoIdlePanel(
     state: CrearProductoUiState,
@@ -163,7 +163,7 @@ private fun EstadoIdlePanel(
                         border = BorderStroke(0.5.dp, if (state.productoExistenteDuplicado != null) FDColors.Error.copy(alpha = 0.4f) else FDColors.Border)
                     ) {
                         Text(
-                            text = if (state.productoExistenteDuplicado != null) "CÓDIGO DUPLICADO" else "DATOS INCOMPLETOS",
+                            text = if (state.productoExistenteDuplicado != null) "Cí“DIGO DUPLICADO" else "DATOS INCOMPLETOS",
                             style = FDType.Caption.copy(
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -187,7 +187,7 @@ private fun EstadoIdlePanel(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${state.categoriaNombre.ifBlank { "General" }} · ${if (esMedicamento) "Lab" else "Marca"}: ${state.laboratorio.ifBlank { "Genérico" }}",
+                    text = "${state.categoriaNombre.ifBlank { "General" }} · ${if (esMedicamento) "Lab" else "Marca"}: ${state.laboratorio.ifBlank { "N/A" }}",
                     style = FDType.Caption.copy(fontSize = 12.sp, color = FDColors.TextSecondary)
                 )
             }
@@ -207,7 +207,7 @@ private fun EstadoIdlePanel(
                     state.empaque.isNotBlank() && state.medidaConcentracion.isNotBlank() -> "${state.empaque} · ${state.medidaConcentracion}"
                     state.empaque.isNotBlank() -> state.empaque
                     state.medidaConcentracion.isNotBlank() -> state.medidaConcentracion
-                    else -> "—"
+                    else -> "—”"
                 }
 
                 ResumenItemRow(
@@ -240,7 +240,7 @@ private fun EstadoIdlePanel(
             }
         }
 
-        // ÚNICO BOTÓN PRIMARIO DOMINANTE
+        // íšNICO BOTí“N PRIMARIO DOMINANTE
         FDBotonPrimario(
             texto = "GUARDAR PRODUCTO EN INVENTARIO",
             onClick = onSave,
@@ -253,7 +253,7 @@ private fun EstadoIdlePanel(
     }
 }
 
-// ── 2. ESTADO SUBIENDO / GUARDANDO EN PROCESO ──
+// ──”€──”€ 2. ESTADO SUBIENDO / GUARDANDO EN PROCESO ──”€──”€
 @Composable
 private fun EstadoGuardandoPanel(productoNombre: String) {
     Column(
@@ -282,7 +282,7 @@ private fun EstadoGuardandoPanel(productoNombre: String) {
     }
 }
 
-// ── 3. ESTADO ÉXITO: CONFIRMACIÓN Y BOTONES DE CONTINUIDAD ──
+// ──”€──”€ 3. ESTADO í‰XITO: CONFIRMACIí“N Y BOTONES DE CONTINUIDAD ──”€──”€
 @Composable
 private fun EstadoExitoPanel(
     productoNombre: String,
@@ -312,7 +312,7 @@ private fun EstadoExitoPanel(
                 verticalArrangement = Arrangement.spacedBy(FDSpacing.xs)
             ) {
                 Text(
-                    text = "¡PRODUCTO GUARDADO CON ÉXITO!",
+                    text = "¡PRODUCTO GUARDADO CON í‰XITO!",
                     style = FDType.Heading3.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = FDColors.Success),
                     textAlign = TextAlign.Center
                 )
@@ -347,7 +347,7 @@ private fun EstadoExitoPanel(
     }
 }
 
-// ── 4. ESTADO ERROR: ALERTA CLARA Y BOTÓN REINTENTAR ──
+// ──”€──”€ 4. ESTADO ERROR: ALERTA CLARA Y BOTí“N REINTENTAR ──”€──”€
 @Composable
 private fun EstadoErrorPanel(
     mensajeError: String,
@@ -412,7 +412,7 @@ private fun EstadoErrorPanel(
             }
         }
 
-        // BOTÓN REINTENTAR DOMINANTE (52.dp)
+        // BOTí“N REINTENTAR DOMINANTE (52.dp)
         FDBotonPrimario(
             texto = "REINTENTAR GUARDADO",
             onClick = onReintentar,

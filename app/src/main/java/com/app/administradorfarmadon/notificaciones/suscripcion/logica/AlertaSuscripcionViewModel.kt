@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.notificaciones.suscripcion.logica
+﻿package com.app.administradorfarmadon.notificaciones.suscripcion.logica
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.configuracion.plan.ui
+﻿package com.app.administradorfarmadon.configuracion.plan.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*

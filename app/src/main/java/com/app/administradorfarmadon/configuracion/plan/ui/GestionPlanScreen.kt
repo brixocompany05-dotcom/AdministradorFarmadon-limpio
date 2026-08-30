@@ -68,8 +68,8 @@ fun GestionPlanScreen(
     var seccionSeleccionada by remember { mutableIntStateOf(0) }
     val secciones = listOf(
         SeccionMenu("MI PLAN", Icons.Default.Diamond),
-        SeccionMenu("FACTURACIÓN", Icons.AutoMirrored.Filled.ReceiptLong),
-        SeccionMenu("CÓMO PAGAR", Icons.Default.AccountBalance)
+        SeccionMenu("FACTURACIí“N", Icons.AutoMirrored.Filled.ReceiptLong),
+        SeccionMenu("Cí“MO PAGAR", Icons.Default.AccountBalance)
     )
 
     var mostrandoAsentamiento by remember { mutableStateOf(false) }
@@ -196,9 +196,9 @@ fun GestionPlanScreen(
                             1 -> FacturacionAuditoriaPanel(uiState.planInfo, uiState.historialPagos, { viewModel.seleccionarPagoParaDetalle(it) }, s)
                             2 -> Box(Modifier.fillMaxSize().padding(s.padCardLarge)) {
                                 // REGLA DE LA VENTANA DE PAGO: el reporte de voucher
-                                // solo abre cuando el contrato está POR VENCER (≤5 días)
+                                // solo abre cuando el contrato está POR VENCER (──‰¤5 días)
                                 // o VENCIDO. El ciclo de arranque que BRIXO otorga al
-                                // nacer NO se paga ni se reporta — ya tiene su
+                                // nacer NO se paga ni se reporta —” ya tiene su
                                 // constancia ALTA automática con plan, monto y vigencia.
                                 val estadoSus = uiState.planInfo.estadoSuscripcion
                                 val ventanaAbierta = estadoSus == "por_vencer" || estadoSus == "vencida"
@@ -206,7 +206,7 @@ fun GestionPlanScreen(
                                     if (abierta) {
                                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                                             BrixoCanalesPagoCard(canalesPago = uiState.canalesPago, nombreFarmacia = nombreFarmacia, rucFarmacia = rucFarmacia, error = uiState.canalesError, onIniciarAsentamiento = {
-                                                // Puerta ÚNICA y REAL: abre el diálogo que
+                                                // Puerta íšNICA y REAL: abre el diálogo que
                                                 // sí escribe en solicitudes_pago.
                                                 ReportarPagoManager.abrirDialogoManual()
                                             })
@@ -229,7 +229,7 @@ fun GestionPlanScreen(
                                             Text(
                                                 when (estadoSus) {
                                                     "prueba" -> "Disfruta tu prueba: no requiere pago.\nLa ventana para reportar pagos abrirá al concluirla."
-                                                    else -> "Vence el ${uiState.planInfo.fechaFin.ifBlank { "—" }}.\n" +
+                                                    else -> "Vence el ${uiState.planInfo.fechaFin.ifBlank { "—”" }}.\n" +
                                                         "La ventana para subir tu voucher abrirá " +
                                                         "los últimos 5 días o al vencer."
                                                 },
@@ -286,7 +286,7 @@ fun FacturacionAuditoriaPanel(planInfo: PlanFacturacionInfo, historial: List<His
         Column(modifier = Modifier.fillMaxWidth().background(colores.cardBase).padding(horizontal = s.padCardLarge, vertical = s.padCard), verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.sm)) {
                 Icon(Icons.AutoMirrored.Filled.ReceiptLong, null, tint = colores.textoPrincipal, modifier = Modifier.size(s.iconMedium))
-                Text("HISTORIAL Y AUDITORÍA", style = TokensFarmadon.tipografia.titulo2.copy(fontSize = s.textSubtitle.value.sp), color = colores.textoPrincipal)
+                Text("HISTORIAL Y AUDITORíA", style = TokensFarmadon.tipografia.titulo2.copy(fontSize = s.textSubtitle.value.sp), color = colores.textoPrincipal)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(s.sm)) {
                 Surface(modifier = Modifier.weight(1f), color = colores.fondoBase, shape = RoundedCornerShape(s.radiusInput), border = androidx.compose.foundation.BorderStroke(s.borderWidth, colores.cardBorde)) {
@@ -364,7 +364,7 @@ fun AsentamientoPagoPanel(
                 Text("ASENTAMIENTO DE PAGO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = s.textLabel.value.sp * 0.88f, letterSpacing = 1.1.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario)
                 Text("Vincular Comprobante", style = TokensFarmadon.tipografia.titulo2.copy(fontSize = s.textTitle.value.sp * 0.92f), color = colores.textoPrincipal)
             }
-            TextButton(onClick = onCancelar, enabled = !enviando) { Text("✕ CANCELAR", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Bold, fontSize = s.textLabel.value.sp), color = colores.estadoPeligro) }
+            TextButton(onClick = onCancelar, enabled = !enviando) { Text("──œ• CANCELAR", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Bold, fontSize = s.textLabel.value.sp), color = colores.estadoPeligro) }
         }
 
         Surface(modifier = Modifier.fillMaxWidth().height(s.btnLargeH * 2.95f).clickable(enabled = !enviando) { launcherImagen.launch("image/*") }, color = colores.cardElevada, shape = RoundedCornerShape(s.radiusCard), border = androidx.compose.foundation.BorderStroke(s.borderWidth * 1.2f, if (uriImagen != null) colores.textoPrincipal else colores.cardBorde)) {
@@ -435,7 +435,7 @@ fun AsentamientoPagoPanel(
             }
         }
 
-        // Única acción primaria: notificar abono — altura s.btnLargeH
+        // íšnica acción primaria: notificar abono —” altura s.btnLargeH
         Button(
             onClick = { onEnviar(bancoSeleccionado, monto, numeroOperacion, uriImagen, nota) },
             modifier = Modifier.fillMaxWidth().height(s.btnLargeH).bounceClick(),

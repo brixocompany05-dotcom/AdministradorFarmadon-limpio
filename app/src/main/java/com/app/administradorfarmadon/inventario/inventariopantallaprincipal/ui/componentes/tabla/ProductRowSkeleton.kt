@@ -35,9 +35,9 @@ fun ProductRowSkeleton(cols: InventoryColumns) {
             ShimmerBlock(modifier = Modifier.width(100.dp).height(8.dp))
         }
 
-        // Col 2: Categoría
-        Box(modifier = Modifier.width(cols.category), contentAlignment = Alignment.CenterStart) {
-            ShimmerBlock(modifier = Modifier.width(80.dp).height(10.dp))
+        // Col 2: Código
+        Box(modifier = Modifier.width(cols.code), contentAlignment = Alignment.CenterStart) {
+            ShimmerBlock(modifier = Modifier.width(60.dp).height(10.dp))
         }
 
         // Col 3: Stock
@@ -48,6 +48,11 @@ fun ProductRowSkeleton(cols: InventoryColumns) {
         // Col 4: Mínimo
         Box(modifier = Modifier.width(cols.min), contentAlignment = Alignment.CenterEnd) {
             ShimmerBlock(modifier = Modifier.width(30.dp).height(10.dp))
+        }
+
+        // Col 5: Vencimiento
+        Box(modifier = Modifier.width(cols.expiry), contentAlignment = Alignment.CenterEnd) {
+            ShimmerBlock(modifier = Modifier.width(70.dp).height(10.dp))
         }
     }
 }

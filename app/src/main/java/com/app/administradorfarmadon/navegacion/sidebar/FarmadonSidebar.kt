@@ -41,7 +41,7 @@ fun FarmadonSidebar(
     modifier: Modifier = Modifier
 ) {
     val s = recordarMedidaAdaptativa()
-    // Ancho geométrico: 280dp * scaleFactor (0.85-1.18) clamp 268-320 → adaptativo a cualquier tablet
+    // Ancho geométrico: 280dp * scaleFactor (0.85-1.18) clamp 268-320 ──†’ adaptativo a cualquier tablet
     val sidebarWidth = (280f * s.scaleFactor).coerceIn(268f, 318f).dp
 
     Box(
@@ -52,7 +52,7 @@ fun FarmadonSidebar(
             .windowInsetsPadding(WindowInsets.systemBars)
             .imePadding()
     ) {
-        // Borde derecho degradado sutil — profundidad premium
+        // Borde derecho degradado sutil —” profundidad premium
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -68,7 +68,7 @@ fun FarmadonSidebar(
                     )
                 )
         )
-        // Grain sutil superior — aura 4% (solo decoración, no interfiere)
+        // Grain sutil superior —” aura 4% (solo decoración, no interfiere)
         Canvas(modifier = Modifier.matchParentSize()) {
             val w = size.width
             val h = size.height * 0.22f
@@ -128,7 +128,7 @@ fun FarmadonSidebar(
                         .toList()
                         .sortedBy { (_, items) -> items.minOfOrNull { it.orden } ?: 0 }
 
-                    // Grupos OPERACIÓN / GESTIÓN etc — quiet
+                    // Grupos OPERACIí“N / GESTIí“N etc —” quiet
                     val (sistemaGrupos, restoGrupos) = categorias.partition { it.first.equals("SISTEMA", ignoreCase = true) }
                     restoGrupos.forEach { (categoria, itemsModulo) ->
                         SidebarGrupo(
@@ -146,7 +146,7 @@ fun FarmadonSidebar(
                             }
                         }
                     }
-                    // SISTEMA — Configuración como tarjeta premium pinned, imposible confundir
+                    // SISTEMA —” Configuración como tarjeta premium pinned, imposible confundir
                     sistemaGrupos.forEach { (_, itemsModulo) ->
                         // Separador premium antes de SISTEMA
                         Spacer(Modifier.height(s.gapMedium))

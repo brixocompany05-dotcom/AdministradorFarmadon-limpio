@@ -31,7 +31,7 @@ import com.app.administradorfarmadon.inventario.editarproductosinventario.logica
 
 /**
  * Panel Derecho (40%): Resumen Ejecutivo y Guardado en Vivo con Lottie (Enterprise SaaS).
- * El botón se activa ÚNICAMENTE si hubo cambios reales en la ficha.
+ * El botón se activa íšNICAMENTE si hubo cambios reales en la ficha.
  */
 @Composable
 fun EditarResumenPanel(
@@ -139,7 +139,7 @@ fun EditarResumenPanel(
                                     )
 
                                     val subLabel = if (state.laboratorio.isNotBlank()) {
-                                        "${state.laboratorio} • ${state.categoriaNombre}"
+                                        "${state.laboratorio} —¢ ${state.categoriaNombre}"
                                     } else {
                                         state.categoriaNombre
                                     }
@@ -176,7 +176,7 @@ fun EditarResumenPanel(
                                     ResumenRowSimetrico(
                                         icon = Icons.Outlined.QrCodeScanner,
                                         label = "Código de Barras",
-                                        value = state.codigoBarras.ifBlank { "—" }
+                                        value = state.codigoBarras.ifBlank { "—”" }
                                     )
 
                                     if (esMedicamento) {
@@ -283,7 +283,7 @@ fun EditarResumenPanel(
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "¡FICHA ACTUALIZADA CON ÉXITO!",
+                                        text = "¡FICHA ACTUALIZADA CON í‰XITO!",
                                         style = FDType.Heading3.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = FDColors.Success),
                                         textAlign = TextAlign.Center
                                     )
@@ -366,7 +366,7 @@ fun EditarResumenPanel(
                                 Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "REINTENTAR ACTUALIZACIÓN",
+                                    text = "REINTENTAR ACTUALIZACIí“N",
                                     style = FDType.Label.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 )
                             }

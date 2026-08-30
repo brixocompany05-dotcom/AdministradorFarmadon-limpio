@@ -34,7 +34,6 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
-import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui.componentes.LoteDetailDrawer
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui.componentes.ModuloLotesYStock
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui.componentes.ModuloPreciosYFraccionamiento
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui.configuracion.LabelPdfExporter
@@ -57,17 +56,11 @@ fun ProductDetailContent(
     ubicacionesDisponibles: List<String> = emptyList(),
     onEliminarProducto: (product: MoldeProductos, motivo: String, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> },
     onEliminadoExito: () -> Unit = {},
-    onCambiarBloqueoLote: (lote: LoteProducto, ponerEnCuarentena: Boolean, cantidad: Double, motivo: String, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _ -> },
-    onRegistrarDevolucion: (lote: LoteProducto, cantidad: Double, guiaRetiro: String, notaCredito: String, motivo: String, modalidad: String, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _, _, _ -> },
-    onRegistrarCanje: (lote: LoteProducto, cantidad: Double, nuevoLote: String, nuevoVencimiento: String, guiaCanje: String, motivo: String, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _, _, _ -> },
     onGuardarPrecios: (unidadBase: String, presentaciones: List<com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto>, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> },
-    onGuardarConfiguracion: (ubicacion: String, stockMinimo: Double, activo: Boolean, diasAlertaVencimiento: Int, nuevoCodigo: String?, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _, _ -> },
+    onGuardarConfiguracion: (ubicacion: String, stockMinimo: Double, activo: Boolean, diasAlertaVencimiento: Int, nuevoCodigo: String?, ubicacionSecundaria: String, fefoAutomatico: Boolean, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onGenerarCodigoUnico: suspend () -> String = { "" },
     onVerificarDuplicadoCodigo: suspend (String) -> String? = { null },
     onMarcarEtiquetaImpresa: () -> Unit = {},
-    onAnularIngreso: (lote: LoteProducto, motivo: String, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> },
-    onRegistrarMerma: (lote: LoteProducto, cantidad: Double, motivo: String, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _, _ -> },
-    onDefinirPrioridadLote: (loteId: String?) -> Unit = {}
 ) {
     val context = LocalContext.current
     var selectedTabIndex by remember(initialTabIndex) { mutableIntStateOf(initialTabIndex) }
@@ -114,7 +107,7 @@ fun ProductDetailContent(
             .background(FDColors.Background)
             .windowInsetsPadding(WindowInsets.systemBars)
     ) {
-        // ── 1. CABECERA SUPERIOR ESBELTA ──
+        // ──”€──”€ 1. CABECERA SUPERIOR ESBELTA ──”€──”€
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -169,9 +162,19 @@ fun ProductDetailContent(
                     }
 
                     // Breadcrumb Compacto
+                    val textoUbicacion = remember(p.ubicacion, p.ubicacionSecundaria) {
+                        when {
+                            p.ubicacion.isBlank() && p.ubicacionSecundaria.isBlank() -> "Sin Ubicación"
+                            p.ubicacionSecundaria.isBlank() -> p.ubicacion
+                            p.ubicacion.isBlank() -> p.ubicacionSecundaria
+                            else -> "${p.ubicacion} · también en ${p.ubicacionSecundaria}"
+                        }
+                    }
                     Text(
-                        text = "${p.categoriaPrincipal.ifBlank { "General" }}  ·  Lab: ${p.proveedorBaseNombre.ifBlank { "Genérico" }}  ·  ${p.ubicacion.ifBlank { "Sin Ubicación" }}",
-                        style = FDType.Caption.copy(fontSize = 11.sp, color = FDColors.TextSecondary)
+                        text = "${p.categoriaPrincipal.ifBlank { "General" }}  ·  Lab: ${p.laboratorio.ifBlank { "N/A" }}  ·  $textoUbicacion",
+                        style = FDType.Caption.copy(fontSize = 11.sp, color = FDColors.TextSecondary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -189,7 +192,7 @@ fun ProductDetailContent(
             }
         }
 
-        // ── BANNER ACCIONABLE DE ETIQUETAS PENDIENTES POR CAMBIO DE PRECIOS ──
+        // ──”€──”€ BANNER ACCIONABLE DE ETIQUETAS PENDIENTES POR CAMBIO DE PRECIOS ──”€──”€
         if (p.etiquetaPendienteReimpresion && p.etiquetaPendienteDetalle.isNotBlank()) {
             Surface(
                 color = FDColors.SurfaceElevated,
@@ -219,7 +222,7 @@ fun ProductDetailContent(
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "ETIQUETAS PENDIENTES DE REIMPRESIÓN",
+                                text = "ETIQUETAS PENDIENTES DE REIMPRESIí“N",
                                 style = FDType.Caption.copy(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
@@ -317,7 +320,7 @@ fun ProductDetailContent(
 
         HorizontalDivider(color = FDColors.Border, thickness = 0.5.dp)
 
-        // ── 2. NAVEGACIÓN ADAPTABLE (SCROLLABLE TAB ROW) ──
+        // ──”€──”€ 2. NAVEGACIí“N ADAPTABLE (SCROLLABLE TAB ROW) ──”€──”€
         ScrollableTabRow(
             selectedTabIndex = selectedTabIndex,
             edgePadding = 20.dp,
@@ -371,7 +374,7 @@ fun ProductDetailContent(
 
         HorizontalDivider(color = FDColors.Border, thickness = 0.5.dp)
 
-        // ── 3. CONTENIDO PRINCIPAL (ZONIFICACIÓN VISUAL) ──
+        // ──”€──”€ 3. CONTENIDO PRINCIPAL (ZONIFICACIí“N VISUAL) ──”€──”€
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -393,10 +396,10 @@ fun ProductDetailContent(
                     )
             )
 
-            // Documento continuo a ancho completo — el panel derecho de "liquidación" fue retirado.
+            // Documento continuo a ancho completo —” el panel derecho de "liquidación" fue retirado.
             // Cerrar vive en la flecha de la cabecera (y gesto atrás); editar en "Editar Ficha".
             // SIN verticalScroll aquí: cada módulo gestiona su propio scroll interno y necesita
-            // altura ACOTADA — una capa extra entregaba altura infinita y tumbaba la app.
+            // altura ACOTADA —” una capa extra entregaba altura infinita y tumbaba la app.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -416,12 +419,6 @@ fun ProductDetailContent(
                         filtroKardexInicial = numero
                         selectedTabIndex = 2
                     },
-                    onCambiarBloqueoLote = onCambiarBloqueoLote,
-                    onRegistrarDevolucion = onRegistrarDevolucion,
-                    onRegistrarCanje = onRegistrarCanje,
-                    onAnularIngreso = onAnularIngreso,
-                    onRegistrarMerma = onRegistrarMerma,
-                    onDefinirPrioridadLote = onDefinirPrioridadLote,
                     onAdjustStock = onAdjustStock
                 )
                 1 -> ModuloPreciosYFraccionamiento(

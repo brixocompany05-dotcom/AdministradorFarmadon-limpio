@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.editarproductosinventario.logica
+﻿package com.app.administradorfarmadon.inventario.editarproductosinventario.logica
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -269,9 +269,9 @@ class EditarProductoViewModel(
         if (com.app.administradorfarmadon.inventario.crearproductogeneral.logica.StructuralProductValidator.detectarBasuraEvidente(s.nombre.trim())) {
             _uiState.update {
                 it.copy(
-                    fieldErrors = it.fieldErrors + ("nombre" to "Nombre no válido — verifica el nombre del producto."),
+                    fieldErrors = it.fieldErrors + ("nombre" to "Nombre no válido —” verifica el nombre del producto."),
                     estadoGuardado = EstadoGuardadoEdicion.ERROR,
-                    mensajeErrorGuardado = "Nombre no válido — verifica el nombre del producto."
+                    mensajeErrorGuardado = "Nombre no válido —” verifica el nombre del producto."
                 )
             }
             return

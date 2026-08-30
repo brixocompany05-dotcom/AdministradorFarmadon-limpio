@@ -2,9 +2,11 @@ package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.u
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.AssignmentReturn
 import androidx.compose.material.icons.outlined.*
@@ -16,9 +18,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +35,7 @@ import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.lo
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.bounceClick
+import com.app.administradorfarmadon.inventario.compartido.logica.CostoRealLote
 
 @Composable
 internal fun EnterpriseSegmentedControl(
@@ -81,6 +86,7 @@ internal fun EnterpriseSegmentedControl(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun EnterpriseInputField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -93,42 +99,41 @@ internal fun EnterpriseInputField(
     minLines: Int = 1,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Text(
-            text = label.uppercase(),
-            style = FDType.Label.copy(
-                fontSize = 10.5.sp,
-                color = if (isError) FDColors.Error else FDColors.TextSecondary,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.5.sp
-            )
-        )
-        
-        OutlinedTextField(
+    val interactionSource = remember { MutableInteractionSource() }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        enabled = enabled,
+        modifier = modifier.fillMaxWidth().then(if (singleLine) Modifier.height(56.dp) else Modifier),
+        singleLine = singleLine,
+        minLines = minLines,
+        textStyle = FDType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = FDColors.TextPrimary),
+        cursorBrush = SolidColor(FDColors.Primary),
+        interactionSource = interactionSource
+    ) { innerTextField ->
+        OutlinedTextFieldDefaults.DecorationBox(
             value = value,
-            onValueChange = onValueChange,
+            innerTextField = innerTextField,
             enabled = enabled,
-            placeholder = { 
+            singleLine = singleLine,
+            visualTransformation = VisualTransformation.None,
+            interactionSource = interactionSource,
+            label = {
                 Text(
-                    text = placeholder, 
-                    style = FDType.Body.copy(fontSize = 13.5.sp, color = FDColors.TextTertiary)
-                ) 
+                    label.uppercase(),
+                    style = FDType.Label.copy(fontSize = 10.5.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp)
+                )
             },
-            textStyle = FDType.Body.copy(
-                fontSize = 14.sp, 
-                fontWeight = FontWeight.SemiBold, 
-                color = FDColors.TextPrimary
-            ),
-            isError = isError,
+            placeholder = {
+                Text(placeholder, style = FDType.Body.copy(fontSize = 13.5.sp, color = FDColors.TextTertiary))
+            },
             supportingText = if (isError && errorMessage != null) {
                 { Text(errorMessage, color = FDColors.Error, style = FDType.Caption.copy(fontSize = 10.5.sp)) }
             } else null,
+            isError = isError,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = FDColors.Primary,
-                unfocusedBorderColor = FDColors.BorderStrong, // Borde visible y firme
+                unfocusedBorderColor = FDColors.BorderStrong,
                 errorBorderColor = FDColors.Error,
                 focusedLabelColor = FDColors.Primary,
                 unfocusedLabelColor = FDColors.TextSecondary,
@@ -136,12 +141,22 @@ internal fun EnterpriseInputField(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent
             ),
-            shape = RoundedCornerShape(8.dp),
-            singleLine = singleLine,
-            minLines = minLines,
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (singleLine) Modifier.height(56.dp) else Modifier)
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            container = {
+                OutlinedTextFieldDefaults.ContainerBox(
+                    enabled = enabled,
+                    isError = isError,
+                    interactionSource = interactionSource,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedBorderColor = FDColors.Primary,
+                        unfocusedBorderColor = FDColors.BorderStrong,
+                        errorBorderColor = FDColors.Error
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
         )
     }
 }
@@ -363,13 +378,10 @@ internal fun EnterpriseModalShell(
     }
 }
 
-// ── 1. DIÁLOGO DEVOLUCIÓN / CANJE DROGUERÍA ──
+//
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ESTADO DEL FORMULARIO DE RESOLUCIÓN
+// ESTADO DEL FORMULARIO DE RESOLUCIí“N
 // Agrupa todo el estado mutable de forma explícita y con nombres claros.
-// ─────────────────────────────────────────────────────────────────────────────
 
 
 internal fun esFechaVencimientoValida(input: String): Boolean {
@@ -408,42 +420,15 @@ internal data class DevolucionFormState(
     val esCantidadParcial get() = modoCantidadIdx == 1
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LÓGICA DE NEGOCIO — FUNCIONES PURAS
+// Lí“GICA DE NEGOCIO —” FUNCIONES PURAS
 // Sin estado, sin UI. Solo cálculos y reglas del formulario.
-// ─────────────────────────────────────────────────────────────────────────────
 
-internal fun calcularCostoUnitario(lote: LoteProducto): Double = when {
-    lote.costoCompraUnitario > 0 -> lote.costoCompraUnitario
-    lote.costoUltimoIngresoUnitario > 0 -> lote.costoUltimoIngresoUnitario
-    lote.cantidad > 0 -> lote.costoUltimoIngreso / lote.cantidad
-    else -> 0.0
-}
 
-internal fun calcularCantidad(form: DevolucionFormState, totalDisponible: Double): Double =
-    if (form.esCantidadParcial) form.cantidadStr.replace(",", ".").toDoubleOrNull() ?: 0.0
-    else totalDisponible
-
-internal fun loteEfectivo(form: DevolucionFormState, loteOriginal: String): String =
-    if (form.esLoteNuevo) form.nuevoLoteNumero else loteOriginal
-
-internal fun vencimientoEfectivo(form: DevolucionFormState, vencimientoOriginal: String): String =
-    if (form.esLoteNuevo) form.nuevoVencimiento else vencimientoOriginal
-
-internal fun esCanjeValido(form: DevolucionFormState, cant: Double, total: Double): Boolean =
-    form.esCanjesFisico &&
-        cant > 0 && cant <= total &&
-        form.motivoSeleccionado.isNotBlank() &&
-        loteEfectivo(form, "").isNotBlank() &&
-        (!form.esLoteNuevo || esFechaVencimientoValida(form.nuevoVencimiento)) &&
-        form.guiaCanjeStr.isNotBlank()
-
-internal fun esDevolucionValida(form: DevolucionFormState, cant: Double, total: Double): Boolean =
-    !form.esCanjesFisico && cant > 0 && cant <= total && form.motivoSeleccionado.isNotBlank() && form.guiaRetiroStr.isNotBlank()
+internal fun calcularCostoUnitario(lote: LoteProducto): Double = CostoRealLote.costoUnitario(lote)
 
 internal fun motivosPorModalidad(esCanjesFisico: Boolean): List<String> =
     if (esCanjesFisico) listOf(
-        "Frascos / Ampollas Rotas de Fábrica",
+        "Mercadería dañada o rota",
         "Próximo a Vencer (Canje por Vencimiento)",
         "Defecto de Calidad / Falla de Fábrica"
     ) else listOf(
@@ -453,21 +438,8 @@ internal fun motivosPorModalidad(esCanjesFisico: Boolean): List<String> =
         "Retiro Sanitario / Alerta de Laboratorio"
     )
 
-internal fun textoResumen(
-    form: DevolucionFormState,
-    cant: Double,
-    empaque: String,
-    totalReclamo: Double
-): String = if (form.esCanjesFisico) {
-    val loteRep = if (form.esLoteNuevo) form.nuevoLoteNumero.ifBlank { "—" } else "mismo lote"
-    "Salen ${cant.toInt()} defectuosas → Entran ${cant.toInt()} sanas ($loteRep). Existencia y costo contable permanecen intactos."
-} else {
-    "Se descontarán \$ ${String.format(Locale.US, "%.2f", totalReclamo)} en Cuentas por Pagar. Se dan de baja ${cant.toInt()} $empaque del inventario."
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPOSABLE PRINCIPAL — SOLO ORQUESTA ESTADO Y SECCIONES
-// ─────────────────────────────────────────────────────────────────────────────
+// COMPOSABLE PRINCIPAL —” SOLO ORQUESTA ESTADO Y SECCIONES
 
 
 @Composable

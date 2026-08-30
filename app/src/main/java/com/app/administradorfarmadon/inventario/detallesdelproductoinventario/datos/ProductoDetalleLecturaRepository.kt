@@ -33,8 +33,8 @@ import java.util.UUID
  */
 
 /**
- * Lecturas en tiempo real — detalle, movimientos, reclamos, catálogo y códigos.
- * Extraído de ProductDetailFirestoreRepository (1.268 líneas) — responsabilidad única.
+ * Lecturas en tiempo real —” detalle, movimientos, reclamos, catálogo y códigos.
+ * Extraído de ProductDetailFirestoreRepository (1.268 líneas) —” responsabilidad única.
  */
 class ProductoDetalleLecturaRepository(
     private val db: FirebaseFirestore = FarmadonFirestore.db
@@ -111,9 +111,9 @@ class ProductoDetalleLecturaRepository(
 
                 val refDetalle = buildString {
                     if (loteNum.isNotBlank()) append("Lote: $loteNum")
-                    if (prov.isNotBlank()) append(" • Prov: $prov")
-                    if (fact.isNotBlank()) append(" • Fact: $fact")
-                    if (mot.isNotBlank()) append(" • Motivo: $mot")
+                    if (prov.isNotBlank()) append(" —¢ Prov: $prov")
+                    if (fact.isNotBlank()) append(" —¢ Fact: $fact")
+                    if (mot.isNotBlank()) append(" —¢ Motivo: $mot")
                 }.ifBlank { "Ajuste general" }
 
                 MovimientoInventario(
@@ -291,6 +291,32 @@ class ProductoDetalleLecturaRepository(
             }
         }
         return "FMD-${System.currentTimeMillis().toString().takeLast(8)}"
+    }
+
+    data class InfoEliminacion(
+        val email: String = "",
+        val fechaStr: String = "",
+        val motivo: String = ""
+    )
+
+    suspend fun obtenerInfoEliminacion(clienteId: String, productoId: String): InfoEliminacion? {
+        if (clienteId.isBlank() || productoId.isBlank()) return null
+        return try {
+            val tienda = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
+            val q = tienda.collection("auditorias").document("inventario").collection("productos")
+                .document("listaeliminado").collection("items")
+                .whereEqualTo("productoId", productoId)
+                .orderBy("fecha", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(1).get().await()
+            val doc = q.documents.firstOrNull() ?: return null
+            val email = doc.getString("usuarioEmail") ?: doc.getString("eliminadoPorUid") ?: ""
+            val motivo = doc.getString("motivo") ?: ""
+            val ts = doc.getTimestamp("fecha")
+            val fechaStr = if (ts != null) {
+                try { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(ts.toDate()) } catch (_: Exception) { "" }
+            } else ""
+            InfoEliminacion(email, fechaStr, motivo)
+        } catch (_: Exception) { null }
     }
 
     /**

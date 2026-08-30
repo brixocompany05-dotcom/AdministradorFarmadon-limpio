@@ -1,7 +1,7 @@
 package com.app.administradorfarmadon.inventario.compartido.modelo
 
 /**
- * Identidad del producto — catálogo y ficha sanitaria.
+ * Identidad del producto —” catálogo y ficha sanitaria.
  * Responsabilidad única: qué ES el producto, sin precio ni stock.
  * Extraído de MoldeProductos (God-Model 65 campos) para legibilidad.
  */
@@ -15,6 +15,7 @@ data class ProductoBase(
     var categoriasLista: List<String> = emptyList(),
     var etiquetas: List<String> = emptyList(),
     var principioActivo: String = "",
+    var laboratorio: String = "",
     var registroSanitario: String = "",
     var concentracion: String = "",
     var concentracionUnidad: String = "",
@@ -29,7 +30,7 @@ data class ProductoBase(
     var actualizadoEn: Any? = null
 )
 
-/** Conversión desde el modelo monolítico (fachada) — sin duplicar datos. */
+/** Conversión desde el modelo monolítico (fachada) —” sin duplicar datos. */
 fun MoldeProductos.toProductoBase(): ProductoBase = ProductoBase(
     indice = indice,
     nombre = nombre,
@@ -40,6 +41,7 @@ fun MoldeProductos.toProductoBase(): ProductoBase = ProductoBase(
     categoriasLista = categoriasLista,
     etiquetas = etiquetas,
     principioActivo = principioActivo,
+    laboratorio = laboratorio,
     registroSanitario = registroSanitario,
     concentracion = concentracion,
     concentracionUnidad = concentracionUnidad,

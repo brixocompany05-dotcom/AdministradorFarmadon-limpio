@@ -26,5 +26,12 @@ data class LoteProducto(
     val createdAt: String = "",
     val proveedorId: String = "",
     val proveedorNombre: String = "",
-    val loteId: String = ""
+    val loteId: String = "",
+    /**
+     * Nº de unidades de este lote que ya fueron vendidas/dispensadas.
+     * Lo actualiza la caja (POS) dentro de la MISMA transacción de la venta.
+     * Permite que anularIngresoLote verifique "¿ya vendió?" DENTRO de su transacción
+     * (Firestore no permite consultas adentro), cerrando la carrera con la venta.
+     */
+    val ventasRegistradas: Double = 0.0
 )

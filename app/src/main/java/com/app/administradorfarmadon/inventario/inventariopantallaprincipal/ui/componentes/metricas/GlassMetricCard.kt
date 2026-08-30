@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.metricas
+﻿package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.metricas
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke

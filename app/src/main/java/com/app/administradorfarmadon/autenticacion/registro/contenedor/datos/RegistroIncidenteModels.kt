@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.autenticacion.registro.contenedor.datos
+﻿package com.app.administradorfarmadon.autenticacion.registro.contenedor.datos
 
 import androidx.compose.ui.graphics.vector.ImageVector
 

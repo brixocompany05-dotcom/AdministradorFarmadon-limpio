@@ -6,6 +6,7 @@ import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.app.administradorfarmadon.inventario.compartido.modelo.ExpedienteReclamoProveedor
 import com.app.administradorfarmadon.inventario.compartido.logica.CodigoBarraHelper
+import com.app.administradorfarmadon.inventario.compartido.logica.CostoRealLote
 import com.app.administradorfarmadon.inventario.compartido.logica.ProductoParser
 import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
 import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
@@ -33,8 +34,8 @@ import java.util.UUID
  */
 
 /**
- * Operaciones de lotes — bloqueo, devolución, canje, anulación y merma. Transacciones atómicas todo-o-nada.
- * Extraído de ProductDetailFirestoreRepository (1.268 líneas) — responsabilidad única.
+ * Operaciones de lotes —” bloqueo, devolución, canje, anulación y merma. Transacciones atómicas todo-o-nada.
+ * Extraído de ProductDetailFirestoreRepository (1.268 líneas) —” responsabilidad única.
  */
 class LotesBloqueoRepository(
     private val db: FirebaseFirestore = FarmadonFirestore.db
@@ -89,7 +90,7 @@ class LotesBloqueoRepository(
 
                 if (ponerEnCuarentena) {
                     if (cantOperar > cantDisponible) {
-                        throw Exception("La cantidad a poner en cuarentena ($cantOperar) supera el stock disponible ($cantDisponible).")
+                        throw Exception("Este lote se acaba de actualizar por otro usuario. Intentaste guardar $cantOperar pero ahora solo hay $cantDisponible disponibles. Actualicé el saldo en tu pantalla — revisa y vuelve a intentar con $cantDisponible o menos.")
                     }
                     val nuevaDisp = (cantDisponible - cantOperar).coerceAtLeast(0.0)
                     val nuevaBloq = (cantBloqueada + cantOperar).coerceAtLeast(0.0)
@@ -99,7 +100,7 @@ class LotesBloqueoRepository(
                         if (nuevaDisp == 0.0) "CUARENTENA_TOTAL" else "CUARENTENA_PARCIAL"
                 } else {
                     if (cantOperar > cantBloqueada) {
-                        throw Exception("La cantidad a desbloquear ($cantOperar) supera las unidades en cuarentena ($cantBloqueada).")
+                        throw Exception("Este lote se acaba de actualizar. Intentaste liberar $cantOperar pero ahora solo hay $cantBloqueada en cuarentena. Actualicé el saldo — intenta con $cantBloqueada o menos.")
                     }
                     val nuevaDisp = (cantDisponible + cantOperar).coerceAtLeast(0.0)
                     val nuevaBloq = (cantBloqueada - cantOperar).coerceAtLeast(0.0)
@@ -115,15 +116,27 @@ class LotesBloqueoRepository(
                     lotesMap
                 )
 
+                val updatesProducto = mutableMapOf<String, Any>(
+                    "lotes" to lotesMap,
+                    "stock" to nuevoStockDisponible,
+                    "stockTotal" to nuevoStockTotal,
+                    "vencimientoMasCercano" to nuevoVencimientoMasCercano,
+                    "actualizadoEl" to FieldValue.serverTimestamp()
+                )
+                // Si el lote principal queda totalmente en cuarentena, ya no es vendible: se limpia solo.
+                if (((loteData["cantidad"] as? Number)?.toDouble() ?: 0.0) <= 0.0) {
+                    val principalActual = snap.getString("lotePrioritarioId") ?: ""
+                    if (principalActual.isNotBlank() &&
+                        (principalActual.equals(cleanKey, true) || principalActual.equals(lote.numero, true))
+                    ) {
+                        updatesProducto["lotePrioritarioId"] = ""
+                        updatesProducto["lotePrioritarioPor"] = ""
+                        updatesProducto["lotePrioritarioPorRol"] = ""
+                    }
+                }
                 tx.update(
                     productRef,
-                    mapOf(
-                        "lotes" to lotesMap,
-                        "stock" to nuevoStockDisponible,
-                        "stockTotal" to nuevoStockTotal,
-                        "vencimientoMasCercano" to nuevoVencimientoMasCercano,
-                        "actualizadoEl" to FieldValue.serverTimestamp()
-                    )
+                    updatesProducto
                 )
 
                 val movData = mapOf(
@@ -164,7 +177,7 @@ class LotesBloqueoRepository(
         }
         if (motivo.trim().length < 10) return Result.failure(Exception("Anulación requiere motivo de al menos 10 caracteres para auditoría."))
 
-        // ── BLINDAJE SANITARIO ──
+                    // ── BLINDAJE SANITARIO ──
         // Si este lote ya tuvo ventas, NO se puede anular silenciosamente.
         // Anular borraria la trazabilidad de qué lote recibieron los pacientes.
         val movimientosLoteQuery =
@@ -181,7 +194,22 @@ class LotesBloqueoRepository(
             return Result.failure(
                 Exception(
                     "No puedes anular el lote ${lote.numero}: tiene $ventasPrevias venta(s) previa(s). " +
-                            "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIÓN para las unidades restantes."
+                            "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIí“N para las unidades restantes."
+                )
+            )
+        }
+
+        // Reclamos abiertos del lote: anular dejaría el reclamo huérfano.
+        val reclamosAbiertos = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
+            .collection("reclamos_proveedores")
+            .whereEqualTo("productoId", productId)
+            .whereEqualTo("loteNumero", lote.numero.trim().uppercase())
+            .whereIn("estado", listOf("EN_REVISION_DROGUERIA", "EN_REVISION"))
+            .get().await()
+        if (reclamosAbiertos.documents.isNotEmpty()) {
+            return Result.failure(
+                Exception(
+                    "No puedes anular el lote ${lote.numero}: tiene ${reclamosAbiertos.documents.size} reclamo(s) abierto(s) al proveedor. Ciérralos o resuélvelos primero."
                 )
             )
         }
@@ -198,7 +226,6 @@ class LotesBloqueoRepository(
                 val snap = tx.get(productRef)
                 if (!snap.exists()) throw Exception("El producto no existe.")
 
-                val currentStock = snap.getDouble("stock") ?: snap.getDouble("stockTotal") ?: 0.0
                 val lotesMap =
                     (snap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
                 val resAnular = FechaVencimientoHelper.resolverLote(lotesMap, lote.numero)
@@ -208,6 +235,21 @@ class LotesBloqueoRepository(
                 val cantBloqueada = (loteData["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
                 val totalLote = cantDisponible + cantBloqueada
                 if (totalLote <= 0) throw Exception("El lote ${lote.numero} ya está en 0, no hay saldo que anular.")
+
+                // BLINDAJE SANITARIO AUTORITATIVO (dentro de la transacción):
+                // Firestore no permite consultas adentro de runTransaction, por eso la
+                // pregunta "¿este lote ya vendió?" se resuelve con la bandera desnormalizada
+                // del lote (ventasRegistradas), que la caja enciende al vender, en la MISMA
+                // transacción de la venta. Así la carrera con una venta en el mismo instante
+                // es imposible: o la venta ya la puso (y abortamos) o esta tx gana y la
+                // venta siguiente la verá. Nunca se borra un lote con trazabilidad viva.
+                val ventasRegistradas = (loteData["ventasRegistradas"] as? Number)?.toDouble() ?: 0.0
+                if (ventasRegistradas > 0) {
+                    throw Exception(
+                        "No puedes anular el lote ${lote.numero}: ya tiene ${ventasRegistradas.toLong()} venta(s) registrada(s). " +
+                                "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIí“N para las unidades restantes."
+                    )
+                }
                 val cleanKey = cleanKeyRealAnular
 
                 lotesMap.remove(cleanKeyRealAnular)
@@ -215,16 +257,23 @@ class LotesBloqueoRepository(
                     lotesMap
                 )
 
-                tx.update(
-                    productRef,
-                    mapOf(
-                        "lotes" to lotesMap,
-                        "stock" to nuevoStockDisponible,
-                        "stockTotal" to nuevoStockTotal,
-                        "vencimientoMasCercano" to nuevoVencimientoMasCercano,
-                        "actualizadoEl" to FieldValue.serverTimestamp()
-                    )
+                val updatesProducto = mutableMapOf<String, Any>(
+                    "lotes" to lotesMap,
+                    "stock" to nuevoStockDisponible,
+                    "stockTotal" to nuevoStockTotal,
+                    "vencimientoMasCercano" to nuevoVencimientoMasCercano,
+                    "actualizadoEl" to FieldValue.serverTimestamp()
                 )
+                // El lote se eliminó: si era el principal de consumo, se limpia solo.
+                val principalActual = snap.getString("lotePrioritarioId") ?: ""
+                if (principalActual.isNotBlank() &&
+                    (principalActual.equals(cleanKeyRealAnular, true) || principalActual.equals(lote.numero, true))
+                ) {
+                    updatesProducto["lotePrioritarioId"] = ""
+                    updatesProducto["lotePrioritarioPor"] = ""
+                    updatesProducto["lotePrioritarioPorRol"] = ""
+                }
+                tx.update(productRef, updatesProducto)
 
                 val facturaNumeroRaw = (loteData["factura"] as? String)?.trim() ?: ""
                 val proveedorNombreRaw = (loteData["proveedor"] as? String)?.trim() ?: ""
@@ -266,7 +315,11 @@ class LotesBloqueoRepository(
                         } ?: emptyList()
                         val totalADescontar = if (itemsMatch.isNotEmpty()) itemsMatch.sumOf {
                             (it["costoTotal"] as? Number)?.toDouble() ?: 0.0
-                        } else (loteData["costoCompra"] as? Number)?.toDouble() ?: 0.0
+                        } else {
+                            val costoCompraLote = (loteData["costoCompra"] as? Number)?.toDouble() ?: 0.0
+                            if (costoCompraLote > 0.0) costoCompraLote
+                            else CostoRealLote.costoUnitario(loteData) * totalLote
+                        }
                         if (totalADescontar > 0) {
                             val nuevoAcumulado = ((facturaSnap.getDouble("montoAcumulado")
                                 ?: 0.0) - totalADescontar).coerceAtLeast(0.0)
@@ -275,7 +328,7 @@ class LotesBloqueoRepository(
                                     ?.equals(lote.numero.trim(), ignoreCase = true) == true
                             } ?: emptyList<Any>()
                             // Si la factura queda sin contenido tras la anulación, se marca ANULADA
-                            // registrando QUIÉN la anuló, CUÁNDO y POR QUÉ — coherencia multiusuario.
+                            // registrando QUIí‰N la anuló, CUíNDO y POR QUí‰ —” coherencia multiusuario.
                             val updatesFactura = mutableMapOf<String, Any>(
                                 "montoAcumulado" to nuevoAcumulado,
                                 "items" to itemsRestantes,
@@ -283,11 +336,68 @@ class LotesBloqueoRepository(
                             )
                             if (itemsRestantes.isEmpty()) {
                                 updatesFactura["estadoPago"] = "ANULADA"
-                                updatesFactura["anuladaMotivo"] = motivo.trim()
-                                updatesFactura["anuladaPor"] = usuarioEmail
-                                updatesFactura["anuladaEn"] = FieldValue.serverTimestamp()
+                                // Campos canónicos de anulación (misma verdad que el motor de facturas)
+                                updatesFactura["motivoAnulacion"] = motivo.trim()
+                                updatesFactura["anuladoPorEmail"] = usuarioEmail
+                                updatesFactura["anuladoEl"] = FieldValue.serverTimestamp()
                             }
                             tx.update(effectiveRef, updatesFactura)
+                        }
+
+                        // Compras debe decir la verdad: si la entrada anulada pertenecía a un pedido,
+                        // se descuenta de lo recibido y se recalcula el estado del pedido.
+                        val pedidoIdFactura = facturaSnap.getString("pedidoId") ?: ""
+                        if (pedidoIdFactura.isNotBlank()) {
+                            val pedidoRef = tiendaRef.collection("pedidos_compra").document(pedidoIdFactura)
+                            val pedidoSnap = tx.get(pedidoRef)
+                            if (pedidoSnap.exists()) {
+                                val estadoPedido = pedidoSnap.getString("estado") ?: "ENVIADO"
+                                if (estadoPedido in listOf("RECIBIDO", "ENTREGA_PARCIAL", "ENVIADO")) {
+                                    @Suppress("UNCHECKED_CAST")
+                                    val itemsPedido = (pedidoSnap.get("items") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+                                    val cantidadAnuladaItem = itemsMatch.firstOrNull()?.let { m ->
+                                        (m["cantidadTotal"] as? Number)?.toDouble()
+                                            ?: (m["cantidad"] as? Number)?.toDouble()
+                                            ?: totalLote
+                                    } ?: totalLote
+                                    var huboCambio = false
+                                    val itemsNuevos = itemsPedido.map { raw ->
+                                        val m = raw.toMutableMap()
+                                        if ((m["productoId"] as? String) == productId) {
+                                            val recibida = (m["cantidadRecibida"] as? Number)?.toInt() ?: 0
+                                            val aRestar = cantidadAnuladaItem.toInt().coerceIn(0, recibida)
+                                            if (aRestar > 0) {
+                                                m["cantidadRecibida"] = (recibida - aRestar).coerceAtLeast(0)
+                                                huboCambio = true
+                                            }
+                                        }
+                                        m
+                                    }
+                                    if (huboCambio) {
+                                        val todasCompletas = itemsNuevos.all {
+                                            val rec = (it["cantidadRecibida"] as? Number)?.toInt() ?: 0
+                                            val ped = (it["cantidad"] as? Number)?.toInt() ?: 0
+                                            rec >= ped
+                                        }
+                                        val hayRecibido = itemsNuevos.any {
+                                            (it["cantidadRecibida"] as? Number)?.toInt() ?: 0 > 0
+                                        }
+                                        val nuevoEstadoPedido = when {
+                                            todasCompletas -> "RECIBIDO"
+                                            hayRecibido -> "ENTREGA_PARCIAL"
+                                            else -> "ENVIADO"
+                                        }
+                                        tx.update(
+                                            pedidoRef,
+                                            mapOf(
+                                                "items" to itemsNuevos,
+                                                "estado" to nuevoEstadoPedido,
+                                                "actualizadoEl" to FieldValue.serverTimestamp()
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -304,7 +414,7 @@ class LotesBloqueoRepository(
                     "fecha" to FieldValue.serverTimestamp()
                 )
                 tx.set(movimientoRef, movData)
-                // Auditoría lote ordenada: auditorias/inventario/lotes/listaeliminado/{id} — solo valiosa
+                // Auditoría lote ordenada: auditorias/inventario/lotes/listaeliminado/{id} —” solo valiosa
                 val loteAuditRef =
                     tiendaRef.collection("auditorias").document("inventario").collection("lotes")
                         .document("listaeliminado").collection("items").document()
@@ -329,98 +439,6 @@ class LotesBloqueoRepository(
         }
     }
 
-
-    suspend fun registrarMerma(
-        clienteId: String,
-        productId: String,
-        lote: LoteProducto,
-        cantidadMerma: Double,
-        motivo: String,
-        usuarioEmail: String
-    ): Result<Unit> {
-        // R1: el tenant de la sesión es el clienteId de la farmacia (RUC), no el uid de auth.
-        if (clienteId != SessionManager.clienteIdGarantizado) return Result.failure(
-            SecurityException("Aislamiento entre farmacias: el registro no pertenece a tu farmacia.")
-        )
-        if (clienteId.isBlank() || productId.isBlank() || lote.numero.isBlank() || cantidadMerma <= 0) {
-            return Result.failure(Exception("Datos inválidos para registrar merma."))
-        }
-        if (motivo.trim()
-                .isBlank()
-        ) return Result.failure(Exception("El motivo de merma es obligatorio."))
-
-        return try {
-            val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
-
-            val productRef = tiendaRef.collection("inventario").document(productId)
-            val movimientoRef =
-                tiendaRef.collection("movimientos").document(UUID.randomUUID().toString())
-            val cleanKey = FechaVencimientoHelper.llaveLote(lote.numero)
-
-            db.runTransaction { tx ->
-                val snap = tx.get(productRef)
-                if (!snap.exists()) throw Exception("El producto no existe.")
-
-                val lotesMap =
-                    (snap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
-                val resMerma = FechaVencimientoHelper.resolverLote(lotesMap, lote.numero)
-                    ?: throw Exception("El lote no se encuentra en el inventario.")
-                val (cleanKeyRealMerma, loteData) = resMerma
-                val cantDisponible = (loteData["cantidad"] as? Number)?.toDouble() ?: 0.0
-                val cantBloqueada = (loteData["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
-                val totalLote = cantDisponible + cantBloqueada
-                val cleanKey = cleanKeyRealMerma
-
-                if (cantidadMerma > totalLote) {
-                    throw Exception("La cantidad de merma ($cantidadMerma) supera el saldo total del lote ($totalLote).")
-                }
-
-                // La merma deduce primero de disponible; si no alcanza, continúa con cuarentena.
-                // Un medicamento dañado/vencido en cuarentena va DIRECTO a su destino
-                // sin volver a estar "disponible" para venta ni un segundo.
-                val desdeDisponible = minOf(cantidadMerma, cantDisponible)
-                val desdeBloqueada = cantidadMerma - desdeDisponible
-                loteData["cantidad"] = (cantDisponible - desdeDisponible).coerceAtLeast(0.0)
-                loteData["cantidadBloqueada"] = (cantBloqueada - desdeBloqueada).coerceAtLeast(0.0)
-
-                loteData["ultimaMerma"] = FieldValue.serverTimestamp()
-                lotesMap[cleanKeyRealMerma] = loteData
-
-                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = calcularResumenStockYFefo(
-                    lotesMap
-                )
-
-                tx.update(
-                    productRef,
-                    mapOf(
-                        "lotes" to lotesMap,
-                        "stock" to nuevoStockDisponible,
-                        "stockTotal" to nuevoStockTotal,
-                        "vencimientoMasCercano" to nuevoVencimientoMasCercano,
-                        "actualizadoEl" to FieldValue.serverTimestamp()
-                    )
-                )
-
-                val movData = mapOf(
-                    "id" to movimientoRef.id,
-                    "tipo" to "MERMA_DESCARTE",
-                    "productoId" to productId,
-                    "productoNombre" to (snap.getString("nombre") ?: ""),
-                    "loteNumero" to lote.numero,
-                    "cantidad" to -cantidadMerma,
-                    "motivo" to motivo,
-                    "usuarioEmail" to usuarioEmail,
-                    "fecha" to FieldValue.serverTimestamp()
-                )
-                tx.set(movimientoRef, movData)
-            }.await()
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error registrando merma: ${e.message}", e)
-            Result.failure(e)
-        }
-    }
 
 
     private fun calcularResumenStockYFefo(lotesMap: Map<*, *>): Triple<Double, Double, String> {

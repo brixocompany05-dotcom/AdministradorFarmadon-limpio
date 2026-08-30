@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.notificaciones.base_datos
+﻿package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.notificaciones.base_datos
 
 import android.util.Log
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
@@ -8,7 +8,7 @@ import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 
 /**
- * Gestor real de alertas vistas por sede — una sola verdad Firestore.
+ * Gestor real de alertas vistas por sede —” una sola verdad Firestore.
  * Estructura: farmaciapp/app/farmacias/{farmaciaId}/sucursales/{sucursalId}/alertasInventario/{productId}
  * Compartido por todos los usuarios de la sede: si Ana ve "quedan 2u", Luis no es molestado de nuevo
  * hasta que la condición cambie (stock repuesto y vuelve a caer).
@@ -46,7 +46,7 @@ object AlertPersistenceManager {
 
     /**
      * Marca alerta como vista para TODA la sede (no por usuario).
-     * Falla visible si no hay red — no finge éxito.
+     * Falla visible si no hay red —” no finge éxito.
      */
     suspend fun markAsRead(clienteId: String, productId: String, message: String) {
         markAsRead(clienteId, productId, "STOCK", message)

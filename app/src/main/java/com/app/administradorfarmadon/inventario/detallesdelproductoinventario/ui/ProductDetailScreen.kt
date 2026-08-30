@@ -8,20 +8,27 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +52,8 @@ import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.componentes_maestros.ui.DeletedProductOverlay
+import com.app.administradorfarmadon.inventario.ajustesinventario.logica.AjusteInventarioViewModel
+import com.app.administradorfarmadon.inventario.ajustesinventario.ui.WorkspaceRegistrarEntrada
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailState
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailViewModel
 
@@ -55,9 +64,21 @@ fun ProductDetailScreen(
     onClose: () -> Unit,
     onEdit: (MoldeProductos) -> Unit,
     onAdjustStock: (MoldeProductos, LoteProducto?) -> Unit = { _, _ -> },
+    onFocusModeChanged: (Boolean) -> Unit = {},
     viewModel: ProductDetailViewModel = viewModel()
 ) {
     val uiState = viewModel.uiState
+    val ajusteInventarioViewModel: AjusteInventarioViewModel = viewModel()
+    var modoEntrada by remember { mutableStateOf(false) }
+    var loteInicialEntrada by remember { mutableStateOf<LoteProducto?>(null) }
+
+    fun salirDeEntrada() {
+        // Reinicia el flujo para que la próxima vez arranque desde la decisión.
+        ajusteInventarioViewModel.reiniciar()
+        loteInicialEntrada = null
+        modoEntrada = false
+    }
+
     val focusManagerDetail = LocalFocusManager.current
     val keyboardControllerDetail = LocalSoftwareKeyboardController.current
     val densityDetail = LocalDensity.current
@@ -67,7 +88,7 @@ fun ProductDetailScreen(
             keyboardControllerDetail?.hide()
             focusManagerDetail.clearFocus(force = true)
         } else {
-            onClose()
+            if (modoEntrada) salirDeEntrada() else onClose()
         }
     }
 
@@ -99,14 +120,78 @@ fun ProductDetailScreen(
                 }
             }
             is ProductDetailState.Success -> {
-                // Blindaje: solo mostrar borrado si el producto cargado es el mismo que se pidió (evita parpadeo al cambiar rápido de ficha)
+                // Blindaje: solo mostrar borrado si el producto cargado es el mismo que se pidió
                 if (uiState.isDeleted && uiState.product.indice == productId) {
-                    DeletedProductOverlay(show = true, onBack = onClose)
+                    val info = viewModel.infoEliminacion
+                    DeletedProductOverlay(
+                        show = true,
+                        onBack = onClose,
+                        eliminadoPor = info?.email ?: "",
+                        fechaEliminacion = info?.fechaStr ?: "",
+                        motivoEliminacion = info?.motivo ?: ""
+                    )
                 } else if (uiState.isDeleted) {
-                    // Estado stale de otro producto borrado → mostrar carga, no overlay ajeno
+                    // Estado stale de otro producto borrado ──†’ mostrar carga, no overlay ajeno
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = FDColors.Primary, strokeWidth = 2.5.dp)
                     }
+                } else if (modoEntrada) {
+                    WorkspaceRegistrarEntrada(
+                        producto = uiState.product,
+                        ajusteInventarioViewModel = ajusteInventarioViewModel,
+                        loteInicial = loteInicialEntrada,
+                        isPrivileged = uiState.isPrivileged,
+                        onVolver = { salirDeEntrada() },
+                        onDefinirPrioridad = { loteId ->
+                            viewModel.definirLotePrioritario(uiState.product.indice, loteId) { result ->
+                                if (result.isFailure) {
+                                    enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
+                                } else {
+                                    enterpriseMsg = (if (loteId.isNullOrBlank()) "Orden FEFO restaurado" else "Este lote se venderá primero") to false
+                                }
+                            }
+                        },
+                        onCambiarBloqueo = { lote, ponerEnCuarentena, cantidad, motivo, onComplete ->
+                            viewModel.cambiarBloqueoLote(uiState.product.indice, lote, ponerEnCuarentena, cantidad, motivo) { result ->
+                                onComplete(result)
+                                if (result.isFailure) {
+                                    enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
+                                } else {
+                                    enterpriseMsg = (if (ponerEnCuarentena) "${cantidad.toInt()} unidades en cuarentena" else "${cantidad.toInt()} unidades liberadas") to false
+                                }
+                            }
+                        },
+                        onRegistrarDevolucion = { lote, cantidad, guiaRetiro, notaCredito, motivo, modalidad, onComplete ->
+                            viewModel.registrarDevolucionProveedor(uiState.product.indice, lote, cantidad, guiaRetiro, notaCredito, motivo, modalidad) { result ->
+                                onComplete(result)
+                                if (result.isFailure) {
+                                    enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
+                                } else {
+                                    enterpriseMsg = "Devolución registrada" to false
+                                }
+                            }
+                        },
+                        onRegistrarCanje = { lote, cantidad, nuevoLote, nuevoVenc, guiaCanje, motivo, onComplete ->
+                            viewModel.registrarCanjeProducto(uiState.product.indice, lote, cantidad, nuevoLote, nuevoVenc, guiaCanje, motivo) { result ->
+                                onComplete(result)
+                                if (result.isFailure) {
+                                    enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
+                                } else {
+                                    enterpriseMsg = "Canje registrado" to false
+                                }
+                            }
+                        },
+                        onAnularIngreso = { lote, motivo, onComplete ->
+                            viewModel.anularIngreso(uiState.product.indice, lote, motivo) { result ->
+                                onComplete(result)
+                                if (result.isFailure) {
+                                    enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
+                                } else {
+                                    enterpriseMsg = "Lote anulado" to false
+                                }
+                            }
+                        }
+                    )
                 } else {
                     ProductDetailContent(
                     p = uiState.product,
@@ -115,77 +200,16 @@ fun ProductDetailScreen(
                     initialTabIndex = initialTabIndex,
                     onClose = onClose,
                     onEdit = { onEdit(uiState.product) },
-                    onAdjustStock = { lote -> onAdjustStock(uiState.product, lote) },
+                    onAdjustStock = { lote -> loteInicialEntrada = lote; modoEntrada = true },
                     ubicacionesDisponibles = viewModel.ubicacionesDisponibles,
-                    onGuardarConfiguracion = { ubicacion, stockMinimo, activo, diasAlertaVencimiento, nuevoCodigo, onComplete ->
-                        viewModel.guardarConfiguracionYLogistica(uiState.product.indice, ubicacion, stockMinimo, activo, diasAlertaVencimiento, nuevoCodigo) { result ->
+                    onGuardarConfiguracion = { ubicacion, stockMinimo, activo, diasAlertaVencimiento, nuevoCodigo, ubicacionSecundaria, fefoAutomatico, onComplete ->
+                        viewModel.guardarConfiguracionYLogistica(uiState.product.indice, ubicacion, stockMinimo, activo, diasAlertaVencimiento, nuevoCodigo, ubicacionSecundaria, fefoAutomatico) { result ->
                             onComplete(result)
                         }
                     },
                     onGenerarCodigoUnico = { viewModel.generarCodigoInternoUnico() },
                     onVerificarDuplicadoCodigo = { codigo -> viewModel.buscarDuplicadoCodigo(codigo, uiState.product.indice) },
                     onMarcarEtiquetaImpresa = { viewModel.marcarEtiquetaImpresa(uiState.product.indice) },
-                    onCambiarBloqueoLote = { lote, ponerEnCuarentena, cantidad, motivo, onComplete ->
-                        viewModel.cambiarBloqueoLote(uiState.product.indice, lote, ponerEnCuarentena, cantidad, motivo) { result ->
-                            onComplete(result)
-                            if (result.isFailure) {
-                                enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
-                            } else {
-                                val msg = if (ponerEnCuarentena) "${cantidad.toInt()} unidades en cuarentena" else "${cantidad.toInt()} unidades liberadas"
-                                enterpriseMsg = msg to false
-                            }
-                        }
-                    },
-                    onDefinirPrioridadLote = { loteId ->
-                        viewModel.definirLotePrioritario(uiState.product.indice, loteId) { result ->
-                            if (result.isFailure) {
-                                enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
-                            } else {
-                                val texto = if (loteId.isNullOrBlank()) "Orden FEFO restaurado" else "Este lote se venderá primero"
-                                enterpriseMsg = texto to false
-                            }
-                        }
-                    },
-                    onRegistrarDevolucion = { lote, cantidad, guiaRetiro, notaCredito, motivo, modalidad, onComplete ->
-                        viewModel.registrarDevolucionProveedor(uiState.product.indice, lote, cantidad, guiaRetiro, notaCredito, motivo, modalidad) { result ->
-                            onComplete(result)
-                            if (result.isFailure) {
-                                enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
-                            } else {
-                                enterpriseMsg = "Devolución registrada" to false
-                            }
-                        }
-                    },
-                    onRegistrarCanje = { lote, cantidad, nuevoLote, nuevoVenc, guiaCanje, motivo, onComplete ->
-                        viewModel.registrarCanjeProducto(uiState.product.indice, lote, cantidad, nuevoLote, nuevoVenc, guiaCanje, motivo) { result ->
-                            onComplete(result)
-                            if (result.isFailure) {
-                                enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
-                            } else {
-                                enterpriseMsg = "Canje registrado" to false
-                            }
-                        }
-                    },
-                    onAnularIngreso = { lote, motivo, onComplete ->
-                        viewModel.anularIngreso(uiState.product.indice, lote, motivo) { result ->
-                            onComplete(result)
-                            if (result.isFailure) {
-                                enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
-                            } else {
-                                enterpriseMsg = "Lote anulado" to false
-                            }
-                        }
-                    },
-                    onRegistrarMerma = { lote, cantidad, motivo, onComplete ->
-                        viewModel.registrarMerma(uiState.product.indice, lote, cantidad, motivo) { result ->
-                            onComplete(result)
-                            if (result.isFailure) {
-                                enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
-                            } else {
-                                enterpriseMsg = "Merma registrada" to false
-                            }
-                        }
-                    },
                     onEliminarProducto = { product, motivo, onComplete ->
                         viewModel.eliminarProductoDefinitivo(product.indice, motivo) { result ->
                             onComplete(result)
@@ -199,7 +223,7 @@ fun ProductDetailScreen(
                     },
                     onEliminadoExito = { onClose() },
                     onGuardarPrecios = { unidadBase, presentaciones, onComplete ->
-                        viewModel.guardarPresentacionesYPrecios(uiState.product.indice, unidadBase, presentaciones) { result ->
+                        viewModel.guardarPresentacionesYPrecios(uiState.product.indice, unidadBase, presentaciones, uiState.product.presentaciones) { result ->
                             onComplete(result)
                             if (result.isFailure) {
                                 enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
@@ -212,7 +236,7 @@ fun ProductDetailScreen(
                 }
             }
         }
-        // ── Banner enterprise animado (reemplaza Toast viejo) ──
+        // ──”€──”€ Banner enterprise animado (reemplaza Toast viejo) ──”€──”€
         AnimatedVisibility(
             visible = enterpriseMsg != null,
             enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),

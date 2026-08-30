@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.administradorfarmadon.autenticacion.login.ui.componentes.ExecutiveInput
 import com.app.administradorfarmadon.configuracion.sucursales.logica.SucursalesUiState
+import com.app.administradorfarmadon.configuracion.metodospago.modelo.TIPOS_PAGO_FIJOS
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.bounceClick
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
@@ -48,6 +49,7 @@ fun SucursalFormularioPanel(
     state: SucursalesUiState,
     onFieldChanged: (String, String) -> Unit,
     onActivaChanged: (Boolean) -> Unit,
+    onPagoSeleccionadoChanged: (String, Boolean) -> Unit,
     onOpenMapPicker: () -> Unit,
     onGuardar: () -> Unit,
     onSolicitarEliminar: () -> Unit,
@@ -277,6 +279,115 @@ fun SucursalFormularioPanel(
                         }
                     }
 
+                    // SECCIÓN 3 (solo al crear): CONTRATO DE MÉTODOS DE PAGO DE LA SEDE NUEVA.
+                    // Todos vienen marcados por defecto; desmarcar excluye ese pago del nacimiento.
+                    if (state.esModoCreacion) {
+                        HorizontalDivider(color = colores.cardBorde.copy(alpha = 0.4f), thickness = s.separatorH)
+                        Column(verticalArrangement = Arrangement.spacedBy(s.sm)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.xs * 0.8f)) {
+                                Icon(Icons.Default.Payments, null, tint = colores.textoTerciario, modifier = Modifier.size(s.iconTiny))
+                                Text(
+                                    "MÉTODOS DE PAGO DE LA SEDE",
+                                    style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.9f, letterSpacing = 0.8.sp),
+                                    color = colores.textoTerciario
+                                )
+                            }
+                            Text(
+                                "Esta sede nacerá con estos métodos disponibles. Todos vienen marcados; desmarca los que esta sede no usará.",
+                                style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textLabel.value.sp * 0.95f),
+                                color = colores.textoTerciario
+                            )
+
+                            val todosMarcados = state.formPagosSeleccionados.size == TIPOS_PAGO_FIJOS.size
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Incluir todos los métodos",
+                                    style = TokensFarmadon.tipografia.cuerpo.copy(fontSize = s.textBody.value.sp * 0.95f, fontWeight = FontWeight.SemiBold),
+                                    color = colores.textoPrincipal
+                                )
+                                Switch(
+                                    checked = todosMarcados,
+                                    onCheckedChange = { marcar ->
+                                        TIPOS_PAGO_FIJOS.forEach { tipo -> onPagoSeleccionadoChanged(tipo.id, marcar) }
+                                    },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = colores.botonPrimarioFondo,
+                                        checkedTrackColor = colores.estadoExito.copy(alpha = 0.35f),
+                                        uncheckedThumbColor = colores.textoTerciario,
+                                        uncheckedTrackColor = colores.cardBorde.copy(alpha = 0.6f),
+                                        uncheckedBorderColor = colores.cardBorde
+                                    )
+                                )
+                            }
+
+                            state.formErrores["pagos"]?.let { msg ->
+                                Text(
+                                    text = msg,
+                                    style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textLabel.value.sp * 0.95f, fontWeight = FontWeight.Bold),
+                                    color = colores.estadoPeligro
+                                )
+                            }
+
+                            TIPOS_PAGO_FIJOS.forEach { tipo ->
+                                val marcado = tipo.id in state.formPagosSeleccionados
+                                val sinDisponibilidad = tipo.id in state.pagosMarcadosSinDisponibilidad
+                                Surface(
+                                    onClick = { onPagoSeleccionadoChanged(tipo.id, !marcado) },
+                                    color = if (marcado) colores.estadoExito.copy(alpha = 0.07f) else colores.fondoBase,
+                                    shape = RoundedCornerShape(s.radiusChip),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        s.borderWidth * 0.8f,
+                                        if (marcado) colores.estadoExito.copy(alpha = 0.35f) else colores.cardBorde
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = s.sm, vertical = s.xs * 0.85f),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(s.xs)
+                                    ) {
+                                        Icon(tipo.icono, null, tint = tipo.colorMarca, modifier = Modifier.size(s.iconSmall))
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                tipo.nombre,
+                                                style = TokensFarmadon.tipografia.cuerpo.copy(fontSize = s.textBody.value.sp, fontWeight = FontWeight.Bold),
+                                                color = colores.textoPrincipal
+                                            )
+                                            Text(
+                                                tipo.descripcion,
+                                                style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textLabel.value.sp * 0.92f),
+                                                color = colores.textoTerciario
+                                            )
+                                            if (sinDisponibilidad) {
+                                                Text(
+                                                    "La sede principal aún no configura este pago: la sede nacerá con la marca, pero sin cuenta hasta que lo configures en Métodos de Pago.",
+                                                    style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textLabel.value.sp * 0.9f, fontWeight = FontWeight.SemiBold),
+                                                    color = colores.estadoAlerta
+                                                )
+                                            }
+                                        }
+                                        Checkbox(
+                                            checked = marcado,
+                                            onCheckedChange = { onPagoSeleccionadoChanged(tipo.id, it) },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = colores.estadoExito,
+                                                uncheckedColor = colores.textoTerciario.copy(alpha = 0.5f),
+                                                checkmarkColor = colores.fondoBase
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // SECCIÓN 3 (solo la sede principal): las sedes hijas nacen sin
+                    // dirección física, como se decidió en producto — cero falsedad.
+                    if (esPrincipal) {
                     HorizontalDivider(color = colores.cardBorde.copy(alpha = 0.4f), thickness = s.separatorH)
 
                     // SECCIÓN 3: GEOLOCALIZACIÓN — mapa altura adaptativa s.btnLargeH*3.3 (~180dp escalado)
@@ -407,6 +518,8 @@ fun SucursalFormularioPanel(
                             }
                         }
                     }
+                    }
+
                 }
 
                 Spacer(modifier = Modifier.height(s.gapMedium))
@@ -433,7 +546,7 @@ fun SucursalFormularioPanel(
                 }
 
                 val puedeGuardar = if (state.esModoCreacion) {
-                    !state.guardando && state.formNombre.isNotBlank() && state.formDireccion.isNotBlank() && state.formTelefono.isNotBlank() && state.formResponsable.isNotBlank()
+                    !state.guardando && state.formNombre.isNotBlank() && state.formTelefono.isNotBlank() && state.formResponsable.isNotBlank()
                 } else {
                     !state.guardando && state.hayCambiosSinGuardar
                 }

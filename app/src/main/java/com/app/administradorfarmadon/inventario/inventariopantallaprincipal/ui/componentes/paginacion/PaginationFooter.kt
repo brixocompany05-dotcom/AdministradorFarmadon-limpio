@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.paginacion
+﻿package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.paginacion
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,11 +21,11 @@ import androidx.compose.ui.unit.sp
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.comunes.*
 /**
- * @deprecated Pagination numerada expuesta al empleado — reemplazada por InfiniteLoadingFooter.
+ * @deprecated Pagination numerada expuesta al empleado —” reemplazada por InfiniteLoadingFooter.
  * Se conserva solo por compatibilidad historica; InventarioScreen ya no la usa.
  * La lista infinita silenciosa muestra solo "Cargando más..." (isLoadingMore).
  */
-@Deprecated("Usar InfiniteLoadingFooter — paginacion silenciosa sin numeros")
+@Deprecated("Usar InfiniteLoadingFooter —” paginacion silenciosa sin numeros")
 
 
 @Composable

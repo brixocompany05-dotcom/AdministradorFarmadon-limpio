@@ -30,7 +30,7 @@ data class ModuloResuelto(
 )
 
 /**
- * ÚNICA fuente de verdad de "qué puede usar este cliente".
+ * íšNICA fuente de verdad de "qué puede usar este cliente".
  *
  * Se calcula SIEMPRE en tiempo real desde 3 datos:
  *  - catálogo (herramientas activas),
@@ -41,7 +41,7 @@ data class ModuloResuelto(
  *  1. Padre visible solo si está en el plan (por código o por nombre), no apagado
  *     por el cliente, y tiene al menos un hijo activo (o es hoja sin hijos).
  *  2. Hijo visible solo si está activado en el catálogo.
- *  3. Apagado el padre completo → desaparece (quien lo consume también saca al
+ *  3. Apagado el padre completo ──†’ desaparece (quien lo consume también saca al
  *     usuario de la herramienta).
  *
  * Coherencia transicional: el plan puede referenciar cada herramienta por su
@@ -65,7 +65,7 @@ object ModulosResueltos {
                 val estaEnPlan = featuresPlan.contains(tool.modulo) || featuresPlan.contains(tool.nombre)
                 if (!estaEnPlan) return@mapNotNull null
 
-                // Apagado completo por el cliente (por código o por nombre) → oculta.
+                // Apagado completo por el cliente (por código o por nombre) ──†’ oculta.
                 if (overridesCliente[tool.modulo] == false || overridesCliente[tool.nombre] == false) {
                     return@mapNotNull null
                 }
@@ -74,7 +74,7 @@ object ModulosResueltos {
                     .filter { it.activo }
                     .map { it.clave }
 
-                // Herramienta con hijos pero todos apagados → no se muestra.
+                // Herramienta con hijos pero todos apagados ──†’ no se muestra.
                 if (tool.hijos.isNotEmpty() && hijosActivos.isEmpty()) return@mapNotNull null
 
                 ModuloResuelto(

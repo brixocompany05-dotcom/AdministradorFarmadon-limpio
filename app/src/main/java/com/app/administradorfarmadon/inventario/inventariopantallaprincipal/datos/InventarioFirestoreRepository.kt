@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.callbackFlow
 
 /**
  * Repositorio Oficial de Inventario en Cloud Firestore (Multi-Tenant).
- * Fuente Única de Verdad: escucha cambios en tiempo real (<50ms) de la colección:
+ * Fuente íšnica de Verdad: escucha cambios en tiempo real (<50ms) de la colección:
  * farmaciapp/app/farmacias/{farmaciaId}/sucursales/{sucursalId}/inventario
  *
  * R1 Aislamiento: toda lectura verifica farmaciaId + sucursalId via FarmadonPaths.
@@ -37,7 +37,7 @@ class InventarioFirestoreRepository(
      */
     data class PaginaInventario(
         val productos: List<PharmProduct>,
-        // Alias completo para contrato MoldeProductos — misma página, mapeo alternativo
+        // Alias completo para contrato MoldeProductos —” misma página, mapeo alternativo
         val productosMolde: List<MoldeProductos> = emptyList(),
         val ultimoDocumento: DocumentSnapshot?,
         val esUltimaPagina: Boolean = false
@@ -52,8 +52,8 @@ class InventarioFirestoreRepository(
      * - addSnapshotListener con manejo de error honesto (Log.e + close(error), sin catch vacío)
      * - devuelve Flow<List<MoldeProductos>> y ultimo DocumentSnapshot (envuelto en PaginaInventario)
      *
-     * @param farmaciaId tenant dueño de los datos — R1
-     * @param sucursalId sede operativa — R1
+     * @param farmaciaId tenant dueño de los datos —” R1
+     * @param sucursalId sede operativa —” R1
      * @param limit tamaño de página, default 50 profesional
      * @param startAfterDoc cursor del último doc de la página anterior, null para primera página
      */
@@ -106,7 +106,7 @@ class InventarioFirestoreRepository(
     }
 
     /**
-     * Observa inventario paginado — variante que expone directamente Flow<Pair<List<MoldeProductos>, DocumentSnapshot?>>
+     * Observa inventario paginado —” variante que expone directamente Flow<Pair<List<MoldeProductos>, DocumentSnapshot?>>
      * para cumplir literalmente "devuelve Flow<List<MoldeProductos>> y ultimo DocumentSnapshot".
      * Envuelve PaginaInventario para compatibilidad estricta con el contrato del issue.
      */
@@ -149,7 +149,7 @@ class InventarioFirestoreRepository(
     }
 
     /**
-     * Variante paginable silenciosa para búsqueda — mismo contrato prefix pero con cursor.
+     * Variante paginable silenciosa para búsqueda —” mismo contrato prefix pero con cursor.
      * UI nunca ve páginas; ViewModel acumula lote a lote internamente.
      */
     suspend fun buscarInventarioPaginado(
@@ -188,14 +188,13 @@ class InventarioFirestoreRepository(
     }
 
     /**
-     * Método legacy sin paginación — se conserva por compatibilidad pero se recomienda
+     * Método legacy sin paginación —” se conserva por compatibilidad pero se recomienda
      * migrar a observarInventarioPaginado para listas grandes.
      * Mantiene addSnapshotListener con manejo honesto (Log.e + close(error)).
      */
-    fun observarInventario(clienteId: String): Flow<List<PharmProduct>> = callbackFlow {
+    fun observarInventario(clienteId: String, onErrorEscucha: ((String) -> Unit)? = null): Flow<List<PharmProduct>> = callbackFlow {
         if (clienteId.isBlank()) {
-            trySend(emptyList())
-            close()
+            close(IllegalStateException("No hay una farmacia activa para cargar inventario."))
             return@callbackFlow
         }
 
@@ -204,6 +203,7 @@ class InventarioFirestoreRepository(
         val listener = coleccionRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 Log.e(TAG, "Error escuchando inventario Firestore: ${error.message}", error)
+                onErrorEscucha?.invoke(error.message ?: error.toString())
                 close(error)
                 return@addSnapshotListener
             }

@@ -1,128 +1,127 @@
 ---
 name: cerebro-pensamiento
-description: >-
-  Disciplina de pensamiento obligatoria antes y después de codear. Consolida 5 criterios:
-  (1) alcance controlado — un criterio del usuario no es tarea nueva; (2) prueba de valor
-  real — vale por el trabajo real, no por existir; (3) realidad operativa — simular la
-  vida real, no el happy path; (4) pensar como película — el día completo de 8am a cierre;
-  (5) pensar en el después — el "Éxito" no es el final. Usar SIEMPRE al razonar, construir
-  y cerrar cualquier funcionalidad.
+description: Razona sobre producto y software como un sistema dentro del mundo real. Úsala para cuestionar planes, descubrir trabajo innecesario, anticipar consecuencias y elegir soluciones simples que prevengan problemas.
 ---
 
-# CEREBRO-PENSAMIENTO (Disciplina de razonamiento obligatoria)
+# RAZONAMIENTO DE SISTEMA EN EL MUNDO REAL
 
-> Una sola skill con los 5 filtros de pensamiento. No son tareas separadas: son el modo
-> en que se evalúa TODO antes de codear, durante y al cerrar.
+## Propósito
 
----
+No evaluar una funcionalidad únicamente desde el código, la pantalla o la implementación
+técnica. Antes de aceptar un diseño, cambio o solución, analizar cómo existe dentro de un
+entorno real con personas, procesos, datos, tiempo, responsabilidades y consecuencias.
 
-## 1. ALCANCE CONTROLADO (un criterio no es tarea nueva)
+El objetivo no es solamente que el sistema funcione. Es que tenga sentido, reduzca esfuerzo
+humano, prevenga problemas y mantenga coherencia con la realidad operativa.
 
-Cuando el usuario, en medio de una tarea, da un principio/crítica/ejemplo/pregunta
-conceptual, eso es un **CRITERIO** a aplicar a la tarea actual, NO una tarea nueva.
+## Regla principal
 
-- Nombrar la tarea actual: "Ahora mismo estamos construyendo: ___".
-- Clasificar: (a) cambia la tarea solo si lo pide explícito; si no, es (b) restricción,
-  (c) criterio de razonamiento, (d) hueco en lo actual, (e) pregunta, (f) ejemplo.
-  Por defecto NO es tarea nueva.
-- Fusionar: `tarea actual + criterio → tarea actual revisada`.
-- Ideas fuera de alcance: registrar, no ejecutar. Terminar donde se empezó.
-- Si dice "eso es un criterio, no una tarea nueva / vuelve al flujo", descartar toda
-  propuesta de arquitectura nueva esbozada y retomar la tarea original.
+Nunca analizar solo:
 
----
+```text
+acción → resultado esperado
+```
 
-## 2. PRUEBA DE VALOR REAL (vale por el trabajo real, no por existir)
+Analizar:
 
-Una funcionalidad no es valiosa porque exista. Es valiosa cuando mejora de forma tangible
-el trabajo real del negocio.
+```text
+intención humana
+        ↓
+acción
+        ↓
+estado del sistema
+        ↓
+cambios generados
+        ↓
+consecuencias
+        ↓
+personas afectadas
+        ↓
+nuevas decisiones
+        ↓
+resultado final
+```
 
-- Pantalla bonita puede ser inútil; automatización invisible puede ser extremadamente
-  valiosa; módulo de 20 funciones puede aportar menos que 1 automatización bien hecha.
-- Antes de celebrar: ¿qué trabajo real toca? ¿en qué lo mejora (menos pasos/errores/
-  tiempo, cero duplicación)? Si no se responde, está hecho pero no sirve: no se celebra.
-- Cierre: nombrar el trabajo real mejorado, no la pieza construida.
+## Preguntas universales
 
----
+### Realidad humana
 
-## 3. RAZONAMIENTO DE REALIDAD OPERATIVA (simular la vida real)
+- ¿Qué intenta conseguir realmente la persona?
+- ¿La solución facilita ese objetivo o agrega pasos?
+- ¿La persona entiende qué está ocurriendo?
+- ¿El sistema ayuda o traslada trabajo al usuario?
 
-No evaluar el software como software. Evaluarlo como realidad dentro de un negocio:
-personas reales, interrupciones, errores, decisiones, consecuencias, dinero, tiempo,
-responsabilidades, cambios de estado, situaciones inesperadas.
+### Trabajo innecesario
 
-- Antes de decir "funciona", responder: ¿qué pasa con interrupción (red caída a mitad),
-  error humano, concurrencia (dos tocan lo mismo), cambio de estado en vivo, situación
-  inesperada (cancelar a medias, reintentar)? Si solo se describe el camino perfecto,
-  está rota en la vida aunque compile.
-- Persona real, no "el usuario": nombrar quién lo usa y con qué prisa/contexto.
+Buscar tareas repetitivas, datos que se vuelven a introducir, decisiones simples que el
+sistema podría resolver y procesos donde la persona funciona como conexión manual entre
+partes que ya conocen la misma información.
 
----
+Preguntar: ¿por qué una persona debe hacer esto si el sistema tiene suficiente información
+para ayudar?
 
-## 4. PENSAR COMO UNA PELÍCULA (el día completo, no un diagrama)
+### Consecuencias completas
 
-Imaginar el día corrido y preguntarse: **¿el sistema sigue diciendo la verdad durante
-toda la película?**
+Después de cada cambio preguntar qué cambia, quién se afecta, qué depende de ello, qué debe
+actualizarse, qué nuevas acciones aparecen y qué responsabilidades genera.
 
-- 8:00 abre → 9:15 mercadería → 10:30 vende → 11:00 llega empleado → 12:20 falta stock →
-  13:00 proveedor responde → 15:00 se descubre un error → 18:00 se cae internet →
-  19:00 vuelve internet → 21:00 cierre.
-- Momento crítico: 18:00 cae internet — el sistema NO debe mentir "guardado"; 19:00 vuelve
-  y reintenta lo a medias, queda coherente (R3/R9/R11). Cierre honesto: 21:00 refleja TODO
-  el día, no esconde huecos.
+### Caminos alternativos
 
----
+Analizar información incompleta o incorrecta, personas distintas, cambios inesperados,
+interrupciones, abandono, repetición, simultaneidad, estados intermedios y respuestas que
+llegan tarde.
 
-## 5. PENSAR EN EL "DESPUÉS" (el Éxito no es el final)
+### Verdad del sistema
 
-Nunca terminar el razonamiento en el cartel de "Éxito". "Creado correctamente" no es el fin.
+Comprobar si algo ocurrió realmente o solo se intentó, si existe confirmación real, si la
+información está vigente y si un mensaje bonito está ocultando incertidumbre.
 
-Tras cualquier Éxito, el cierre real es el **después**. Preguntar:
-- ¿Quién necesita saberlo? ¿Qué cambia? ¿Qué queda pendiente (consecuencia que el sistema
-  debió disparar solo)? ¿Qué acción ahora debería ser posible? ¿Qué información debe
-  actualizarse (vista en vivo, R8)? ¿Qué ocurre si el usuario vuelve mañana (dato íntegro)?
-- Si no se responde, el flujo NO terminó: solo llegó al cartel de Éxito.
+### Estados y tiempo
 
----
+Todo estado necesita inicio, duración, cambios posibles, condición de término y siguiente
+paso. No crear estados que no tengan ciclo de vida completo.
 
----
+### Personas y fuentes de verdad
 
-## 6. LA PRUEBA DE LA VIDA REAL (las 8 preguntas — obligatoria antes de decir "terminado")
+Preguntar qué pasa si otra persona modifica el dato, si dos acciones llegan juntas o si el
+contexto cambia mientras alguien trabaja. Definir quién manda cuando existen versiones
+distintas y evitar que una respuesta vieja pinte información en un contexto nuevo.
 
-> Los candados técnicos no bastan: toda funcionalidad se valida simulando al USUARIO
-> PARADO FRENTE AL BOTÓN, con la vida del negocio encima. Son universales — sirven
-> para cualquier módulo presente o futuro. Si una falla, la función NO está terminada.
+### Prevención
 
-1. **¿Quién NO debería poder hacer esto hoy?** — según el estado VIVO de todo lo
-   involucrado (bloqueado, congelado, vencido, agotado, retirado, sin acceso).
-   El candado existe ANTES del botón, no después del error.
-2. **¿Ya tiene o tuvo algo igual o que choque?** — historial y situaciones en curso
-   visibles ANTES de decidir. Decidir a ciegas = bug.
-3. **¿Ve el resultado EXACTO antes de confirmar?** — la consecuencia precisa dictada
-   por el sistema (fechas, montos, totales). Jamás texto ilustrativo ni aritmética
-   hecha a mano por el usuario.
-4. **¿Cómo se sale de aquí?** — cancelar visible + gesto atrás cubierto. Cero
-   pantallas sin puerta de vuelta.
-5. **¿Qué pasa si dos personas lo hacen a la vez / alguien reintenta tras un corte?**
-   — carrera serializada y llave anti-duplicado: el segundo intento llega a "ya
-   procesado", nunca al daño doble.
-6. **¿El después queda registrado y visible?** — quién, cuándo, por qué; rastro
-   permanente que el próximo pueda consultar mañana.
-7. **¿Los números los dicta el sistema o los inventa el usuario?** — fechas, montos,
-   contadores calculados de fuentes verificadas; el usuario ESCOGE opciones, no
-   hace aritmética.
-8. **Si mañana editan o borran lo que esta acción referencia, ¿cambia lo ya hecho u
-   otorgado?** — snapshots congelados al momento del hecho: el pasado es inmune al
-   catálogo futuro.
+No diseñar solamente “la persona se equivoca y mostramos un error”. Buscar cómo impedir que
+llegue al error: mostrar consecuencias antes de decidir, pedir solo lo necesario, detectar
+contradicciones a tiempo y guiar el siguiente paso.
 
-Estas 8 viven aquí porque aplican a CUALQUIER módulo futuro. Las auditorías
-(`14-auditoria-verdad`) las usan como gate de salida; los ejemplos locales de cada
-dominio las acompañan como evidencia, jamás como límite de alcance.
+### Valor real
 
----
+No aceptar una función porque se vea moderna, tenga más opciones o use tecnología nueva.
+Medirla por el problema que elimina, el tiempo que ahorra, los errores que evita, las
+decisiones que facilita y la carga mental que quita.
 
-## Cierre de sesión (obligatorio aplicar los 5+1)
+### Permanencia
 
-La explicación debe incluir: el alcance fijado, el valor real entregado, un escenario de
-realidad operativa resuelto, un tramo de la película donde el sistema dijo la verdad, el
-recorrido del "después" tras el Éxito — y las 8 preguntas respondidas para cada acción nueva.
+Comprobar que siga siendo entendible con pocos datos, con crecimiento, con historial
+acumulado y después de meses de uso. Esto no autoriza a construir arquitectura hipotética:
+la solución debe ser simple hoy y no encerrar el cambio mañana.
+
+## Modo crítico y profundidad
+
+Antes de aceptar una propuesta, asumir temporalmente que puede estar mal. No defender la
+primera idea; intentar mejorarla o reemplazarla por una alternativa más simple y poderosa.
+
+La profundidad se ajusta al impacto:
+
+- cambio pequeño y local: intención, riesgo principal y resultado;
+- funcionalidad nueva: preguntas universales y flujo completo;
+- cambio que afecta datos, dinero, inventario, usuarios o módulos: análisis profundo y
+  auditoría de verdad.
+
+Así se piensa siempre en consecuencias sin convertir cada ajuste visual en un trámite.
+
+## Pregunta de cierre
+
+> Si esto estuviera funcionando en un negocio real durante un día completo, ¿seguiría siendo
+> lógico, útil, vigente y fácil para las personas que lo usan?
+
+Si no es claramente sí, seguir cuestionando.

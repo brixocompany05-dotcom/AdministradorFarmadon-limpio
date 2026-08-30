@@ -73,14 +73,14 @@ class InventarioViewModel(
     private val _estadoTab = MutableStateFlow("TODOS")
     val estadoTab: StateFlow<String> = _estadoTab.asStateFlow()
 
-    // Cursor paginación silenciosa — último DocumentSnapshot para startAfter()
+    // Cursor paginación silenciosa —” último DocumentSnapshot para startAfter()
     private var ultimoDoc: DocumentSnapshot? = null
     private var finListaAlcanzado = false
     private var jobPagina: Job? = null
     private var jobCargarMas: Job? = null
     private var debounceMasJob: Job? = null
 
-    // Búsqueda server-side silenciosa — cursor y estado honesto
+    // Búsqueda server-side silenciosa —” cursor y estado honesto
     private var cursorBusqueda: DocumentSnapshot? = null
     private var finBusqueda = false
     private var jobBusqueda: Job? = null
@@ -156,7 +156,7 @@ class InventarioViewModel(
                     }
                 }
 
-                is InventarioBusquedaEstado.BusquedaVacia, is InventarioBusquedaEstado.BusquedaVacía -> emptyList()
+                is InventarioBusquedaEstado.BusquedaVacia, is InventarioBusquedaEstado.BusquedaVaciaAlias -> emptyList()
                 is InventarioBusquedaEstado.Cargando -> emptyList()
                 is InventarioBusquedaEstado.Error -> emptyList()
                 else -> base
@@ -214,7 +214,7 @@ class InventarioViewModel(
     /**
      * Mide el desfase entre el reloj del dispositivo y el reloj de Firestore.
      * 3 intentos; si todos fallan, se continúa con reloj local (degradación
-     * honesta documentada) — jamás inventa fecha.
+     * honesta documentada) —” jamás inventa fecha.
      */
     private suspend fun sincronizarHoraServidor(): Boolean {
         repeat(3) { intento ->
@@ -243,7 +243,7 @@ class InventarioViewModel(
         return false
     }
 
-    // ── Observador de búsqueda server-side con debounce 300ms y estados honestos ──
+    // ──”€──”€ Observador de búsqueda server-side con debounce 300ms y estados honestos ──”€──”€
     private fun observarBusquedaServerSide() {
         _uiState.map { it.searchQuery }.distinctUntilChanged()
             .debounce(300.milliseconds)
@@ -319,10 +319,10 @@ class InventarioViewModel(
                         finBusqueda = pagina.esUltimaPagina
                         val resultados = pagina.productos
                         if (resultados.isEmpty()) {
-                            // Estado honesto BusquedaVacía / BusquedaVacia
+                            // Estado honesto BusquedaVacia
                             _uiState.update {
                                 it.copy(
-                                    busquedaEstado = InventarioBusquedaEstado.BusquedaVacía,
+                                    busquedaEstado = InventarioBusquedaEstado.BusquedaVacia,
                                     resultadosBusqueda = emptyList(),
                                     pagedProducts = emptyList(),
                                     filteredProducts = emptyList(),
@@ -335,7 +335,7 @@ class InventarioViewModel(
                                 )
                             }
                         } else {
-                            // Éxito: actualiza resultados acumulados (primera página)
+                            // í‰xito: actualiza resultados acumulados (primera página)
                             _uiState.update {
                                 it.copy(
                                     busquedaEstado = InventarioBusquedaEstado.Exito(resultados),
@@ -389,7 +389,7 @@ class InventarioViewModel(
             }.launchIn(viewModelScope)
     }
 
-    // ── Paginación silenciosa: primera página (limit 50) ──
+    // ──”€──”€ Paginación silenciosa: primera página (limit 50) ──”€──”€
     fun cargarPaginaInicial() {
         val farmaciaId = SessionManager.clienteIdGarantizado
         val sucursalId = SessionManager.sucursalIdEfectiva
@@ -459,7 +459,7 @@ class InventarioViewModel(
             }.flowOn(Dispatchers.Default).launchIn(viewModelScope)
     }
 
-    // ── Carga incremental silenciosa: debounce 300ms y soporte búsqueda paginable ──
+    // ──”€──”€ Carga incremental silenciosa: debounce 300ms y soporte búsqueda paginable ──”€──”€
     fun cargarMas() {
         // Si está en búsqueda server-side, paginar búsqueda silenciosamente
         if (_uiState.value.isEnBusqueda) {
@@ -498,7 +498,7 @@ class InventarioViewModel(
                 pagina.productos.forEach { mapa[it.id] = it }
                 val acumulados = mapa.values.sortedBy { it.name.lowercase() }
                 val estado: InventarioBusquedaEstado =
-                    if (acumulados.isEmpty()) InventarioBusquedaEstado.BusquedaVacía else InventarioBusquedaEstado.Exito(
+                    if (acumulados.isEmpty()) InventarioBusquedaEstado.BusquedaVacia else InventarioBusquedaEstado.Exito(
                         acumulados
                     )
                 _uiState.update {
@@ -777,7 +777,7 @@ class InventarioViewModel(
      * tolera minutos de vejez). NO lleva listener permanente; se recarga:
      *   1. al entrar a la pantalla (init),
      *   2. tras marcar algo como visto,
-     *   3. al volver a primer plano (InventarioScreen → refrescarAlertasLeidas).
+     *   3. al volver a primer plano (InventarioScreen ──†’ refrescarAlertasLeidas).
      * Fallo de red: se registra con verdad y se conserva el último estado conocido.
      */
     fun refrescarAlertasLeidas() {

@@ -25,7 +25,8 @@ internal fun PreciosGuardadoDialog(
     productoNombre: String,
     presentacionesCount: Int,
     onDismiss: () -> Unit,
-    onReintentar: () -> Unit
+    onReintentar: () -> Unit,
+    onVerFresco: (() -> Unit)? = null
 ) {
     if (estadoGuardado != EstadoGuardadoPrecios.INACTIVO) {
         Dialog(
@@ -116,24 +117,45 @@ internal fun PreciosGuardadoDialog(
                                 )
                             }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { onDismiss() },
-                                    modifier = Modifier.weight(1f).height(44.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text("Cerrar", style = FDType.Label.copy(fontSize = 12.sp))
+                            val esConflictoVigencia = mensajeError.contains("ya no es vigente", ignoreCase = true) || mensajeError.contains("mientras editabas", ignoreCase = true)
+                            if (esConflictoVigencia && onVerFresco != null) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Button(
+                                        onClick = { onVerFresco() },
+                                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary, contentColor = FDColors.PrimaryText)
+                                    ) {
+                                        Text("Ver precio fresco", style = FDType.Label.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                                    }
+                                    OutlinedButton(
+                                        onClick = { onDismiss() },
+                                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("Cerrar y seguir editando", style = FDType.Label.copy(fontSize = 12.sp))
+                                    }
                                 }
-                                Button(
-                                    onClick = { onReintentar() },
-                                    modifier = Modifier.weight(1f).height(44.dp),
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary, contentColor = FDColors.PrimaryText)
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Text("Reintentar", style = FDType.Label.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                                    OutlinedButton(
+                                        onClick = { onDismiss() },
+                                        modifier = Modifier.weight(1f).height(44.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text("Cerrar", style = FDType.Label.copy(fontSize = 12.sp))
+                                    }
+                                    Button(
+                                        onClick = { onReintentar() },
+                                        modifier = Modifier.weight(1f).height(44.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary, contentColor = FDColors.PrimaryText)
+                                    ) {
+                                        Text("Reintentar", style = FDType.Label.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                                    }
                                 }
                             }
                         }

@@ -1,4 +1,4 @@
-package com.app.administradorfarmadon.autenticacion.login.ui.componentes
+﻿package com.app.administradorfarmadon.autenticacion.login.ui.componentes
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
