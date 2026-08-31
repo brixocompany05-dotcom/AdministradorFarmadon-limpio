@@ -49,6 +49,16 @@ regla de producto (R1); lo que se veta es la paranoia anti-hacker, no la protecc
 - Toda acción del usuario termina en éxito visible o en un error claro con el siguiente
   paso. Prohibido fingir éxito, tragarse errores o mostrar "guardado" sin verificar que
   se guardó.
+- **Bloqueos visibles para la persona:** si una acción está invalidada por reglas de negocio,
+  la persona debe verlo en la UI exactamente donde ocurre (campo, panel o botón), no como
+  aviso oculto ni como excepción del programador. El sistema bloquea la acción con feedback
+  humano, profesional y concreto.
+- **Éxito visible para la persona:** cuando la operación se completa, la UI debe mostrar
+  confirmación real y clara (toast, banner, estado o mensaje de éxito) y no dejar la pantalla
+  en un estado ambiguo. El éxito no puede ser solo un log en consola.
+- **`catch` solo sirve al programador:** el bloque `catch` es para log, trazabilidad y
+  diagnóstico técnico; nunca para ocultar un error al usuario, inventar un éxito o reemplazar
+  la verdad del negocio por un mensaje genérico.
 - **Prohibido fallos silenciosos:** Prohibido dejar `try/catch` vacíos o selectores incompletos
   que devuelvan valores nulos o por defecto engañosos que oculten que un dato, lote, fecha o
   cálculo no se pudo procesar.

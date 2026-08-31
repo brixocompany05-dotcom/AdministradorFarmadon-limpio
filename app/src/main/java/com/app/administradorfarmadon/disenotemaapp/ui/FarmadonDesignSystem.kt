@@ -10,34 +10,34 @@ import com.app.administradorfarmadon.disenotemaapp.ui.tokens.ColoresClarosFarmad
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.ColoresOscurosFarmadon
 import com.app.administradorfarmadon.navegacion.sidebar.SidebarTheme
 
-// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+// 
 // FARMADON DESIGN SYSTEM —” Enterprise SaaS Tablet 2026
 // Paleta comercial, armónica y de alto contraste (Light & Dark)
-// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+// 
 
 object FDColors {
     val isDark: Boolean get() = SidebarTheme.isDark
 
-    // ──”€──”€ Fondos ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Fondos ──────────────────────────────────
     val Background: Color      get() = if (isDark) ColoresOscurosFarmadon.fondoBase else ColoresClarosFarmadon.fondoBase
     val Surface: Color         get() = if (isDark) ColoresOscurosFarmadon.cardBase else ColoresClarosFarmadon.cardBase
     val SurfaceElevated: Color get() = if (isDark) ColoresOscurosFarmadon.cardElevada else ColoresClarosFarmadon.cardElevada
     val SurfaceHover: Color    get() = if (isDark) ColoresOscurosFarmadon.cardHover else ColoresClarosFarmadon.cardHover
     val Glass: Color           get() = if (isDark) ColoresOscurosFarmadon.cristal else ColoresClarosFarmadon.cristal
 
-    // ──”€──”€ Acento Comercial ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Acento Comercial ────────────────────────
     val Primary: Color         get() = if (isDark) ColoresOscurosFarmadon.botonPrimarioFondo else ColoresClarosFarmadon.botonPrimarioFondo
     val PrimaryText: Color     get() = if (isDark) ColoresOscurosFarmadon.botonPrimarioTexto else ColoresClarosFarmadon.botonPrimarioTexto
     val PrimaryHover: Color    get() = if (isDark) Color(0xFFE5E7EB) else Color(0xFF1F2937)
     val PrimarySubtle: Color   get() = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.06f)
 
-    // ──”€──”€ Inputs y Controles (Alto Contraste) ──”€──”€──”€──”€──”€──”€
+    // ── Inputs y Controles (Alto Contraste) ──────
     val InputBackground: Color get() = if (isDark) ColoresOscurosFarmadon.inputFondo else ColoresClarosFarmadon.inputFondo
     val InputBorder: Color     get() = if (isDark) ColoresOscurosFarmadon.inputBorde else ColoresClarosFarmadon.inputBorde
     val InputPlaceholder: Color get() = if (isDark) ColoresOscurosFarmadon.inputPlaceholder else ColoresClarosFarmadon.inputPlaceholder
     val InputText: Color        get() = if (isDark) ColoresOscurosFarmadon.inputTexto else ColoresClarosFarmadon.inputTexto
 
-    // ──”€──”€ Estados Semánticos Sobrios ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Estados Semánticos Sobrios ──────────────
     val Success: Color         get() = if (isDark) ColoresOscurosFarmadon.estadoExito else ColoresClarosFarmadon.estadoExito
     val SuccessSubtle: Color   get() = if (isDark) ColoresOscurosFarmadon.exitoSutil else ColoresClarosFarmadon.exitoSutil
     val Warning: Color         get() = if (isDark) ColoresOscurosFarmadon.estadoAlerta else ColoresClarosFarmadon.estadoAlerta
@@ -49,25 +49,25 @@ object FDColors {
     val Info: Color            get() = TextPrimary
     val InfoSubtle: Color      get() = PrimarySubtle
 
-    // ──”€──”€ Textos de Alto Contraste ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Textos de Alto Contraste ────────────────
     val TextPrimary: Color     get() = if (isDark) ColoresOscurosFarmadon.textoPrincipal else ColoresClarosFarmadon.textoPrincipal
     val TextSecondary: Color   get() = if (isDark) ColoresOscurosFarmadon.textoSecundario else ColoresClarosFarmadon.textoSecundario
     val TextTertiary: Color    get() = if (isDark) ColoresOscurosFarmadon.textoTerciario else ColoresClarosFarmadon.textoTerciario
     val TextDisabled: Color    get() = if (isDark) Color(0xFF4B5563) else Color(0xFF9CA3AF)
 
-    // ──”€──”€ Bordes y Líneas ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Bordes y Líneas ──────────────────────────
     val Border: Color          get() = if (isDark) ColoresOscurosFarmadon.bordeSutil else ColoresClarosFarmadon.bordeSutil
     val BorderStrong: Color    get() = if (isDark) ColoresOscurosFarmadon.bordeDefecto else ColoresClarosFarmadon.bordeDefecto
     val BorderFocus: Color     get() = if (isDark) ColoresOscurosFarmadon.bordeEnfoque else ColoresClarosFarmadon.bordeEnfoque
     val BorderError: Color     get() = Error
     val BorderSuccess: Color   get() = Success
 
-    // ──”€──”€ Overlays ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Overlays ────────────────────────────────
     val Overlay: Color         get() = if (isDark) ColoresOscurosFarmadon.fondoOverlay else ColoresClarosFarmadon.fondoOverlay
     val Scrim: Color           get() = if (isDark) ColoresOscurosFarmadon.velo else ColoresClarosFarmadon.velo
 }
 
-// ──”€──”€──”€ FORMAS ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──── FORMAS ────────────────────────────────────────────────────
 
 object FDShapes {
     val XSmall  = RoundedCornerShape(6.dp)
@@ -78,7 +78,7 @@ object FDShapes {
     val Full    = RoundedCornerShape(50)
 }
 
-// ──”€──”€──”€ TIPOGRAFíA DINÁMICA DE ALTO CONTRASTE ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──── TIPOGRAFÍA DINÁMICA DE ALTO CONTRASTE ────────────────────
 
 object FDType {
     val Display: TextStyle get() = TextStyle(
@@ -142,7 +142,7 @@ object FDType {
     )
 }
 
-// ──”€──”€──”€ ESPACIADO ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──── ESPACIADO ────────────────────────────────────────────────
 
 object FDSpacing {
     val xs      = 4.dp
@@ -156,7 +156,7 @@ object FDSpacing {
     val screenV = 12.dp
 }
 
-// ──”€──”€──”€ TAMAÑOS ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──── TAMAÑOS ──────────────────────────────────────────────────
 
 object FDSizes {
     val inputHeight       = 52.dp
@@ -180,7 +180,7 @@ object FDSizes {
     val sheetRadius     = 28.dp
 }
 
-// ──”€──”€──”€ ELEVACIí“N ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──── ELEVACIÓN ────────────────────────────────────────────────
 
 object FDElevation {
     val CardDefault  = 2.dp

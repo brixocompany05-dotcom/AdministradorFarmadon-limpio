@@ -35,7 +35,7 @@ fun DetailKpiSection(
         .minOrNull()
 
     val stockMinimo = product.stockMinimoBase
-    // Comparación real en base (Tab vs Tab): 40 Tab ──‰¤ 50 Tab ──†’ 4 Cajas ──‰¤ 5 Cajas
+    // Comparación real en base (Tab vs Tab): 40 Tab  50 Tab → 4 Cajas  5 Cajas
     val isLowStock = totalStock <= stockMinimo && stockMinimo > 0.0
     val stockColor = if (isLowStock) SaaSError else SaaSSuccess
     

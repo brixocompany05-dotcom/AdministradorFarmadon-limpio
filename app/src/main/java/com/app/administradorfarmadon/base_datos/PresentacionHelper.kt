@@ -60,7 +60,7 @@ object PresentacionHelper {
             return if (detalle.isBlank()) nombre else "$nombre ($detalle)"
         }
 
-        val formatoAnterior = Regex("^(.*?)[\\s]+(\\d+)\\s+([A-Za-zÁí‰íí“íšáéíóúÑñ.]+)$").find(limpio)
+        val formatoAnterior = Regex("^(.*?)[\\s]+(\\d+)\\s+([A-Za-zÁÉÍÓíšáéíóúÑñ.]+)$").find(limpio)
         if (formatoAnterior != null) {
             val nombre = capitalizarNombre(formatoAnterior.groupValues[1])
             val cantidad = formatoAnterior.groupValues[2].toIntOrNull() ?: 1

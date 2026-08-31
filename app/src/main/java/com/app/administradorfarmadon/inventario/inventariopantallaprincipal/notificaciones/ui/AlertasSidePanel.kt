@@ -118,7 +118,7 @@ private fun HeaderSeccion(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "CENTRO DE ACCIí“N",
+                    text = "CENTRO DE ACCIÓN",
                     style = FDType.Label.copy(
                         color = FDColors.TextSecondary,
                         letterSpacing = 2.sp,
@@ -231,7 +231,7 @@ private fun AlertaCardPremium(
             }
 
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                // Adaptativo matemático: nombre largo ──†’ texto más pequeño, corto ──†’ más grande, nunca se aplasta ni salta línea
+                // Adaptativo matemático: nombre largo → texto más pequeño, corto → más grande, nunca se aplasta ni salta línea
                 val nameLen = alerta.productName.length
                 val titleSize = when {
                     nameLen > 28 -> 11.sp

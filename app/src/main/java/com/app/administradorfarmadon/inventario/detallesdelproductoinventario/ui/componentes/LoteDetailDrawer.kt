@@ -114,7 +114,7 @@ internal fun ContenidoFicha(
                     },
                     color = if (estaEnCuarentena) FDColors.Warning else FDColors.Success, filled = true
                 )
-                if (esRefrigerado) PremiumPill(texto = "FRíO 2°—“8°", color = FDColors.TextSecondary, filled = false, icono = Icons.Outlined.AcUnit)
+                if (esRefrigerado) PremiumPill(texto = "FRÍO 2° – 8°", color = FDColors.TextSecondary, filled = false, icono = Icons.Outlined.AcUnit)
                 if (esControlado) PremiumPill(texto = "CONTROLADO", color = FDColors.Warning, filled = false, icono = Icons.Outlined.Shield)
             }
 
@@ -132,7 +132,7 @@ internal fun ContenidoFicha(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1.1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("EXISTENCIA FíSICA", style = FDType.Label.copy(fontSize = 10.sp, letterSpacing = 0.9.sp, color = FDColors.TextTertiary, fontWeight = FontWeight.Black))
+                        Text("EXISTENCIA FÍSICA", style = FDType.Label.copy(fontSize = 10.sp, letterSpacing = 0.9.sp, color = FDColors.TextTertiary, fontWeight = FontWeight.Black))
                         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("${lote.cantidad.toInt()}", style = FDType.NumericLg.copy(fontSize = 34.sp, fontWeight = FontWeight.Black, color = FDColors.Primary, letterSpacing = (-1).sp))
                             Text(product.empaque.ifBlank { "Und." }, style = FDType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold, color = FDColors.TextSecondary), modifier = Modifier.padding(bottom = 6.dp))
@@ -402,9 +402,9 @@ internal fun ContenidoCuarentenaInline(
     }
 }
 
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
-// DEVOLUCIí“N INLINE —” Canje/Nota con todo pre-llenado
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──────────────────────────────────────────────────────────────────────────────
+// DEVOLUCIÓN INLINE —” Canje/Nota con todo pre-llenado
+// ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 internal fun ContenidoDevolucionInline(
@@ -602,13 +602,13 @@ internal fun TabInline(texto: String, seleccionado: Boolean, onClick: () -> Unit
     }
 }
 
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──────────────────────────────────────────────────────────────────────────────
 // MERMA INLINE —” Todo + motivo listo
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──────────────────────────────────────────────────────────────────────────────
 
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
-// ANULACIí“N INLINE —” motivo ya listo
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──────────────────────────────────────────────────────────────────────────────
+// ANULACIÓN INLINE —” motivo ya listo
+// ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 internal fun ContenidoAnulacionInline(
@@ -665,9 +665,9 @@ internal fun ContenidoAnulacionInline(
     }
 }
 
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──────────────────────────────────────────────────────────────────────────────
 // COMPONENTES INLINE PREMIUM —” nítidos y reutilizables
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──────────────────────────────────────────────────────────────────────────────
 
 @Composable
 internal fun ContenidoHistorialLote(

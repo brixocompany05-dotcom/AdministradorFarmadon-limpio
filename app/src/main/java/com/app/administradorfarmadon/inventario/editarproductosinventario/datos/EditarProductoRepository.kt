@@ -127,7 +127,20 @@ class EditarProductoRepository(
             val unidadVal = contenidoUnidad.ifBlank { unitFromConcentracion }
             val slugVal = nombre.trim().lowercase().replace("\\s+".toRegex(), "-")
             val etiquetasList = listOf(catFinal, empFinal, tipoProducto).filter { it.isNotBlank() }
-            val tieneCodigo = codigoBarras.isNotBlank()
+
+            // CONTRATO DE EDICIÓN: nunca se guarda un producto sin categoría, envase, contenido o unidad.
+            if (categoriaNombre.trim().isBlank()) {
+                return Result.failure(IllegalArgumentException("Elige la categoría del producto (es obligatoria)."))
+            }
+            if (empFinal.isBlank() || empFinal == "N/A") {
+                return Result.failure(IllegalArgumentException("Elige el envase (empaque) del producto."))
+            }
+            if (cantVal.isBlank()) {
+                return Result.failure(IllegalArgumentException("Indica el contenido (cantidad) del producto."))
+            }
+            if (unidadVal.isBlank()) {
+                return Result.failure(IllegalArgumentException("Elige la unidad de medida del producto."))
+            }
 
             // 1. Validar si ya existe exactamente la MISMA presentación en otro producto
             val duplicadoIdentico = verificarFichaIdenticaExistente(
@@ -141,15 +154,23 @@ class EditarProductoRepository(
                 return Result.failure(IllegalArgumentException("Ya existe otro producto en tu inventario con la presentación '$empFinal · $medidaConcentracion'."))
             }
 
-            // 2. Validación rápida fuera de transacción (UX) —” el blindaje real está dentro
-            if (tieneCodigo) {
-                val codExistente = buscarProductoPorCodigoBarras(clienteId, codigoBarras, productoId)
-                if (codExistente != null) {
-                    return Result.failure(IllegalArgumentException("El código de barras '$codigoBarras' ya está asignado a '${codExistente.second}'."))
-                }
+            val docRef = FarmadonPaths.inventario(db, clienteId, SessionManager.sucursalIdEfectiva).document(productoId)
+
+            // El código es la identidad de la etiqueta: editar jamás deja el producto sin código.
+            // Si se borra el campo, se conserva el anterior; si nunca tuvo código, se crea uno único.
+            val docPrevio = docRef.get().await()
+            val codPrevio = CodigoBarraHelper.limpiar(CodigoBarraHelper.leerCodigo(docPrevio))
+            val codFinal = CodigoBarraHelper.limpiar(codigoBarras).ifBlank {
+                if (codPrevio.isNotBlank()) codPrevio else CodigoBarraHelper.generarCodigoInternoUnico(db, clienteId)
             }
 
-            val docRef = FarmadonPaths.inventario(db, clienteId, SessionManager.sucursalIdEfectiva).document(productoId)
+            // Validación rápida fuera de transacción (UX) —” el blindaje real está dentro
+            if (codFinal != codPrevio) {
+                val codExistente = buscarProductoPorCodigoBarras(clienteId, codFinal, productoId)
+                if (codExistente != null) {
+                    return Result.failure(IllegalArgumentException("El código de barras '$codFinal' ya está asignado a '${codExistente.second}'."))
+                }
+            }
 
             val actorUid = auth.currentUser?.uid ?: "anon"
             val actorEmail = auth.currentUser?.email ?: "usuario@farmacia"
@@ -162,7 +183,7 @@ class EditarProductoRepository(
 
                 val codAnterior = CodigoBarraHelper.limpiar(CodigoBarraHelper.leerCodigo(snapshot))
                 val codigosSecundariosActuales = (snapshot.get("codigosSecundarios") as? List<*>)?.mapNotNull { it?.toString() }?.toMutableList() ?: mutableListOf()
-                val codNuevoLimpio = CodigoBarraHelper.limpiar(codigoBarras)
+                val codNuevoLimpio = codFinal
 
                 val nombreAnterior = snapshot.getString("nombre") ?: ""
                 val empaqueAnterior = snapshot.getString("empaque") ?: ""
@@ -170,7 +191,7 @@ class EditarProductoRepository(
                 val claveFichaAnterior = CodigoBarraHelper.claveFicha(nombreAnterior, empaqueAnterior, medidaAnterior)
                 val claveFichaNueva = CodigoBarraHelper.claveFicha(nombre.trim(), empFinal, medidaConcentracion.trim())
 
-                // BLINDAJE ATí“MICO: si cambia la ficha o el código, verifica que los nuevos no tengan dueño dentro del candado
+                // BLINDAJE ATÓMICO: si cambia la ficha o el código, verifica que los nuevos no tengan dueño dentro del candado
                 if (claveFichaNueva != claveFichaAnterior) {
                     CodigoBarraHelper.verificarFichaUnicidadEnTransaccion(tx, db, clienteId, claveFichaNueva)
                 }
@@ -195,7 +216,9 @@ class EditarProductoRepository(
                     "categoriasLista" to listOf(catFinal),
                     "etiquetas" to etiquetasList,
                     "laboratorio" to labFinal,
-                    "proveedorBaseNombre" to (snapshot.getString("proveedorBaseNombre") ?: "").ifBlank { "N/A" },
+                    // R12: jamás inventar un proveedor. Si no hay proveedor real, se guarda
+                    // vacío; el vínculo nace solo cuando la mercadería llega de un proveedor.
+                    "proveedorBaseNombre" to (snapshot.getString("proveedorBaseNombre") ?: ""),
                     "empaque" to empFinal,
                     "contenido" to cantVal,
                     "contenidoUnidad" to unidadVal,
@@ -233,7 +256,7 @@ class EditarProductoRepository(
                     updates["etiquetaPendienteDetalle"] = "Código actualizado a $codNuevoLimpio"
                 }
 
-                // SINCRONIZAR LA PRESENTACIí“N BASE con el nombre/código/envase nuevos.
+                // SINCRONIZAR LA PRESENTACIÓN BASE con el nombre/código/envase nuevos.
                 // La presentación base es la que coincide con presentacionPrincipalId
                 // (o la primera si el producto es antiguo y no tiene la marca). Se conserva
                 // su precioventa para no borrar el precio que fijó el usuario en caja.
@@ -287,7 +310,7 @@ class EditarProductoRepository(
                 if (codNuevoLimpio.isNotBlank() && codNuevoLimpio != codAnterior) {
                     CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codNuevoLimpio, productoId, nombre.trim())
                 } else if (codNuevoLimpio.isNotBlank() && codAnterior.isBlank()) {
-                    // Producto que no tenía código y ahora sí ──†’ crear índice
+                    // Producto que no tenía código y ahora sí → crear índice
                     CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codNuevoLimpio, productoId, nombre.trim())
                 }
 

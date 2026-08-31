@@ -43,7 +43,10 @@ fun ConfiguracionScreen(
 
     val rolActual = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.rol
     val esAdmin = rolActual.equals("Administrador", true) || rolActual.equals("Dueño", true) || rolActual.equals("Dueno", true)
+    val esSedePrincipal = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalIdEfectiva.equals("principal", true)
+    val puedeGestionarSucursales = esAdmin && esSedePrincipal
     val msgAdmin = "Solo administración puede abrir este módulo."
+    val msgSucursal = "Solo la sede principal puede gestionar sucursales."
     val nombreSesion = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.nombreUsuario.ifBlank { "Operador" }
     val sucursalSesion = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalNombre.ifBlank { "Sede Principal" }
     val emailSesion = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.email
@@ -126,14 +129,16 @@ fun ConfiguracionScreen(
             if (isWide) {
                 Column(verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(s.gapMedium)) {
-                        Box(Modifier.weight(1f)) {
-                            BentoCard(
-                                numero = "01", titulo = "Sucursales", subtitulo = "Tus locales físicos", desc = "Direcciones, mapas y límites del plan",
-                                icono = Icons.Default.Storefront, accent = colores.estadoExito, habilitado = esAdmin, badge = if (esAdmin) null else "Admin",
-                                onClick = { if (esAdmin) onNavigateToSucursales() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s
-                            )
+                        if (puedeGestionarSucursales) {
+                            Box(Modifier.weight(1f)) {
+                                BentoCard(
+                                    numero = "01", titulo = "Sucursales", subtitulo = "Tus locales físicos", desc = "Direcciones, mapas y límites del plan",
+                                    icono = Icons.Default.Storefront, accent = colores.estadoExito, habilitado = true, badge = null,
+                                    onClick = { onNavigateToSucursales() }, s = s
+                                )
+                            }
                         }
-                        Box(Modifier.weight(1f)) {
+                        Box(Modifier.weight(if (puedeGestionarSucursales) 1f else 2f)) {
                             BentoCard(
                                 numero = "02", titulo = "Plan y pagos", subtitulo = "Suscripción BRIXO", desc = "Vigencia, pagos y comprobantes",
                                 icono = Icons.Default.Diamond, accent = colores.textoPrincipal, habilitado = esAdmin, badge = if (esAdmin) null else "Admin",
@@ -160,10 +165,12 @@ fun ConfiguracionScreen(
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
-                    BentoCard(numero = "01", titulo = "Sucursales", subtitulo = "Tus locales físicos", desc = "Direcciones, mapas y límites", icono = Icons.Default.Storefront, accent = colores.estadoExito, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToSucursales() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
-                    BentoCard(numero = "02", titulo = "Plan y pagos", subtitulo = "Suscripción BRIXO", desc = "Vigencia, pagos y comprobantes", icono = Icons.Default.Diamond, accent = colores.textoPrincipal, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToPlan() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
-                    BentoCard(numero = "03", titulo = "Personal", subtitulo = "Quién atiende", desc = "Roles, sedes y permisos", icono = Icons.Default.Group, accent = colores.estadoAlerta, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToUsuarios() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
-                    BentoCard(numero = "04", titulo = "Métodos de pago", subtitulo = "Cómo paga tu empresa", desc = "Efectivo, Yape, transferencias…", icono = Icons.Default.Payments, accent = colores.estadoExito, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToMetodosPago() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
+                    if (puedeGestionarSucursales) {
+                        BentoCard(numero = "01", titulo = "Sucursales", subtitulo = "Tus locales físicos", desc = "Direcciones, mapas y límites", icono = Icons.Default.Storefront, accent = colores.estadoExito, habilitado = true, badge = null, onClick = { onNavigateToSucursales() }, s = s)
+                    }
+                    BentoCard(numero = if (puedeGestionarSucursales) "02" else "01", titulo = "Plan y pagos", subtitulo = "Suscripción BRIXO", desc = "Vigencia, pagos y comprobantes", icono = Icons.Default.Diamond, accent = colores.textoPrincipal, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToPlan() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
+                    BentoCard(numero = if (puedeGestionarSucursales) "03" else "02", titulo = "Personal", subtitulo = "Quién atiende", desc = "Roles, sedes y permisos", icono = Icons.Default.Group, accent = colores.estadoAlerta, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToUsuarios() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
+                    BentoCard(numero = if (puedeGestionarSucursales) "04" else "03", titulo = "Métodos de pago", subtitulo = "Cómo paga tu empresa", desc = "Efectivo, Yape, transferencias…", icono = Icons.Default.Payments, accent = colores.estadoExito, habilitado = esAdmin, badge = if (esAdmin) null else "Admin", onClick = { if (esAdmin) onNavigateToMetodosPago() else android.widget.Toast.makeText(context, msgAdmin, android.widget.Toast.LENGTH_SHORT).show() }, s = s)
                 }
             }
 

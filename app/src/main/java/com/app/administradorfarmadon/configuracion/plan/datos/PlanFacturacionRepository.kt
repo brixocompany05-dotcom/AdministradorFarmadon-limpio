@@ -44,7 +44,7 @@ class PlanFacturacionRepository(
      *   3. Sedes activas (conteo real)
      *   4. Catálogo del ecosistema (features/nombre/precio que BRIXO edita)
      * Cualquier cambio en cualquiera de ellas repinta la pantalla al instante, sin
-     * salir ni reabrir. Antes las fuentes 2—“4 se leían con .get() estático dentro
+     * salir ni reabrir. Antes las fuentes 2 – 4 se leían con .get() estático dentro
      * del evento de la suscripción: quedaban congeladas hasta el próximo movimiento.
      */
     fun observarPlanInfo(clienteId: String): Flow<PlanFacturacionInfo> = callbackFlow {
@@ -105,7 +105,7 @@ class PlanFacturacionRepository(
                     // Moneda viva por cliente (B4 —” per-client). Actualiza sin relogin.
                     monedaCodigoVivo = snap.getString("monedaOperativa")?.takeIf { it.isNotBlank() } ?: snap.getString("monedaCodigo") ?: "PEN"
                     monedaSimboloVivo = snap.getString("simboloMoneda")?.takeIf { it.isNotBlank() } ?: when (monedaCodigoVivo) {
-                        "USD" -> "$"; "EUR" -> "──‚¬"; "COP" -> "$"; "CLP" -> "$"; "ARS" -> "$"; "VES" -> "Bs."; else -> "S/"
+                        "USD" -> "$"; "EUR" -> "──"; "COP" -> "$"; "CLP" -> "$"; "ARS" -> "$"; "VES" -> "Bs."; else -> "S/"
                     }
                     // Propaga a SessionManager para que MonedaHelper y caja reflejen el cambio en vivo
                     try {
@@ -180,7 +180,7 @@ class PlanFacturacionRepository(
             val fFinOriginalDate = parsearFecha(doc.get("fechaFinOriginal"))
             val ultimoPagoDate = parsearFecha(doc.get("ultimoPagoFecha"))
 
-            // CAUSA RAíZ: Farmadon NO recalcula el estado con su propia lógica distinta.
+            // CAUSA RAÍZ: Farmadon NO recalcula el estado con su propia lógica distinta.
             // Replica EXACTAMENTE la regla de BRIXO (CalculadorEstadoSuscripcion):
             // misma ventana de prueba (borde <=), misma condición de cortesía
             // (exige fechaFinOriginal vencida), mismo resultado. Así la app del
@@ -375,7 +375,7 @@ class PlanFacturacionRepository(
 
         val listener = docRef.addSnapshotListener { snap, error ->
             if (error != null) {
-                // RAíZ: no maquillar permiso/red como "sin cuentas". Propagar error
+                // RAÍZ: no maquillar permiso/red como "sin cuentas". Propagar error
                 // para que ViewModel lo muestre veraz en canalesError; el combine
                 // no se traba porque VM hace .catch { emit(vacío) + canalesError }.
                 Log.e(TAG, "Error escuchando canales de pago: ${error.message}", error)
@@ -383,7 +383,7 @@ class PlanFacturacionRepository(
                 return@addSnapshotListener
             }
 
-            // snap == null ──†’ fallo de red/permiso real (no es "sin configuración").
+            // snap == null → fallo de red/permiso real (no es "sin configuración").
             if (snap == null) {
                 Log.e(TAG, "Respuesta nula de canales de pago (posible falla de red)")
                 close(IllegalStateException("Respuesta nula de BRIXO —” verifica conexión o permisos de brixo_configuracion/empresa"))
@@ -443,7 +443,7 @@ class PlanFacturacionRepository(
         val planesRef = EcosistemaPaths.planes(db)
         val listener = planesRef.addSnapshotListener { snap, err ->
             if (err != null) {
-                // RAíZ: no maquillar error de catálogo como lista vacía silenciosa.
+                // RAÍZ: no maquillar error de catálogo como lista vacía silenciosa.
                 Log.e(TAG, "Error escuchando catálogo de planes: ${err.message}", err)
                 close(err)
                 return@addSnapshotListener
@@ -456,7 +456,7 @@ class PlanFacturacionRepository(
                     val paisIsoCat = doc.getString("paisIso")?.uppercase()?.trim() ?: ""
                     val (codigoCat, simboloCat) = when (paisIsoCat) {
                         "AR" -> "ARS" to "$"; "CL" -> "CLP" to "$"; "CO" -> "COP" to "$"
-                        "EC" -> "USD" to "$"; "ES" -> "EUR" to "──‚¬"; "PE" -> "PEN" to "S/"
+                        "EC" -> "USD" to "$"; "ES" -> "EUR" to "──"; "PE" -> "PEN" to "S/"
                         "VE" -> "VES" to "Bs."; else -> "PEN" to "S/"
                     }
                     PlanCatalogoItem(
@@ -541,7 +541,7 @@ class PlanFacturacionRepository(
     }
 
     /**
-     * CAUSA RAíZ: réplica EXACTA de la regla de BRIXO (CalculadorEstadoSuscripcion).
+     * CAUSA RAÍZ: réplica EXACTA de la regla de BRIXO (CalculadorEstadoSuscripcion).
      * Farmadon no inventa su propia lógica de estado; usa la misma que el panel para
      * que cajero y agente vean SIEMPRE lo mismo. Misma ventana de prueba (borde <=)
      * y misma condición de cortesía (exige que la fechaFin ORIGINAL ya haya vencido).

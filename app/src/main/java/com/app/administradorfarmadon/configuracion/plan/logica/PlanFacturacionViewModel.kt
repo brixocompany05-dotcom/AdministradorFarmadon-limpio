@@ -91,7 +91,7 @@ class PlanFacturacionViewModel(
 
     /**
      * Lógica de Asentamiento de Pago Bancario (Notificación a BRIXO)
-     * RAíZ: nunca fingir éxito. Antes era delay(1500) falso que decía "notificado"
+     * RAÍZ: nunca fingir éxito. Antes era delay(1500) falso que decía "notificado"
      * sin subir nada a BRIXO. Ahora informa veraz y deriva al flujo real
      * ReportarPagoDialog (Storage + solicitudes_pago) que sí tiene verdad.
      */

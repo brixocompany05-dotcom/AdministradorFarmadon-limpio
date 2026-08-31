@@ -94,9 +94,9 @@ sealed class EstadoApp {
  * Flujo Maestro:
  * 1. Muestra el Splash de bienvenida durante el tiempo de aprecio (2 segundos).
  * 2. En paralelo, verifica si hay sesión activa en Firebase Auth y valida el acceso en Firestore.
- * 3. Si la sesión es válida ──► Muestra el Sidebar + Inventario (ContenedorAplicacion).
- * 4. Si no hay sesión o fue revocada ──► Muestra la pantalla de Login (AuthNavGraph).
- * 5. Al iniciar sesión o cerrar sesión ──► Alterna el estado en la misma ventana sin saltos de Activity.
+ * 3. Si la sesión es válida → Muestra el Sidebar + Inventario (ContenedorAplicacion).
+ * 4. Si no hay sesión o fue revocada → Muestra la pantalla de Login (AuthNavGraph).
+ * 5. Al iniciar sesión o cerrar sesión → Alterna el estado en la misma ventana sin saltos de Activity.
  */
 class PantallaPrincipal : AppCompatActivity() {
 

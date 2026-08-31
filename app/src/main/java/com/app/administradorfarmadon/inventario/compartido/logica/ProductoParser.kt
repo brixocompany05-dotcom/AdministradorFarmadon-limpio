@@ -249,7 +249,7 @@ object ProductoParser {
             val contentFactor = doc.get("contenido")?.toString()?.toDoubleOrNull()?.takeIf { it > 1.0 } ?: 1.0
             val contenidoUnidadDisp = docString(doc, "contenidoUnidad").ifBlank { null }
             val tieneStockFraccional = stockFisico > 0.0 && (stockFisico % 1.0) > 0.001 && contentFactor > 1.0 && contenidoUnidadDisp != null
-            // ──”€──”€ UNIDAD íšNICA DEL NíšMERO Lí“GICO (R3): SIEMPRE unidades físicas (Cajas). ──”€──”€
+            // ── UNIDAD íšNICA DEL NíšMERO LÓGICO (R3): SIEMPRE unidades físicas (Cajas). ──
             // REDONDEO al entero más cercano: 2.994 cajas se MUESTRA y se COMPARA como 3,
             // igual a lo que el humano cuenta en el estante. Un solo número en todas las
             // pantallas; el texto rico ("2 Cajas + 149 Tab") vive solo en stockHumanReadable.
@@ -278,7 +278,7 @@ object ProductoParser {
 
             val precioPrincipal = docDouble(doc, "precioVenta", "precio")
             val status = when {
-                // Si no hay nada vendible y todo está bloqueado ──†’ cuarentena.
+                // Si no hay nada vendible y todo está bloqueado → cuarentena.
                 stockInt <= 0 && hayCuarentena -> "En cuarentena"
                 stockInt <= 0 -> "Agotado"
                 diasHastaVencer != null && diasHastaVencer < 0 -> "Vencido"
@@ -305,7 +305,7 @@ object ProductoParser {
                     principioActivo.ifBlank { null },
                     empaque.ifBlank { null },
                     if (hayCuarentena) "$stockBloqueadoInt en cuarentena" else null
-                ).joinToString(" —¢ "),
+                ).joinToString("  ·  "),
                 stockHumanReadable = stockHumanReadable, stockBaseReadable = "$stockInt",
                 minStockHumanReadable = "$stockMinimoInt ${empaqueDisplay.let { if (stockMinimoInt == 1) it else if (it.endsWith("s", ignoreCase = true)) it else "${it}s" }}",
                 nearestLoteNumero = loteMasProximo?.numero ?: "",

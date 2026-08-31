@@ -41,7 +41,7 @@ class CrearProductoGeneralViewModel(
         val valorSanitizado = nuevoNombre.take(120)
         val cid = _uiState.value.clienteId.ifBlank { SessionManager.clienteIdGarantizado }
 
-        // DETECCIí“N INTELIGENTE: Si el usuario pistoleó un código de barras en el campo de Nombre
+        // DETECCIÓN INTELIGENTE: Si el usuario pistoleó un código de barras en el campo de Nombre
         val esCodigoNumerico = valorSanitizado.trim().length in 8..20 && valorSanitizado.trim().all { it.isDigit() }
 
         if (esCodigoNumerico && !_uiState.value.formularioDesplegado) {
@@ -347,6 +347,11 @@ class CrearProductoGeneralViewModel(
             errores["nombre"] = "El nombre debe tener al menos 3 caracteres"
         } else if (StructuralProductValidator.detectarBasuraEvidente(nombreTrim)) {
             errores["nombre"] = "Nombre no válido —” verifica el nombre del producto"
+        }
+
+        // La categoría es OBLIGATORIA: nunca debe nacer un producto sin categoría.
+        if (s.categoriaNombre.trim().isBlank()) {
+            errores["categoria"] = "Elige la categoría del producto (es obligatoria)"
         }
 
         if (s.productoExistenteDuplicado != null) {

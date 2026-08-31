@@ -14,7 +14,7 @@ import java.util.Locale
  * El número y el correo viven SOLO aquí: cambiar el contacto toca este
  * archivo y nada más (login y registro lo consumen igual).
  *
- * Cadena honesta de fallback: WhatsApp ──†’ correo ──†’ aviso visible si no hay
+ * Cadena honesta de fallback: WhatsApp → correo → aviso visible si no hay
  * ninguna app disponible (jamás un fallo silencioso).
  */
 object SoporteContacto {

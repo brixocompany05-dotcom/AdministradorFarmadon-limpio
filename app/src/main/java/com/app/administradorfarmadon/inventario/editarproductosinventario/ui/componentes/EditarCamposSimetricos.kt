@@ -302,6 +302,9 @@ fun EditarDropdownSimetrico(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier
+                    .widthIn(min = 200.dp, max = 420.dp)
+                    // Selector FIJO y con scroll interno: nunca ocupa toda la pantalla.
+                    .heightIn(max = 280.dp)
                     .background(FDColors.SurfaceElevated)
                     .border(1.dp, FDColors.Border, RoundedCornerShape(8.dp))
             ) {

@@ -84,6 +84,17 @@ object CatalogoEmpaques {
         "Bebés & Maternidad",
         "Bebidas & Snacks",
         "Primeros Auxilios & Botiquín",
+        "Diabetes & Endocrinología",
+        "Neurología & Sistema Nervioso",
+        "Oftalmología & Óptica",
+        "Otorrinolaringología",
+        "Alergias & Inmunología",
+        "Salud Sexual & Anticonceptivos",
+        "Higiene Bucal",
+        "Dispositivos Médicos & Ortopedia",
+        "Cuidado de Heridas",
+        "Salud de la Mujer",
+        "Veterinaria",
         "General"
     )
 

@@ -128,6 +128,21 @@ class CrearProductoRepository(
             throw IllegalArgumentException("Ya tienes registrado '${producto.nombre}' con la presentación '$empFinal · ${producto.medidaConcentracion}'.")
         }
 
+        // CONTRATO DE NACIMIENTO: categoría, envase, contenido y unidad son obligatorios.
+        // Nunca debe nacer un producto con valores vacíos o "N/A" que contaminen otros módulos.
+        if (producto.categoriaNombre.trim().isBlank()) {
+            throw IllegalArgumentException("Elige la categoría del producto (es obligatoria).")
+        }
+        if (producto.empaque.trim().isBlank()) {
+            throw IllegalArgumentException("Elige el envase (empaque) del producto.")
+        }
+        if (cantVal.isBlank()) {
+            throw IllegalArgumentException("Indica el contenido (cantidad) del producto.")
+        }
+        if (unidadVal.isBlank()) {
+            throw IllegalArgumentException("Elige la unidad de medida del producto.")
+        }
+
         // 2. Validación rápida fuera de transacción (UX) —” el blindaje real está DENTRO de la transacción
         val codLimpioPrevio = CodigoBarraHelper.limpiar(producto.codigoBarras)
         if (codLimpioPrevio.isNotBlank()) {
@@ -141,7 +156,11 @@ class CrearProductoRepository(
 
         val nuevoDocRef = inventarioRef.document()
         val productoId = nuevoDocRef.id
-        val codLimpio = CodigoBarraHelper.limpiar(producto.codigoBarras)
+        // Código interno: si el usuario no escanea uno, el sistema crea un código único (FMD-…)
+        // para que la etiqueta se pueda imprimir y el escáner encuentre el producto.
+        val codLimpio = CodigoBarraHelper.limpiar(producto.codigoBarras).ifBlank {
+            CodigoBarraHelper.generarCodigoInternoUnico(db, clienteId)
+        }
         val esGeneral = producto.tipoProducto.trim().equals("GENERAL", ignoreCase = true)
         val principioActivoFinal = if (esGeneral) "" else producto.principioActivo.trim()
         val requiereRecetaFinal = if (esGeneral) false else producto.requiereReceta
@@ -171,7 +190,7 @@ class CrearProductoRepository(
             "categoriasLista" to listOf(catFinal),
             "etiquetas" to etiquetasList,
             "laboratorio" to labFinal,
-            "proveedorBaseNombre" to "N/A",
+            "proveedorBaseNombre" to "",
             "empaque" to empFinal,
             "contenido" to cantVal,
             "contenidoUnidad" to unidadVal,
@@ -187,9 +206,11 @@ class CrearProductoRepository(
             "sugerenciasEnvase" to CatalogoEmpaques.obtenerEmpaquesCompatibles(empFinal, unidadVal),
             "sugerenciasPerfil" to CatalogoEmpaques.obtenerUnidadesCompatibles(empFinal, unidadVal),
             "ubicacion" to "",
+            "stock" to 0.0,
             "stockTotal" to 0.0,
             "stockMinimo" to 0.0,
             "stockMinimoBase" to 0.0,
+            "vencimientoMasCercano" to "",
             "diasAlertaVencimiento" to 90,
             "fefoAutomatico" to true,
             "precioCompra" to 0.0,
@@ -216,17 +237,17 @@ class CrearProductoRepository(
         val claveFicha = CodigoBarraHelper.claveFicha(producto.nombre, empFinal, producto.medidaConcentracion)
 
         db.runTransaction { tx ->
-            // BLINDAJE ATí“MICO ficha idéntica (nombre+empaque+medida) —” evita duplicado fantasma en carrera sin parche
+            // BLINDAJE ATÓMICO ficha idéntica (nombre+empaque+medida) —” evita duplicado fantasma en carrera sin parche
             CodigoBarraHelper.verificarFichaUnicidadEnTransaccion(tx, db, clienteId, claveFicha)
 
-            // BLINDAJE ATí“MICO código de barras vía índice
+            // BLINDAJE ATÓMICO código de barras vía índice
             if (codLimpio.isNotBlank()) {
                 CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codLimpio, productoId)
             }
 
             tx.set(nuevoDocRef, payload)
 
-            // índices atómicos para futuras verificaciones sin carrera
+            // Índices atómicos para futuras verificaciones sin carrera
             CodigoBarraHelper.crearIndiceFichaEnTransaccion(tx, db, clienteId, claveFicha, productoId)
             if (codLimpio.isNotBlank()) {
                 CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codLimpio, productoId, producto.nombre.trim())
@@ -249,4 +270,5 @@ class CrearProductoRepository(
         Log.d(TAG, "Producto creado exitosamente con ID: $productoId en cliente: $clienteId sucursal: $effectiveSucursalId")
         return productoId
     }
+
 }

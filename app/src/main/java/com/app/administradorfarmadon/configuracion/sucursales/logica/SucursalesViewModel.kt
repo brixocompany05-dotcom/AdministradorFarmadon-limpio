@@ -6,6 +6,7 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.autenticacion.registro.paso1_datos.logica.UbicacionHelper
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 import com.app.administradorfarmadon.configuracion.sucursales.datos.SucursalesRepository
@@ -42,13 +43,42 @@ class SucursalesViewModel @JvmOverloads constructor(
         super.onCleared()
     }
 
+    private fun esSedePrincipalActual(): Boolean {
+        val sucursalActiva = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId }
+        return sucursalActiva.equals("principal", ignoreCase = true)
+    }
+
+    private fun bloquearSiNoEsPrincipal(): Boolean {
+        if (esSedePrincipalActual()) {
+            _uiState.update { it.copy(accesoRestringido = false, mensajeError = null) }
+            return false
+        }
+        _uiState.update {
+            it.copy(
+                cargando = false,
+                guardando = false,
+                esModoCreacion = false,
+                sucursalSeleccionada = null,
+                formErrores = emptyMap(),
+                sucursales = emptyList(),
+                accesoRestringido = true,
+                mensajeError = "Solo la sede principal puede gestionar sucursales. Desde otra sede el módulo queda oculto."
+            )
+        }
+        return true
+    }
+
     fun cargarDatos() {
         jobsObservacion.forEach { it.cancel() }
         jobsObservacion.clear()
         jobMetodosPrincipal?.cancel()
 
+        if (bloquearSiNoEsPrincipal()) {
+            return
+        }
+
         viewModelScope.launch {
-            _uiState.update { it.copy(cargando = true) }
+            _uiState.update { it.copy(cargando = true, accesoRestringido = false, mensajeError = null) }
             val clienteId = repository.resolverClienteId()
             if (clienteId.isBlank()) {
                 _uiState.update { it.copy(cargando = false, mensajeError = "No se pudo identificar la farmacia.") }
@@ -157,6 +187,9 @@ class SucursalesViewModel @JvmOverloads constructor(
     }
 
     fun solicitarIniciarNuevaSucursal() {
+        if (bloquearSiNoEsPrincipal()) {
+            return
+        }
         if (_uiState.value.hayCambiosSinGuardar && !_uiState.value.esModoCreacion) {
             sucursalPendiente = null
             _uiState.update { it.copy(mostrarDialogoDescartar = true) }
@@ -174,12 +207,21 @@ class SucursalesViewModel @JvmOverloads constructor(
         }
     }
 
+    fun avanzarPasoCreacion() {
+        _uiState.update { it.copy(pasoActual = (it.pasoActual + 1).coerceAtMost(3)) }
+    }
+
+    fun retrocederPasoCreacion() {
+        _uiState.update { it.copy(pasoActual = (it.pasoActual - 1).coerceAtLeast(1)) }
+    }
+
     fun cerrarPanel() {
         _uiState.update {
             it.copy(
                 esModoCreacion = false,
                 sucursalSeleccionada = null,
-                formErrores = emptyMap()
+                formErrores = emptyMap(),
+                pasoActual = 1
             )
         }
     }
@@ -235,6 +277,7 @@ class SucursalesViewModel @JvmOverloads constructor(
             it.copy(
                 esModoCreacion = true,
                 sucursalSeleccionada = null,
+                pasoActual = 1,
                 formNombre = "",
                 formDireccion = "",
                 formTelefono = "",
@@ -266,6 +309,9 @@ class SucursalesViewModel @JvmOverloads constructor(
     }
 
     fun onActivaChanged(activa: Boolean) {
+        if (bloquearSiNoEsPrincipal()) {
+            return
+        }
         _uiState.update { it.copy(formActiva = activa) }
     }
 
@@ -294,6 +340,9 @@ class SucursalesViewModel @JvmOverloads constructor(
     }
 
     fun guardarSucursal() {
+        if (bloquearSiNoEsPrincipal()) {
+            return
+        }
         val s = _uiState.value
         if (!s.esModoCreacion && !s.hayCambiosSinGuardar) return
 
@@ -313,13 +362,16 @@ class SucursalesViewModel @JvmOverloads constructor(
             errores["nombre"] = "Ya tienes una sede registrada con este nombre"
         }
 
-        // Las sedes hijas no necesitan dirección; solo la principal la tiene.
-        if (!s.esModoCreacion && direccionTrim.isBlank()) {
-            errores["direccion"] = "La dirección física de la sede es obligatoria"
-        } else if (!s.esModoCreacion && direccionTrim.length < 5) {
-            errores["direccion"] = "Ingresa una dirección completa (calle, número o referencia)"
-        } else if (direccionTrim.isNotBlank() && s.sucursales.any { it.direccion.trim().equals(direccionTrim, ignoreCase = true) && it.id != idAguardar }) {
+        if (direccionTrim.isBlank()) {
+            errores["direccion"] = "La ubicación del local es obligatoria. Ubica la sede en el mapa."
+        } else if (direccionTrim.length < 5) {
+            errores["direccion"] = "La ubicación del local debe ser una dirección o referencia válida."
+        } else if (s.sucursales.any { it.direccion.trim().equals(direccionTrim, ignoreCase = true) && it.id != idAguardar }) {
             errores["direccion"] = "Ya tienes una sede registrada en esta misma dirección"
+        }
+
+        if (s.formLatitud == null || s.formLongitud == null) {
+            errores["direccion"] = "La ubicación del local en el mapa es obligatoria para guardar la sucursal."
         }
 
         val digitosTelefono = telefonoTrim.filter { it.isDigit() }
@@ -417,6 +469,9 @@ class SucursalesViewModel @JvmOverloads constructor(
     }
 
     fun solicitarEliminar() {
+        if (bloquearSiNoEsPrincipal()) {
+            return
+        }
         val s = _uiState.value
         val sel = s.sucursalSeleccionada ?: return
         if (sel.esPrincipal) {
@@ -450,6 +505,9 @@ class SucursalesViewModel @JvmOverloads constructor(
     }
 
     fun confirmarEliminar() {
+        if (bloquearSiNoEsPrincipal()) {
+            return
+        }
         val s = _uiState.value
         val sel = s.sucursalSeleccionada ?: return
         val clienteId = s.clienteId

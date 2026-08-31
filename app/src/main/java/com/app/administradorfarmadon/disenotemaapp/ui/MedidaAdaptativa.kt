@@ -8,10 +8,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.pow
 
-// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+// 
 // MEDIDA ADAPTATIVA —” Geometría Física 2026
-// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
-// Tablet-First (600dp ──†’ 1360dp) con matemática física real.
+// 
+// Tablet-First (600dp → 1360dp) con matemática física real.
 // Fórmula base:  f = (W / Wref) ^ curva   clamp [0.85 , 1.18]
 // Wref = 1280dp (ancho enterprise estándar). Curva 0.55 = física
 // de resorte amortiguado: crece rápido al inicio, se suaviza al
@@ -20,7 +20,7 @@ import kotlin.math.pow
 // porque ya existe escalado global de densidad)
 // Garantiza: nada apretado, nada roto, nada pegado —” simetría
 // geométrica preservada en cualquier pantalla, claro/oscuro idéntico.
-// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+// 
 
 private const val REFERENCE_WIDTH = 1280f
 private const val REFERENCE_HEIGHT = 800f
@@ -40,24 +40,24 @@ class MedidaAdaptativa(
     private val screenH: Float = REFERENCE_HEIGHT
 ) {
 
-    // ──”€──”€ Orientación ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Orientación ────────────────────────────────────────────
     val isLandscape: Boolean get() = screenW >= screenH
 
-    // ──”€──”€ Factor de escala física ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Factor de escala física ────────────────────────────────
     // Eje W: curva amortiguada. Eje H: corrección suave (0.30) para que
     // pantallas muy bajas no aplasten. Factor final = media geométrica.
     private val scaleW = (smallestW / REFERENCE_WIDTH).toDouble().pow(CURVA_FISICA).toFloat().coerceIn(MIN_SCALE, MAX_SCALE)
     private val scaleH = (screenH / REFERENCE_HEIGHT).toDouble().pow(0.30).toFloat().coerceIn(0.92f, 1.10f)
     private val scale: Float = kotlin.math.sqrt((scaleW * scaleH).toDouble()).toFloat().coerceIn(MIN_SCALE, MAX_SCALE)
 
-    // ──”€──”€ Exponentes (sensibilidad por familia) ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Exponentes (sensibilidad por familia) ──────────────────
     // Reducidos para no duplicar con el escalado global de densidad (EscalaAdaptativa 0.85-1.15)
     // Física suave: tipografía y componentes apenas modulan (──±6%), espaciado modula más
     private val typographyScale get() = scale.toDouble().pow(0.35).toFloat()
     private val spacingScale    get() = scale.toDouble().pow(0.30).toFloat()
     private val componentScale  get() = scale.toDouble().pow(0.38).toFloat()
 
-    // ──”€──”€ Tipografía (legible 13sp mínimo —” nunca romper) ──”€──”€──”€──”€──”€──”€
+    // ── Tipografía (legible 13sp mínimo —” nunca romper) ──────
     val textLabel        get() = (10.5f * typographyScale).sp
     val textChip         get() = (11f * typographyScale).sp
     val textBody         get() = (13.5f * typographyScale).sp
@@ -70,7 +70,7 @@ class MedidaAdaptativa(
     val textBodyLineHeight get() = (textBody.value * 1.5f).sp
     val textLetterSpacing get() = (0.4f * typographyScale).sp
 
-    // ──”€──”€ Espaciado (proporción áurea Ï†=1.618 entre saltos) ──”€──”€──”€──”€──”€
+    // ── Espaciado (proporción áurea Ï†=1.618 entre saltos) ──────
     val gapTiny   get() = (6f  * spacingScale).dp
     val gapSmall  get() = (10f * spacingScale).dp
     val gapMedium get() = (14f * spacingScale).dp
@@ -87,7 +87,7 @@ class MedidaAdaptativa(
     val xxl get() = gapXXLarge
     val xxxl get() = gapXXXLarge
 
-    // ──”€──”€ Padding geométrico ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Padding geométrico ──────────────────────────────────────
     val padInputH  get() = (16f * spacingScale).dp
     val padInputV  get() = (12f * spacingScale).dp
     val padModule  get() = (22f * spacingScale).dp
@@ -96,7 +96,7 @@ class MedidaAdaptativa(
     val padCard    get() = (16f * spacingScale).dp
     val padCardLarge get() = (20f * spacingScale).dp
 
-    // ──”€──”€ Alturas (proporción táctil 48dp mínimo) ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Alturas (proporción táctil 48dp mínimo) ────────────────
     val inputMinH  get() = ((52f * componentScale).dp).coerceIn(48.dp, 60.dp)
     val btnSmallH  get() = ((38f * componentScale).dp).coerceIn(36.dp, 44.dp)
     val btnMediumH get() = ((48f * componentScale).dp).coerceIn(44.dp, 56.dp)
@@ -108,28 +108,28 @@ class MedidaAdaptativa(
     val iconMedium get() = (22f * componentScale).dp
     val iconLarge  get() = (28f * componentScale).dp
 
-    // ──”€──”€ Radios ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Radios ──────────────────────────────────────────────────
     val radiusInput  get() = (12f * componentScale).dp
     val radiusButton get() = (12f * componentScale).dp
     val radiusChip   get() = (10f * componentScale).dp
     val radiusCard   get() = (16f * componentScale).dp
     val radiusSheet  get() = (24f * componentScale).dp
 
-    // ──”€──”€ Bordes ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Bordes ──────────────────────────────────────────────────
     val borderWidth get() = (1f).dp
     val separatorH  get() = (1f).dp
 
-    // ──”€──”€ Anchos proporcionales (matemática del viewport) ──”€──”€──”€──”€──”€──”€
-    /** Ancho del riel izquierdo: 32% del ancho disponible, clamp 300—“380 */
+    // ── Anchos proporcionales (matemática del viewport) ──────
+    /** Ancho del riel izquierdo: 32% del ancho disponible, clamp 300 – 380 */
     fun anchoRiel(anchoDisponible: Float): androidx.compose.ui.unit.Dp {
         val raw = anchoDisponible * 0.32f
         return raw.coerceIn(300f, 380f).dp
     }
-    /** Gap entre columnas: 1.8% del ancho, clamp 14—“24 */
+    /** Gap entre columnas: 1.8% del ancho, clamp 14 – 24 */
     fun gapColumnas(anchoDisponible: Float): androidx.compose.ui.unit.Dp =
         (anchoDisponible * 0.018f).coerceIn(14f, 24f).dp
 
-    // ──”€──”€ Clasificación ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── Clasificación ──────────────────────────────────────────
     val screenSize: String get() = when {
         smallestW < 720f  -> "TABLET_SMALL"
         smallestW < 900f  -> "TABLET_MEDIUM"

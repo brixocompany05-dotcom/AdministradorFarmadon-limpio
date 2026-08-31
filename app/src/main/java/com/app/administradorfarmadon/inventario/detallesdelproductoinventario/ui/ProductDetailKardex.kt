@@ -30,9 +30,9 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
 
-// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
-// Mí“DULO 3: KARDEX Y AUDITORíA DE MOVIMIENTOS (TRAZABILIDAD TOTAL)
-// ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+// 
+// MÓDULO 3: KARDEX Y AUDITORÍA DE MOVIMIENTOS (TRAZABILIDAD TOTAL)
+// 
 @Composable
 internal fun ModuloKardexYAuditoria(
     movements: List<MovimientoInventario>,
@@ -156,8 +156,8 @@ internal fun ModuloKardexYAuditoria(
                         .padding(horizontal = 24.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("TIPO OPERACIí“N", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.5f))
-                    Text("VARIACIí“N", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1f))
+                    Text("TIPO OPERACIÓN", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.5f))
+                    Text("VARIACIÓN", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1f))
                     Text("VALOR / COSTO", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.2f))
                     Text("RESPONSABLE", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.2f))
                     Text("FECHA Y HORA (SERVIDOR)", style = FDType.Label.copy(fontSize = 11.sp, color = FDColors.TextSecondary), modifier = Modifier.weight(1.4f))

@@ -111,9 +111,9 @@ class ProductoDetalleLecturaRepository(
 
                 val refDetalle = buildString {
                     if (loteNum.isNotBlank()) append("Lote: $loteNum")
-                    if (prov.isNotBlank()) append(" —¢ Prov: $prov")
-                    if (fact.isNotBlank()) append(" —¢ Fact: $fact")
-                    if (mot.isNotBlank()) append(" —¢ Motivo: $mot")
+                    if (prov.isNotBlank()) append("  ·  Prov: $prov")
+                    if (fact.isNotBlank()) append("  ·  Fact: $fact")
+                    if (mot.isNotBlank()) append("  ·  Motivo: $mot")
                 }.ifBlank { "Ajuste general" }
 
                 MovimientoInventario(

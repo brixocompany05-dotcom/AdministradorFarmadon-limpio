@@ -41,7 +41,7 @@ fun FarmadonSidebar(
     modifier: Modifier = Modifier
 ) {
     val s = recordarMedidaAdaptativa()
-    // Ancho geométrico: 280dp * scaleFactor (0.85-1.18) clamp 268-320 ──†’ adaptativo a cualquier tablet
+    // Ancho geométrico: 280dp * scaleFactor (0.85-1.18) clamp 268-320 → adaptativo a cualquier tablet
     val sidebarWidth = (280f * s.scaleFactor).coerceIn(268f, 318f).dp
 
     Box(
@@ -128,7 +128,7 @@ fun FarmadonSidebar(
                         .toList()
                         .sortedBy { (_, items) -> items.minOfOrNull { it.orden } ?: 0 }
 
-                    // Grupos OPERACIí“N / GESTIí“N etc —” quiet
+                    // Grupos OPERACIÓN / GESTIÓN etc —” quiet
                     val (sistemaGrupos, restoGrupos) = categorias.partition { it.first.equals("SISTEMA", ignoreCase = true) }
                     restoGrupos.forEach { (categoria, itemsModulo) ->
                         SidebarGrupo(

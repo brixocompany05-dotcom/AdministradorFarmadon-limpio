@@ -139,7 +139,7 @@ fun EditarResumenPanel(
                                     )
 
                                     val subLabel = if (state.laboratorio.isNotBlank()) {
-                                        "${state.laboratorio} —¢ ${state.categoriaNombre}"
+                                        "${state.laboratorio}  ·  ${state.categoriaNombre}"
                                     } else {
                                         state.categoriaNombre
                                     }
@@ -283,7 +283,7 @@ fun EditarResumenPanel(
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "¡FICHA ACTUALIZADA CON í‰XITO!",
+                                        text = "¡FICHA ACTUALIZADA CON ÉXITO!",
                                         style = FDType.Heading3.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = FDColors.Success),
                                         textAlign = TextAlign.Center
                                     )
@@ -366,7 +366,7 @@ fun EditarResumenPanel(
                                 Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "REINTENTAR ACTUALIZACIí“N",
+                                    text = "REINTENTAR ACTUALIZACIÓN",
                                     style = FDType.Label.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 )
                             }

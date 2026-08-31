@@ -107,7 +107,7 @@ fun ProductDetailContent(
             .background(FDColors.Background)
             .windowInsetsPadding(WindowInsets.systemBars)
     ) {
-        // ──”€──”€ 1. CABECERA SUPERIOR ESBELTA ──”€──”€
+        // ── 1. CABECERA SUPERIOR ESBELTA ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -192,7 +192,7 @@ fun ProductDetailContent(
             }
         }
 
-        // ──”€──”€ BANNER ACCIONABLE DE ETIQUETAS PENDIENTES POR CAMBIO DE PRECIOS ──”€──”€
+        // ── BANNER ACCIONABLE DE ETIQUETAS PENDIENTES POR CAMBIO DE PRECIOS ──
         if (p.etiquetaPendienteReimpresion && p.etiquetaPendienteDetalle.isNotBlank()) {
             Surface(
                 color = FDColors.SurfaceElevated,
@@ -222,7 +222,7 @@ fun ProductDetailContent(
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "ETIQUETAS PENDIENTES DE REIMPRESIí“N",
+                                text = "ETIQUETAS PENDIENTES DE REIMPRESIÓN",
                                 style = FDType.Caption.copy(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
@@ -320,7 +320,7 @@ fun ProductDetailContent(
 
         HorizontalDivider(color = FDColors.Border, thickness = 0.5.dp)
 
-        // ──”€──”€ 2. NAVEGACIí“N ADAPTABLE (SCROLLABLE TAB ROW) ──”€──”€
+        // ── 2. NAVEGACIÓN ADAPTABLE (SCROLLABLE TAB ROW) ──
         ScrollableTabRow(
             selectedTabIndex = selectedTabIndex,
             edgePadding = 20.dp,
@@ -374,7 +374,7 @@ fun ProductDetailContent(
 
         HorizontalDivider(color = FDColors.Border, thickness = 0.5.dp)
 
-        // ──”€──”€ 3. CONTENIDO PRINCIPAL (ZONIFICACIí“N VISUAL) ──”€──”€
+        // ── 3. CONTENIDO PRINCIPAL (ZONIFICACIÓN VISUAL) ──
         Box(
             modifier = Modifier
                 .weight(1f)

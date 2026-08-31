@@ -20,6 +20,7 @@ data class SucursalesUiState(
     val colaboradoresAsignadosNombres: List<String> = emptyList(),
     val mensajeExito: String? = null,
     val mensajeError: String? = null,
+    val accesoRestringido: Boolean = false,
 
     // Formulario reactivo
     val formNombre: String = "",
@@ -36,7 +37,8 @@ data class SucursalesUiState(
     // Tipos de pago que la Sede Principal tiene configurados (con cuenta activa).
     // Se usan para avisar qué marcado no se podrá copiar al nacer.
     val principalPagosDisponibles: Set<String> = emptySet(),
-    val formErrores: Map<String, String> = emptyMap()
+    val formErrores: Map<String, String> = emptyMap(),
+    val pasoActual: Int = 1
 ) {
     val totalSucursales: Int get() = sucursales.size
 

@@ -27,11 +27,11 @@ fun EmptyInventarioState(
     tab: String = "TODOS"
 ) {
     val titulo = when {
-        tab == "POR_REPONER" -> "¡TODO TU STOCK ESTÁ AL DíA!"
+        tab == "POR_REPONER" -> "¡TODO TU STOCK ESTÁ AL DÍA!"
         tab == "POR_VENCER" -> "CERO ALERTAS DE VENCIMIENTO"
         tab == "PAUSADOS" -> "NO TIENES PRODUCTOS PAUSADOS"
         hasFilters -> "NO SE ENCONTRARON RESULTADOS"
-        else -> "TU INVENTARIO ESTÁ VACíO"
+        else -> "TU INVENTARIO ESTÁ VACÍO"
     }
 
     val subtitulo = when {

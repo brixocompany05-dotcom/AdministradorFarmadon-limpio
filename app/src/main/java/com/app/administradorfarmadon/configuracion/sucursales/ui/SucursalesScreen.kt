@@ -65,6 +65,9 @@ fun SucursalesScreen(
 
     var mostrarSelectorMapa by remember { mutableStateOf(false) }
 
+    // La ubicación se elige solo por acción explícita del usuario desde el mapa.
+    // No se dispara un diálogo de dirección al iniciar ni al intentar crear una sucursal.
+
     // ── ANIMACIÓN DE CORRIENTE ELÉCTRICA (PULSO VIVO) ──
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseOffset by infiniteTransition.animateFloat(
@@ -110,6 +113,35 @@ fun SucursalesScreen(
                 mostrarSelectorMapa = false
             }
         )
+    }
+
+    if (state.accesoRestringido) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colores.fondoBase)
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                color = colores.cardBase,
+                shape = RoundedCornerShape(s.radiusCard),
+                border = BorderStroke(s.borderWidth, colores.cardBorde)
+            ) {
+                Column(
+                    modifier = Modifier.padding(s.padCardLarge),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                ) {
+                    Icon(Icons.Default.Storefront, null, tint = colores.estadoAlerta, modifier = Modifier.size(s.iconLarge))
+                    Text("ACCESO RESTRINGIDO", style = FDType.Label.copy(fontWeight = FontWeight.Black), color = colores.textoTerciario)
+                    Text("Solo la sede principal puede gestionar sucursales.", style = FDType.Body.copy(fontSize = s.textBody.value.sp), color = colores.textoPrincipal)
+                    Text("Desde otra sede el módulo queda oculto y no se permiten crear, activar, desactivar ni eliminar sedes.", style = FDType.BodySmall.copy(fontSize = s.textBody.value.sp * 0.9f), color = colores.textoSecundario, textAlign = TextAlign.Center)
+                }
+            }
+        }
+        return
     }
 
     BoxWithConstraints(
@@ -298,7 +330,19 @@ fun SucursalesScreen(
                     .border(s.borderWidth, if (panelAbierto) FDColors.Primary.copy(alpha = 0.4f) else colores.cardBorde, RoundedCornerShape(s.radiusCard * 0.75f))
             ) {
                 if (panelAbierto) {
-                    SucursalFormularioPanel(state, viewModel::onFieldChanged, viewModel::onActivaChanged, viewModel::onPagoSeleccionadoChanged, { mostrarSelectorMapa = true }, { viewModel.guardarSucursal() }, { viewModel.solicitarEliminar() }, { viewModel.solicitarCerrarPanel() }, s)
+                    SucursalFormularioPanel(
+                        state,
+                        viewModel::onFieldChanged,
+                        viewModel::onActivaChanged,
+                        viewModel::onPagoSeleccionadoChanged,
+                        { mostrarSelectorMapa = true },
+                        { viewModel.avanzarPasoCreacion() },
+                        { viewModel.retrocederPasoCreacion() },
+                        { viewModel.guardarSucursal() },
+                        { viewModel.solicitarEliminar() },
+                        { viewModel.solicitarCerrarPanel() },
+                        s
+                    )
                 } else {
                     EmptyDetailPlaceholder(colores, s)
                 }

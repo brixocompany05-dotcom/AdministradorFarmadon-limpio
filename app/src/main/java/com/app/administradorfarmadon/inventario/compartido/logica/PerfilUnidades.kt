@@ -22,18 +22,18 @@ object PerfilUnidades {
 
     /** Factor para llevar la unidad a su unidad base del perfil (base = 1.0). */
     private val FACTOR_A_BASE = mapOf(
-        // Líquido ──†’ ml
+        // Líquido → ml
         "ml" to 1.0, "cc" to 1.0, "l" to 1000.0, "lt" to 1000.0, "litro" to 1000.0,
         "litros" to 1000.0, "galon" to 3785.0, "galón" to 3785.0, "got" to 0.05,
         "gotas" to 0.05,
-        // Peso ──†’ g
+        // Peso → g
         "g" to 1.0, "gr" to 1.0, "gramo" to 1.0, "gramos" to 1.0, "kg" to 1000.0,
         "kilogramo" to 1000.0, "kilogramos" to 1000.0, "mg" to 0.001,
         "miligramo" to 0.001, "miligramos" to 0.001, "mcg" to 0.000001,
         "microgramo" to 0.000001, "microgramos" to 0.000001,
         "lb" to 453.592, "libra" to 453.592, "libras" to 453.592,
         "oz" to 28.3495, "onza" to 28.3495, "onzas" to 28.3495,
-        // Sólido / dosificados / contados ──†’ unidad (base 1.0)
+        // Sólido / dosificados / contados → unidad (base 1.0)
         "tab" to 1.0, "tableta" to 1.0, "tabletas" to 1.0, "comprimido" to 1.0,
         "comprimidos" to 1.0, "pastilla" to 1.0, "pastillas" to 1.0,
         "cap" to 1.0, "cáp" to 1.0, "capsula" to 1.0, "cápsula" to 1.0,
@@ -76,7 +76,7 @@ object PerfilUnidades {
 
     /**
      * Cantidad ya expresada en la unidad base del perfil (para cálculo interno exacto).
-     * Ej: 100 ml ──†’ 100 (base ml); 1.5 L ──†’ 1500 (base ml); 1 kg ──†’ 1000 (base g).
+     * Ej: 100 ml → 100 (base ml); 1.5 L → 1500 (base ml); 1 kg → 1000 (base g).
      */
     fun aUnidadBase(cantidad: Double, unidad: String): Double {
         return cantidad * factorAUnidadBase(unidad)

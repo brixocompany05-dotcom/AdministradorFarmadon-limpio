@@ -10,6 +10,13 @@ import com.app.administradorfarmadon.configuracion.metodospago.modelo.TIPOS_PAGO
  */
 object EtiquetaMetodoPago {
 
+    /** Nombre corto del método (sin los datos de la cuenta) para historial y resúmenes. */
+    fun nombreCorto(etiquetaMetodo: String): String {
+        val limpio = etiquetaMetodo.trim()
+        val corto = limpio.substringBefore(" · ").trim()
+        return corto.ifBlank { limpio }
+    }
+
     /**
      * ¿Este método deja constancia con número de operación?
      * El efectivo NO; Yape, Plin, Transferencia y Cheque SÍ.

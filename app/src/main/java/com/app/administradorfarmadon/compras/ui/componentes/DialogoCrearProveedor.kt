@@ -141,7 +141,7 @@ fun DialogoCrearProveedor(
                         valor = email,
                         onValorCambio = { email = it },
                         etiqueta = "CORREO ELECTRÓNICO (OPCIONAL)",
-                        placeholder = "pedidos@drogueria.com",
+                        placeholder = "",
                         iconoInicio = Icons.Outlined.AlternateEmail,
                         iconoFin = {
                             IconButton(onClick = { menuDominioExpandido = true }) {

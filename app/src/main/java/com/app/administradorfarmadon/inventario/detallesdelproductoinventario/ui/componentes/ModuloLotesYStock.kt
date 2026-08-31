@@ -85,7 +85,7 @@ fun ModuloLotesYStock(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // ──”€──”€ 1. CONTEXTUAL TOOLBAR (SaaS Pattern) ──”€──”€
+            // ── 1. CONTEXTUAL TOOLBAR (SaaS Pattern) ──
             Column {
                 Text(
                     text = "GESTIÓN DE LOTES Y STOCK",
@@ -103,12 +103,12 @@ fun ModuloLotesYStock(
                 )
             }
 
-            // ──”€──”€ 2. PANELES DE TRABAJO (Split View) ──”€──”€
+            // ── 2. PANELES DE TRABAJO (Split View) ──
             Row(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // ──”€──”€ PANE IZQUIERDO: TRAZABILIDAD FEFO (60%) ──”€──”€
+                // ── PANE IZQUIERDO: TRAZABILIDAD FEFO (60%) ──
                 Column(
                     modifier = Modifier.weight(0.6f).fillMaxHeight(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -222,7 +222,7 @@ fun ModuloLotesYStock(
                     )
                 }
 
-                // ──”€──”€ PANE DERECHO: INSPECTOR Y MÉTRICAS (40%) ──”€──”€
+                // ── PANE DERECHO: INSPECTOR Y MÉTRICAS (40%) ──
                 Column(
                     modifier = Modifier.weight(0.4f).fillMaxHeight().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(20.dp)

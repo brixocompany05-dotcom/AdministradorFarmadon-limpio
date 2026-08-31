@@ -12,7 +12,7 @@ data class Paso1UiState(
     val latitud: Double? = null,
     val longitud: Double? = null,
     val notaAclaratoria: String = "",
-    // País de operación: NACE VACíO —” el aspirante ELIGE primero y el resto
+    // País de operación: NACE VACÍO —” el aspirante ELIGE primero y el resto
     // del formulario permanece bloqueado hasta elegir. La moneda se deriva.
     val paisIso: String = "",
     val monedaIso: String = "",

@@ -110,20 +110,25 @@ class UsuariosViewModel @JvmOverloads constructor(
                             mensajeError = if (usuarios.isNotEmpty() && currentState.mensajeError?.contains("cargar", ignoreCase = true) == true) null else currentState.mensajeError
                         )
 
+                        val erroresActualizados = revalidarDuplicadosEnTiempoReal(actualizado)
+                        val conErroresReactivos = actualizado.copy(
+                            formErrores = actualizado.formErrores.filterKeys { it !in setOf("dni", "telefono", "email") } + erroresActualizados
+                        )
+
                         if (!currentState.esModoCreacion && seleccionActualizada != null) {
                             if (!currentState.hayCambiosSinGuardar) {
-                                cargarFormularioDesdeUsuario(actualizado, seleccionActualizada)
+                                cargarFormularioDesdeUsuario(conErroresReactivos, seleccionActualizada)
                             } else {
-                                actualizado
+                                conErroresReactivos
                             }
                         } else if (!currentState.esModoCreacion && seleccionActual != null && seleccionActualizada == null) {
                             // El colaborador seleccionado fue dado de baja remotamente
-                            actualizado.copy(
+                            conErroresReactivos.copy(
                                 usuarioSeleccionado = null,
                                 mensajeError = "El colaborador \"${seleccionActual.nombre}\" ya no está disponible (fue dado de baja)."
                             )
                         } else {
-                            actualizado
+                            conErroresReactivos
                         }
                     }
                 }
@@ -333,14 +338,37 @@ class UsuariosViewModel @JvmOverloads constructor(
     fun onFieldChanged(field: String, value: String) {
         _uiState.update { currentState ->
             val nextErrors = currentState.formErrores.toMutableMap().apply { remove(field) }
-            when (field) {
+            val usuarioActualId = currentState.usuarioSeleccionado?.id ?: ""
+            val normalizedState = when (field) {
                 "nombre" -> currentState.copy(formNombre = value.take(60), formErrores = nextErrors, mensajeError = null)
-                "dni" -> currentState.copy(formDni = value.filter { it.isDigit() }.take(12), formErrores = nextErrors, mensajeError = null)
-                "telefono" -> currentState.copy(formTelefono = value.filter { it.isDigit() || it == '+' }.take(15), formErrores = nextErrors, mensajeError = null)
-                "email" -> currentState.copy(formEmail = value.trim().lowercase().take(60), formErrores = nextErrors, mensajeError = null)
+                "dni" -> {
+                    val dni = normalizarDni(value)
+                    val duplicate = if (dni.isNotBlank() && currentState.usuarios.any { it.dni == dni && it.id != usuarioActualId }) {
+                        "Ya existe un colaborador registrado con este DNI"
+                    } else null
+                    val errors = nextErrors.apply { if (duplicate != null) put("dni", duplicate) else remove("dni") }
+                    currentState.copy(formDni = dni, formErrores = errors, mensajeError = null)
+                }
+                "telefono" -> {
+                    val telefono = normalizarTelefono(value)
+                    val duplicate = if (telefono.isNotBlank() && currentState.usuarios.any { normalizarTelefono(it.telefono) == telefono && it.id != usuarioActualId }) {
+                        "Este teléfono ya está registrado con otro colaborador"
+                    } else null
+                    val errors = nextErrors.apply { if (duplicate != null) put("telefono", duplicate) else remove("telefono") }
+                    currentState.copy(formTelefono = telefono, formErrores = errors, mensajeError = null)
+                }
+                "email" -> {
+                    val email = normalizarEmail(value)
+                    val duplicate = if (email.isNotBlank() && currentState.usuarios.any { normalizarEmail(it.email) == email && it.id != usuarioActualId }) {
+                        "Ya existe un colaborador registrado con este correo"
+                    } else null
+                    val errors = nextErrors.apply { if (duplicate != null) put("email", duplicate) else remove("email") }
+                    currentState.copy(formEmail = email, formErrores = errors, mensajeError = null)
+                }
                 "password" -> currentState.copy(formPassword = value.trim().take(40), formErrores = nextErrors, mensajeError = null)
                 else -> currentState
             }
+            normalizedState
         }
     }
 
@@ -396,8 +424,8 @@ class UsuariosViewModel @JvmOverloads constructor(
 
         val errores = mutableMapOf<String, String>()
         val nombreTrim = s.formNombre.trim()
-        val dniTrim = s.formDni.trim().filter { it.isDigit() }
-        val emailTrim = s.formEmail.trim().lowercase()
+        val dniTrim = normalizarDni(s.formDni)
+        val emailTrim = normalizarEmail(s.formEmail)
         val passTrim = s.formPassword.trim()
         val idAguardar = if (s.esModoCreacion) "" else (s.usuarioSeleccionado?.id ?: "")
 
@@ -411,8 +439,6 @@ class UsuariosViewModel @JvmOverloads constructor(
             errores["nombre"] = "El nombre y apellidos son obligatorios"
         } else if (nombreSanitizado.length < 3) {
             errores["nombre"] = "El nombre debe tener al menos 3 caracteres"
-        } else if (s.usuarios.any { it.nombre.trim().equals(nombreSanitizado, ignoreCase = true) && it.rolId == s.formRolId && it.id != idAguardar }) {
-            errores["nombre"] = "Ya existe un colaborador con este mismo nombre y rol (${s.formRolNombre})"
         }
 
         if (dniTrim.isBlank()) {
@@ -421,6 +447,13 @@ class UsuariosViewModel @JvmOverloads constructor(
             errores["dni"] = "El documento debe tener al menos 6 dígitos"
         } else if (s.usuarios.any { it.dni.trim() == dniTrim && it.id != idAguardar }) {
             errores["dni"] = "Ya existe un colaborador registrado con este DNI"
+        }
+
+        val telefonoTrim = normalizarTelefono(s.formTelefono)
+        if (telefonoTrim.isBlank()) {
+            errores["telefono"] = "El teléfono móvil es obligatorio"
+        } else if (s.usuarios.any { it.telefono.trim().filter { c -> c.isDigit() || c == '+' } == telefonoTrim && it.id != idAguardar }) {
+            errores["telefono"] = "Este teléfono ya está registrado con otro colaborador"
         }
 
         if (emailTrim.isBlank()) {
@@ -480,10 +513,17 @@ class UsuariosViewModel @JvmOverloads constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error guardando colaborador: ${e.message}", e)
+                val erroresDeCampo = mapearErrorDeCampo(e)
+                val mensaje = if (erroresDeCampo.isNotEmpty()) {
+                    erroresDeCampo.values.first()
+                } else {
+                    traducirError(e, "Error al guardar colaborador.")
+                }
                 _uiState.update {
                     it.copy(
                         guardando = false,
-                        mensajeError = traducirError(e, "Error al guardar colaborador.")
+                        formErrores = if (erroresDeCampo.isNotEmpty()) it.formErrores + erroresDeCampo else it.formErrores,
+                        mensajeError = mensaje
                     )
                 }
             }
@@ -681,6 +721,42 @@ class UsuariosViewModel @JvmOverloads constructor(
         }
     }
 
+    private fun normalizarDni(value: String): String = value.filter { it.isDigit() }.take(12)
+    private fun normalizarTelefono(value: String): String = value.filter { it.isDigit() || it == '+' }.take(15)
+    private fun normalizarEmail(value: String): String = value.trim().lowercase().take(60)
+
+    private fun mapearErrorDeCampo(e: Exception): Map<String, String> {
+        val msg = e.message ?: ""
+        return when {
+            msg.contains("DNI", ignoreCase = true) -> mapOf("dni" to msg)
+            msg.contains("teléfono", ignoreCase = true) || msg.contains("telefono", ignoreCase = true) -> mapOf("telefono" to msg)
+            msg.contains("correo", ignoreCase = true) || msg.contains("email", ignoreCase = true) -> mapOf("email" to msg)
+            else -> emptyMap()
+        }
+    }
+
+    private fun revalidarDuplicadosEnTiempoReal(state: UsuariosUiState): Map<String, String> {
+        val usuarioActualId = state.usuarioSeleccionado?.id ?: ""
+        val errores = mutableMapOf<String, String>()
+
+        val dni = normalizarDni(state.formDni)
+        if (dni.isNotBlank() && state.usuarios.any { normalizarDni(it.dni) == dni && it.id != usuarioActualId }) {
+            errores["dni"] = "Ya existe un colaborador registrado con este DNI"
+        }
+
+        val telefono = normalizarTelefono(state.formTelefono)
+        if (telefono.isNotBlank() && state.usuarios.any { normalizarTelefono(it.telefono) == telefono && it.id != usuarioActualId }) {
+            errores["telefono"] = "Este teléfono ya está registrado con otro colaborador"
+        }
+
+        val email = normalizarEmail(state.formEmail)
+        if (email.isNotBlank() && state.usuarios.any { normalizarEmail(it.email) == email && it.id != usuarioActualId }) {
+            errores["email"] = "Ya existe un colaborador registrado con este correo"
+        }
+
+        return errores
+    }
+
     private fun traducirError(e: Exception, accionDefecto: String): String {
         val msg = e.message ?: ""
         return when {
@@ -706,7 +782,7 @@ class UsuariosViewModel @JvmOverloads constructor(
     }
 
     private fun cargarFormularioDesdeUsuario(state: UsuariosUiState, usuario: UsuarioFarmacia): UsuariosUiState {
-        // RAíZ: si usuario ya tiene mapa explícito, es la verdad. Si está vacío (migrado),
+        // RAÍZ: si usuario ya tiene mapa explícito, es la verdad. Si está vacío (migrado),
         // NO inventar todo true —” dejar vacío para heredar del rol (coherente con Sidebar).
         // El UI mostrará switches según efectivo (ver onPermisoModuloChanged).
         val permisosInit = if (usuario.permisosModulos.isNotEmpty()) {

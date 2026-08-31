@@ -91,10 +91,10 @@ fun RecepcionMercaderiaPanel(
         modifier = Modifier.fillMaxSize().onGloballyPositioned { rootY = it.positionInRoot().y }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ──•──• TOP BAR EJECUTIVA ──•──•
+            //  TOP BAR EJECUTIVA 
             Row(modifier = Modifier.fillMaxWidth().background(colores.textoPrincipal).padding(horizontal = 28.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text("RECEPCIí“N FíSICA · ${pedido.numeroOrden}", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.2.sp, color = colores.botonPrimarioTexto.copy(alpha = 0.6f)))
+                    Text("RECEPCIÓN FÍSICA · ${pedido.numeroOrden}", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.2.sp, color = colores.botonPrimarioTexto.copy(alpha = 0.6f)))
                     Text(pedido.proveedorNombre, style = TokensFarmadon.tipografia.titulo2.copy(fontSize = 18.sp), color = colores.botonPrimarioTexto)
                 }
                 IconButton(onClick = { if (!procesando) onDismiss() }, modifier = Modifier.clip(CircleShape).background(colores.botonPrimarioTexto.copy(alpha = 0.1f))) {
@@ -107,7 +107,7 @@ fun RecepcionMercaderiaPanel(
                 Surface(modifier = Modifier.weight(1.5f).fillMaxHeight(), color = colores.cardBase, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, colores.cardBorde.copy(alpha = 0.5f))) {
                     Column {
                         Row(modifier = Modifier.fillMaxWidth().background(colores.textoPrincipal.copy(alpha = 0.03f)).padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("DESCRIPCIí“N DEL PRODUCTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(2f))
+                            Text("DESCRIPCIÓN DEL PRODUCTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(2f))
                             Text("HOY", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.7f))
                             Text("LOTE", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(1.1f))
                             Text("VENCE", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.9f))
@@ -171,11 +171,11 @@ fun RecepcionMercaderiaPanel(
 
                 VinculoElectricoLocal(yInicio = yAnimada, yFin = yTotalLiquidacion, colorEnergia = colores.textoPrincipal)
 
-                // PANEL DERECHA: LIQUIDACIí“N
+                // PANEL DERECHA: LIQUIDACIÓN
                 Surface(modifier = Modifier.weight(0.9f).fillMaxHeight(), color = colores.cardBase, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, colores.cardBorde.copy(alpha = 0.5f))) {
                     Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.SpaceBetween) {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            Text("LIQUIDACIí“N", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = colores.textoTerciario)
+                            Text("LIQUIDACIÓN", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = colores.textoTerciario)
                             Surface(color = colores.fondoBase, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, colores.cardBorde), modifier = Modifier.fillMaxWidth().onGloballyPositioned { yTotalLiquidacion = it.positionInRoot().y - rootY + 40f }) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     FilaResumenIndustrial("Items Inspeccionados", "${estado.items.count { (it.cantidadRecibir.toIntOrNull() ?: 0) > 0 }}")
@@ -243,13 +243,13 @@ fun RecepcionMercaderiaPanel(
                             }
                             if (estado.condicionPago == "Crédito" && estado.fechaVencimientoPagoVisible.isNullOrBlank()) {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("DíAS DE CRí‰DITO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = colores.textoTerciario)
+                                    Text("DÍAS DE CRÉDITO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = colores.textoTerciario)
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         listOf(15, 30, 45, 60).forEach { dias ->
                                             val selDias = estado.diasCredito == dias
                                             Surface(modifier = Modifier.weight(1f).clickable { estado.onDiasCreditoChanged(dias) }, color = if (selDias) colores.cardElevada else colores.fondoBase, shape = RoundedCornerShape(9.dp), border = BorderStroke(1.dp, if (selDias) colores.textoPrincipal.copy(alpha = 0.5f) else colores.cardBorde)) {
                                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 9.dp)) {
-                                                    Text("$dias DíAS", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = if (selDias) FontWeight.Black else FontWeight.Medium), color = if (selDias) colores.textoPrincipal else colores.textoTerciario)
+                                                    Text("$dias DÍAS", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 10.sp, fontWeight = if (selDias) FontWeight.Black else FontWeight.Medium), color = if (selDias) colores.textoPrincipal else colores.textoTerciario)
                                                 }
                                             }
                                         }
@@ -260,7 +260,7 @@ fun RecepcionMercaderiaPanel(
                             }
                             if (estado.lotesRepetidosNuevos.isNotEmpty()) {
                                 Text(
-                                    "──š  Mismo lote nuevo en varias filas: ${estado.lotesRepetidosNuevos.joinToString()}. Revisa antes de asentar.",
+                                    "Mismo lote nuevo en varias filas: ${estado.lotesRepetidosNuevos.joinToString()}. Revisa antes de asentar.",
                                     style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                                     color = colores.estadoPeligro
                                 )
@@ -276,7 +276,7 @@ fun RecepcionMercaderiaPanel(
                             if (!estado.puedeAsentar && !procesando && estado.errorGeneral == null) {
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     estado.razonesBloqueo.forEach { razon ->
-                                        Text("—¢ $razon", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp), color = colores.textoTerciario)
+                                        Text(" ·  $razon", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 11.sp), color = colores.textoTerciario)
                                     }
                                 }
                             }
@@ -289,7 +289,7 @@ fun RecepcionMercaderiaPanel(
                             }
                         }, enabled = estado.puedeAsentar && !procesando, modifier = Modifier.fillMaxWidth().height(54.dp).bounceClick(), colors = ButtonDefaults.buttonColors(containerColor = colores.textoPrincipal, contentColor = colores.botonPrimarioTexto), shape = RoundedCornerShape(14.dp)) {
                             if (procesando) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colores.botonPrimarioTexto, strokeWidth = 2.dp)
-                            else Text("ASENTAR RECEPCIí“N", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 12.sp))
+                            else Text("ASENTAR RECEPCIÓN", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = 12.sp))
                         }
                     }
                 }

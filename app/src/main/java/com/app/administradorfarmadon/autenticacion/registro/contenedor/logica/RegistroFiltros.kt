@@ -53,7 +53,7 @@ object RegistroFiltros {
 
         // FILTRO 2 · ¿Ya envió una solicitud y sigue EN PROCESO?
         // Bloquea los tres estados vivos: un reenvío durante la revisión
-        // borraría la custodia del agente. "rechazada" Sí permite reintento.
+        // borraría la custodia del agente. "rechazada" SÍ permite reintento.
         val solDoc = AuthPaths.solicitudes(db).document(rucLimpio).get(Source.SERVER).await()
         if (solDoc.exists() && solDoc.getString("estado") in ESTADOS_SOLICITUD_ACTIVA) {
             return FiltroRegistroResultado.FALLA(

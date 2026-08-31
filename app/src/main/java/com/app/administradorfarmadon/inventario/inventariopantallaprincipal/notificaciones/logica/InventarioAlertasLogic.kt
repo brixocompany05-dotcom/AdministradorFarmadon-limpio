@@ -36,7 +36,7 @@ object InventarioAlertasLogic {
         val alertas = mutableListOf<AlertaProducto>()
 
         productos.forEach { p ->
-            // ──”€──”€ ALERTAS DE STOCK ──”€──”€
+            // ── ALERTAS DE STOCK ──
             if (p.stock <= 0) {
                 alertas.add(
                     AlertaProducto(
@@ -63,7 +63,7 @@ object InventarioAlertasLogic {
                 )
             }
 
-            // ──”€──”€ ALERTAS DE VENCIMIENTO ──”€──”€
+            // ── ALERTAS DE VENCIMIENTO ──
             if (p.expiryTimestamp > 0L) {
                 val diasRestantes = ((p.expiryTimestamp - hoy) / 86_400_000).toInt()
                 when {

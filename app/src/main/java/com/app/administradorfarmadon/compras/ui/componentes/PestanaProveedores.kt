@@ -9,6 +9,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +60,7 @@ fun PestanaProveedores(
     onEliminarProveedor: (Proveedor) -> Unit = {},
     onCobrarSaldoAFavor: (Double, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> },
     onDeclararSaldoPerdido: (Double, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> },
+    listaState: LazyListState = LazyListState(),
     modifier: Modifier = Modifier
 ) {
     val s = recordarMedidaAdaptativa()
@@ -185,10 +187,34 @@ fun PestanaProveedores(
 
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.6f), thickness = s.separatorH)
 
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(s.sm)
-                ) {
+                if (proveedores.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                        ) {
+                            Text(
+                                text = "Aún no hay proveedores registrados",
+                                style = FDType.Heading3.copy(fontSize = 14.5.sp),
+                                color = FDColors.TextPrimary
+                            )
+                            Text(
+                                text = "Usa NUEVO para registrar tu primera droguería o proveedor.",
+                                style = FDType.BodySmall.copy(fontSize = 12.sp),
+                                color = FDColors.TextSecondary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listaState,
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(s.sm)
+                    ) {
                     items(proveedores, key = { it.id }) { prov ->
                         val isSelected = prov.id == (proveedorSeleccionado?.id ?: "")
                         
@@ -285,6 +311,7 @@ fun PestanaProveedores(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -490,6 +517,8 @@ fun PestanaProveedores(
                                     var montoSaldo by remember { mutableStateOf("") }
                                     var detalleSaldo by remember { mutableStateOf("") }
                                     var procesandoSaldo by remember { mutableStateOf(false) }
+                                    var mensajeSaldo by remember { mutableStateOf<String?>(null) }
+                                    var mensajeSaldoEsError by remember { mutableStateOf(false) }
 
                                     Column(verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
                                         Row(
@@ -548,7 +577,10 @@ fun PestanaProveedores(
                                                     )
                                                     OutlinedTextField(
                                                         value = montoSaldo,
-                                                        onValueChange = { nuevo -> montoSaldo = nuevo.filter { it.isDigit() || it == '.' } },
+                                                        onValueChange = { nuevo ->
+                                                            val limpio = nuevo.filter { it.isDigit() || it == '.' }
+                                                            if (limpio.count { it == '.' } <= 1) montoSaldo = limpio
+                                                        },
                                                         label = { Text("Monto a registrar") },
                                                         singleLine = true,
                                                         shape = FDShapes.Small,
@@ -588,30 +620,35 @@ fun PestanaProveedores(
                                                             val monto = montoSaldo.toDoubleOrNull() ?: 0.0
                                                             val detalle = detalleSaldo.trim()
                                                             when {
-                                                                monto <= 0.0 -> Toast.makeText(context, "Escribe un monto mayor a cero.", Toast.LENGTH_SHORT).show()
-                                                                monto > saldoAFavor + 0.01 -> Toast.makeText(context, "El monto no puede superar el saldo a favor de $simboloMoneda ${String.format(Locale.US, "%.2f", saldoAFavor)}.", Toast.LENGTH_SHORT).show()
-                                                                modoSaldo == "COBRAR" && detalle.length < 3 -> Toast.makeText(context, "Indica el documento o comprobante del cobro.", Toast.LENGTH_SHORT).show()
-                                                                modoSaldo == "PERDIDO" && detalle.length < 5 -> Toast.makeText(context, "El motivo de la pérdida debe tener al menos 5 letras.", Toast.LENGTH_SHORT).show()
+                                                                monto <= 0.0 -> { mensajeSaldo = "Escribe un monto mayor a cero."; mensajeSaldoEsError = true }
+                                                                monto > saldoAFavor + 0.01 -> { mensajeSaldo = "El monto no puede superar el saldo a favor de $simboloMoneda ${String.format(Locale.US, "%.2f", saldoAFavor)}."; mensajeSaldoEsError = true }
+                                                                modoSaldo == "COBRAR" && detalle.length < 3 -> { mensajeSaldo = "Indica el documento o comprobante del cobro."; mensajeSaldoEsError = true }
+                                                                modoSaldo == "PERDIDO" && detalle.length < 5 -> { mensajeSaldo = "El motivo de la pérdida debe tener al menos 5 letras."; mensajeSaldoEsError = true }
                                                                 else -> {
+                                                                    mensajeSaldo = null
                                                                     procesandoSaldo = true
                                                                     if (modoSaldo == "COBRAR") {
                                                                         onCobrarSaldoAFavor(monto, detalle) { res ->
                                                                             procesandoSaldo = false
                                                                             if (res.isSuccess) {
-                                                                                Toast.makeText(context, "Cobro registrado. El saldo a favor bajó.", Toast.LENGTH_SHORT).show()
+                                                                                mensajeSaldo = "Cobro registrado. El saldo a favor bajó."
+                                                                                mensajeSaldoEsError = false
                                                                                 modoSaldo = null; montoSaldo = ""; detalleSaldo = ""
                                                                             } else {
-                                                                                Toast.makeText(context, "No se pudo registrar el cobro: ${res.exceptionOrNull()?.message ?: "revisa tu conexión"}", Toast.LENGTH_LONG).show()
+                                                                                mensajeSaldo = "No se pudo registrar el cobro: ${res.exceptionOrNull()?.message ?: "revisa tu conexión"}"
+                                                                                mensajeSaldoEsError = true
                                                                             }
                                                                         }
                                                                     } else {
                                                                         onDeclararSaldoPerdido(monto, detalle) { res ->
                                                                             procesandoSaldo = false
                                                                             if (res.isSuccess) {
-                                                                                Toast.makeText(context, "Pérdida declarada y registrada con justificación.", Toast.LENGTH_SHORT).show()
+                                                                                mensajeSaldo = "Pérdida declarada y registrada con justificación."
+                                                                                mensajeSaldoEsError = false
                                                                                 modoSaldo = null; montoSaldo = ""; detalleSaldo = ""
                                                                             } else {
-                                                                                Toast.makeText(context, "No se pudo declarar la pérdida: ${res.exceptionOrNull()?.message ?: "revisa tu conexión"}", Toast.LENGTH_LONG).show()
+                                                                                mensajeSaldo = "No se pudo declarar la pérdida: ${res.exceptionOrNull()?.message ?: "revisa tu conexión"}"
+                                                                                mensajeSaldoEsError = true
                                                                             }
                                                                         }
                                                                     }
@@ -623,6 +660,24 @@ fun PestanaProveedores(
                                                             .fillMaxWidth()
                                                             .height(s.btnMediumH)
                                                     )
+                                                    mensajeSaldo?.let { msg ->
+                                                        Surface(
+                                                            color = if (mensajeSaldoEsError) FDColors.Error.copy(alpha = 0.08f) else FDColors.Success.copy(alpha = 0.08f),
+                                                            shape = FDShapes.XSmall,
+                                                            border = BorderStroke(
+                                                                s.borderWidth * 0.6f,
+                                                                if (mensajeSaldoEsError) FDColors.Error.copy(alpha = 0.35f) else FDColors.Success.copy(alpha = 0.35f)
+                                                            ),
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        ) {
+                                                            Text(
+                                                                text = msg,
+                                                                style = FDType.BodySmall.copy(fontSize = 11.sp),
+                                                                color = if (mensajeSaldoEsError) FDColors.Error else FDColors.Success,
+                                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -706,6 +761,20 @@ fun PestanaProveedores(
                                             modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp)
                                         )
                                         HorizontalDivider(color = FDColors.Border, thickness = s.separatorH)
+                                    }
+                                    if (productosDelProveedor.isEmpty()) {
+                                        item {
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "Este proveedor aún no tiene productos vinculados.",
+                                                    style = FDType.BodySmall.copy(fontSize = 12.sp),
+                                                    color = FDColors.TextSecondary
+                                                )
+                                            }
+                                        }
                                     }
                                     items(productosDelProveedor, key = { it.id }) { prod ->
                                         Column {

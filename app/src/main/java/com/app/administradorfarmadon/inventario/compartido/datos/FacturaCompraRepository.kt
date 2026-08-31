@@ -27,9 +27,9 @@ class FacturaCompraRepository(
     }
 
     private fun getClienteId(): String {
-        return SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        }
+        // Solo la farmacia real de la sesión es válida como contenedor (R1): jamás
+        // el uid de un usuario, que no es una farmacia y mezclaría datos.
+        return SessionManager.clienteIdGarantizado
     }
 
     suspend fun buscarFacturaPorNumero(numeroFactura: String): FacturaCompra? {
@@ -298,9 +298,12 @@ class FacturaCompraRepository(
         usuarioNombre: String,
         usuarioEmail: String,
         notas: String,
-        idempotenciaId: String = ""
+        idempotenciaId: String = "",
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
     ): Result<Unit> {
-        val clienteId = getClienteId()
+        val clienteId = farmaciaIdParam?.takeIf { it.isNotBlank() } ?: getClienteId()
+        val sucursalId = sucursalIdParam?.takeIf { it.isNotBlank() } ?: SessionManager.sucursalIdEfectiva
         if (clienteId.isBlank() || facturaId.isBlank()) {
             return Result.failure(IllegalStateException("Sesión no válida o ID de factura ausente."))
         }
@@ -320,7 +323,7 @@ class FacturaCompraRepository(
         }
 
         return try {
-            val docRef = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva).document(facturaId)
+            val docRef = FarmadonPaths.comprasFacturas(db, clienteId, sucursalId).document(facturaId)
             // Hora del servidor: la fecha del abono jamás depende del reloj del celular.
             val ahoraMs = com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs()
             val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
@@ -405,12 +408,15 @@ class FacturaCompraRepository(
         motivo: String,
         usuarioNombre: String,
         usuarioEmail: String,
-        idempotenciaId: String = ""
+        idempotenciaId: String = "",
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
     ): Result<Unit> {
-        val clienteId = getClienteId()
+        val clienteId = farmaciaIdParam?.takeIf { it.isNotBlank() } ?: getClienteId()
         if (clienteId.isBlank() || facturaId.isBlank()) {
             return Result.failure(IllegalStateException("Sesión no válida o ID de factura ausente."))
         }
+        val sucursalId = sucursalIdParam?.takeIf { it.isNotBlank() } ?: SessionManager.sucursalIdEfectiva
         val numDoc = numeroDocumento.trim().uppercase()
         if (numDoc.isBlank()) {
             return Result.failure(IllegalArgumentException("El número de la nota de crédito es obligatorio."))
@@ -423,7 +429,7 @@ class FacturaCompraRepository(
         }
 
         return try {
-            val docRef = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva).document(facturaId)
+            val docRef = FarmadonPaths.comprasFacturas(db, clienteId, sucursalId).document(facturaId)
             val ahoraMs = com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs()
             val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
             val fechaLegible = sdf.format(java.util.Date(ahoraMs))
@@ -502,14 +508,20 @@ class FacturaCompraRepository(
         }
     }
 
-    suspend fun prorrogarVencimiento(facturaId: String, nuevaFechaVencimiento: String): Result<Unit> {
-        val clienteId = getClienteId()
+    suspend fun prorrogarVencimiento(
+        facturaId: String,
+        nuevaFechaVencimiento: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Unit> {
+        val clienteId = farmaciaIdParam?.takeIf { it.isNotBlank() } ?: getClienteId()
+        val sucursalId = sucursalIdParam?.takeIf { it.isNotBlank() } ?: SessionManager.sucursalIdEfectiva
         if (clienteId.isBlank() || facturaId.isBlank()) {
             return Result.failure(IllegalStateException("Parámetros no válidos para prorrogar."))
         }
 
         return try {
-            val docRef = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva).document(facturaId)
+            val docRef = FarmadonPaths.comprasFacturas(db, clienteId, sucursalId).document(facturaId)
             db.runTransaction { tx ->
                 val snap = tx.get(docRef)
                 if (!snap.exists()) throw IllegalStateException("La factura no existe.")

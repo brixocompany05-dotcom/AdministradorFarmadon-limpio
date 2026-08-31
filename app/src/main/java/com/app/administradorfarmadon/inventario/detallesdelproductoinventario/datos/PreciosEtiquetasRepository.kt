@@ -97,7 +97,7 @@ class PreciosEtiquetasRepository(
 
             // El precio referencial del producto = precio de la presentación de mayor contenido
             // (la "caja completa", no la primera en la lista que puede variar según orden).
-            // Si ninguna presentación tiene precio, queda 0.0 ──†’ aparece "Sin precio" en la lista.
+            // Si ninguna presentación tiene precio, queda 0.0 → aparece "Sin precio" en la lista.
             val presPrincipal = presentaciones.maxByOrNull { it.cantidad } ?: presentaciones.firstOrNull()
             val precioVentaPrincipal = presPrincipal?.let {
                 Math.round(it.precioventa * 100.0) / 100.0
@@ -305,7 +305,7 @@ class PreciosEtiquetasRepository(
                 if (nuevoCodigo != null) {
                     val codLimpio = CodigoBarraHelper.limpiar(nuevoCodigo)
                     val codPrevio = CodigoBarraHelper.limpiar(CodigoBarraHelper.leerCodigo(snapshot))
-                    // BLINDAJE ATí“MICO: verifica que el nuevo código no tenga dueño dentro del candado
+                    // BLINDAJE ATÓMICO: verifica que el nuevo código no tenga dueño dentro del candado
                     if (codLimpio.isNotBlank() && codLimpio != codPrevio) {
                         CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codLimpio, productId)
                     }
@@ -412,7 +412,7 @@ class PreciosEtiquetasRepository(
     }
 
     /**
-     * ELIMINACIí“N DEFINITIVA DE PRODUCTO DE PRUEBA.
+     * ELIMINACIÓN DEFINITIVA DE PRODUCTO DE PRUEBA.
      * Solo si: stock 0 en todos los lotes, sin ventas, con motivo auditado.
      * Lógica sin hueco: primero debes anular todos los lotes (lo hace el empleado),
      * luego el admin puede borrar la ficha. Si hay ventas, se bloquea y se sugiere Pausar.

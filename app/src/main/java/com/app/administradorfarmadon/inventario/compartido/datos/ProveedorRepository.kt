@@ -28,9 +28,9 @@ class ProveedorRepository(
     }
 
     private fun getClienteId(): String {
-        return SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        }
+        // Solo la farmacia real de la sesión es válida como contenedor (R1): nunca
+        // el uid de un usuario, que no es una farmacia y mezclaría datos.
+        return SessionManager.clienteIdGarantizado
     }
 
     private fun cleanKey(name: String): String {
@@ -129,7 +129,19 @@ class ProveedorRepository(
                 "actualizadoEl" to FieldValue.serverTimestamp()
             )
 
-            docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+            if (proveedor.id.isBlank()) {
+                // Creación con transacción: dos personas registrando el mismo nombre
+                // a la vez jamás se pisan; la segunda recibe un error claro.
+                db.runTransaction { tx ->
+                    val snap = tx.get(docRef)
+                    if (snap.exists()) {
+                        throw IllegalStateException("Ya existe un proveedor con el nombre '${proveedor.nombre.trim()}'. Revisa la lista antes de registrarlo.")
+                    }
+                    tx.set(docRef, data, com.google.firebase.firestore.SetOptions.merge())
+                }.await()
+            } else {
+                docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+            }
             Result.success(provId)
         } catch (e: Exception) {
             Log.e(TAG, "Error guardando proveedor en Firestore: ${e.message}", e)
@@ -164,16 +176,54 @@ class ProveedorRepository(
                 return Result.failure(Exception("No se pudo identificar el documento del proveedor a eliminar."))
             }
             val docRef = FarmadonPaths.proveedores(db, clienteId, sucursalId).document(provId)
-            val saldoAFavor = docRef.get().await().getDouble("saldoAFavor") ?: 0.0
-            if (kotlin.math.abs(saldoAFavor) > 0.01) {
-                return Result.failure(Exception(
-                    "No puedes eliminar este proveedor: tiene un saldo a favor de ${String.format(java.util.Locale.US, "%.2f", saldoAFavor)} pendiente de recuperar. Primero úsalo en una compra o decláralo perdido."
-                ))
-            }
-            docRef.delete().await()
+            // Transacción: el saldo se relee y se borra en el mismo acto (un cambio de
+            // saldo a favor concurrente jamás queda huérfano ni se elimina por error).
+            db.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                val saldoAFavor = snap.getDouble("saldoAFavor") ?: 0.0
+                if (kotlin.math.abs(saldoAFavor) > 0.01) {
+                    throw IllegalStateException(
+                        "No puedes eliminar este proveedor: tiene un saldo a favor de ${String.format(java.util.Locale.US, "%.2f", saldoAFavor)} pendiente de recuperar. Primero úsalo en una compra o decláralo perdido."
+                    )
+                }
+                tx.delete(docRef)
+            }.await()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error eliminando proveedor: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Afiliación manual de un producto a un proveedor (desde Reposición → "Sin proveedor").
+     * Escribe el proveedor en el documento del producto; la escucha en vivo lo refleja al instante.
+     */
+    suspend fun vincularProducto(
+        productoId: String,
+        proveedorId: String,
+        proveedorNombre: String
+    ): Result<Unit> {
+        val f = SessionManager.clienteIdGarantizado
+        val s = SessionManager.sucursalIdEfectiva
+        if (f.isBlank() || s.isBlank()) return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+        if (productoId.isBlank()) return Result.failure(IllegalArgumentException("El producto es obligatorio."))
+        if (proveedorId.isBlank() || proveedorNombre.isBlank()) {
+            return Result.failure(IllegalArgumentException("Selecciona un proveedor real para afiliar el producto."))
+        }
+        return try {
+            FarmadonPaths.sucursal(db, f, s).collection("inventario").document(productoId)
+                .update(
+                    mapOf(
+                        "proveedor" to proveedorNombre.trim(),
+                        "proveedorNombre" to proveedorNombre.trim(),
+                        "proveedorId" to proveedorId,
+                        "actualizadoEl" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error vinculando producto $productoId a $proveedorNombre: ${e.message}", e)
             Result.failure(e)
         }
     }

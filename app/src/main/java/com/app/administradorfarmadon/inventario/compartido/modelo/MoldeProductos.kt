@@ -198,6 +198,10 @@ data class MoldeProductos(
         get() = precioStock.presentaciones
         set(value) { precioStock.presentaciones = value }
 
+    /** Verdad de precio: hay al menos una presentación con precio de venta mayor a 0. */
+    val tienePrecioVenta: Boolean
+        get() = presentaciones.any { it.precioventa > 0.0 }
+
     var lotes: Map<String, LoteProducto>
         get() = loteInfo.lotes
         set(value) { loteInfo.lotes = value }
@@ -463,21 +467,21 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
     )
 }
 
-// ──”€──”€ REGLA íšNICA DE UNIDADES ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
-// lote.cantidad          = unidades FíSICAS del producto (cajas, frascos, etc.)
+// ── REGLA íšNICA DE UNIDADES ────────────────────────────────────────────────
+// lote.cantidad          = unidades FÍSICAS del producto (cajas, frascos, etc.)
 // PresentacionProducto.cantidad = unidades de CONTENIDO en esa presentación (tabletas, mL, etc.)
 // factorContenido        = cantidad de la presentación mayor = contenido declarado al crear el producto
 //
 // EJEMPLO: Panadol 180 Tab, stock 3 Cajas
-//   Vender "1 Caja"    (cantidad=180) ──†’ -180í·180 = -1.0 caja  ──†’ quedan 2 Cajas (360 Tab)
-//   Vender "1 Tableta" (cantidad=1)   ──†’ -1í·180   = -0.00556 c ──†’ quedan 2.994 Cajas (539 Tab)
+//   Vender "1 Caja"    (cantidad=180) → -180í·180 = -1.0 caja  → quedan 2 Cajas (360 Tab)
+//   Vender "1 Tableta" (cantidad=1)   → -1í·180   = -0.00556 c → quedan 2.994 Cajas (539 Tab)
 //
-// EL Mí“DULO DE VENTAS DEBE USAR UnidadVentaHelper.stockFisicoParaVender()
+// EL MÓDULO DE VENTAS DEBE USAR UnidadVentaHelper.stockFisicoParaVender()
 // para calcular cuánto descontar del lote. Nunca descontar presentacion.cantidad directo.
-// ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+// ──────────────────────────────────────────────────────────────────────────
 
 /**
- * Stock disponible en UNIDADES FíSICAS (cajas, frascos—¦).
+ * Stock disponible en UNIDADES FÍSICAS (cajas, frascos · ).
  * Es la suma de lote.cantidad de todos los lotes sin bloquear.
  */
 val MoldeProductos.stockDisponibleFisico: Double
@@ -499,7 +503,7 @@ val MoldeProductos.precioVenta: Double
         ?: 0.0
 
 /**
- * Stock disponible expresado en UNIDADES DE CONTENIDO (tabletas, mL—¦) —” SOLO PARA MOSTRAR.
+ * Stock disponible expresado en UNIDADES DE CONTENIDO (tabletas, mL · ) —” SOLO PARA MOSTRAR.
  * Nunca usar este valor para calcular descuentos: el cálculo correcto es UnidadVentaHelper.
  */
 val MoldeProductos.stockDisponibleEnContenido: Double
@@ -513,7 +517,7 @@ val MoldeProductos.stockDisponibleEnContenido: Double
  * Valida si hay stock suficiente para vender [cantidadContenido] unidades de contenido
  * (tabletas, mL, etc. —” lo que dice PresentacionProducto.cantidad).
  *
- * Convierte correctamente de contenido ──†’ físico usando UnidadVentaHelper
+ * Convierte correctamente de contenido → físico usando UnidadVentaHelper
  * antes de comparar con el stock (que está en unidades físicas).
  *
  * El módulo de ventas llama esto con la presentación a vender para saber si puede vender.

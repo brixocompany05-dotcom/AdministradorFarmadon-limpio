@@ -16,9 +16,9 @@ import kotlinx.coroutines.tasks.await
  * Regla de negocio: un código limpio pertenece a un solo producto de la SEDE ACTIVA.
  * Los códigos derivados -B10 / -U1 se resuelven a su base para evitar que la caja cobre mal.
  *
- * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
- * CONTRATO DE AISLAMIENTO DE Cí“DIGOS (LEER ANTES DE TOCAR ESTE ARCHIVO)
- * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+ * 
+ * CONTRATO DE AISLAMIENTO DE CÓDIGOS (LEER ANTES DE TOCAR ESTE ARCHIVO)
+ * 
  * 1. La unicidad de códigos es POR SUCURSAL, no por farmacia. Cada tienda tiene
  *    su propia libreta (índice) y el mismo código puede existir en otra tienda de
  *    la misma dueña APUNTANDO AL MISMO PRODUCTO. ESO ES CORRECTO Y ESPERADO.
@@ -35,7 +35,7 @@ import kotlinx.coroutines.tasks.await
  * 4. Si algún día existe el módulo de VENTAS/CAJA, su búsqueda por código de barras
  *    DEBE pasar por este helper (o usar FarmadonPaths.indicesCodigos con la
  *    sucursalId activa). Bajo ningún concepto consultar el índice sin sucursalId.
- * ──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•──•
+ * 
  */
 object CodigoBarraHelper {
 
@@ -196,6 +196,19 @@ object CodigoBarraHelper {
                 }
             }
         }
+    }
+
+    /** Código interno único legible (FMD-XXXXXX), verificado contra el índice antes de usarlo. */
+    suspend fun generarCodigoInternoUnico(db: FirebaseFirestore, clienteId: String): String {
+        val random = java.util.Random()
+        for (intento in 1..10) {
+            val numero = random.nextInt(900000) + 100000
+            val candidato = "FMD-$numero"
+            if (buscarDuplicadoOutside(db, clienteId, candidato) == null) {
+                return candidato
+            }
+        }
+        return "FMD-${System.currentTimeMillis().toString().takeLast(8)}"
     }
 
     fun crearIndiceEnTransaccion(

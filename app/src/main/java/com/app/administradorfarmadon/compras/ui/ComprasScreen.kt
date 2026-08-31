@@ -57,8 +57,6 @@ fun ComprasScreen(
             state.facturaParaNotaCreditoId != null -> viewModel.cerrarDialogoNotaCredito()
             state.facturaParaProrrogaId != null -> viewModel.cerrarDialogoProrroga()
             state.mostrarDialogoRecepcion -> viewModel.cerrarDialogoRecepcion()
-            state.mostrarModalRevisionPedido -> viewModel.cerrarRevisionPedido()
-            state.mostrarModalConfirmacionEnvio -> viewModel.cerrarConfirmacionEnvio()
             state.productoPendienteConfirmar != null -> viewModel.descartarAdicionExtra()
             else -> { /* quiet: sin navegación forzada, deja que el sistema decida */ }
         }
@@ -152,35 +150,28 @@ fun ComprasScreen(
                             pedidosGuardados = state.pedidosGuardados,
                             proveedores = state.proveedores,
                             pedidosPorProveedor = state.pedidosPorProveedor,
-                            proveedoresExpandidos = state.proveedoresExpandidos,
                             subTabPedidosDerecha = state.subTabPedidosDerecha,
-                            pedidoEnRevision = state.pedidoEnRevision,
-                            mostrarModalRevision = state.mostrarModalRevisionPedido,
-                            mostrarModalConfirmacionEnvio = state.mostrarModalConfirmacionEnvio,
-                            pedidoParaConfirmarEnvio = state.pedidoParaConfirmarEnvio,
-                            onToggleExpandirProveedor = { viewModel.toggleProveedorExpandido(it) },
                             onModificarCantidadProducto = { prod, delta -> viewModel.modificarCantidadProducto(prod, delta) },
                             onReponerSugeridosProveedor = { viewModel.reponerSugeridosDeProveedor(it) },
-                            onReponerTodosSugeridosGlobal = { viewModel.reponerTodosLosSugeridosGlobal() },
-                            onAbrirRevisionPedido = { viewModel.abrirRevisionPedido(it) },
-                            onCerrarRevisionPedido = { viewModel.cerrarRevisionPedido() },
+                            onRealizarPedido = { viewModel.confirmarPedidoEnviado(it) },
+                            onEditarPedidoRealizado = { pedidoId, items -> viewModel.editarPedidoRealizado(pedidoId, items) },
+                            onEliminarPedidoRealizado = { viewModel.eliminarPedidoRealizado(it) },
+                            procesandoEdicionPedido = state.procesandoEdicionPedido,
+                            procesandoEliminacionPedido = state.procesandoEliminacionPedido,
                             onLimpiarPedidoProveedor = { viewModel.limpiarPedidoProveedor(it) },
-                            onRemoverProductoDePedido = { prov, prodId -> viewModel.removerProductoDePedido(prov, prodId) },
                             onSeleccionarSubTabPedidosDerecha = { viewModel.seleccionarSubTabPedidosDerecha(it) },
-                            onPrepararConfirmacionEnvio = { viewModel.prepararConfirmacionEnvio(it) },
-                            onConfirmarPedidoEnviado = { viewModel.confirmarPedidoEnviado(it) },
-                            onCerrarConfirmacionEnvio = { viewModel.cerrarConfirmacionEnvio() },
+                            enviandoPedido = state.enviandoPedido,
                             onCancelarPedidoEnviado = { viewModel.cancelarPedidoEnviado(it) },
                             onRecibirMercaderia = { viewModel.abrirDialogoRecepcion(it) },
                             onCerrarOrdenConAjuste = { viewModel.cerrarOrdenConAjuste(it.id) },
                             onDescartarProductoDePedido = { pid, prodId -> viewModel.descartarProductoDePedido(pid, prodId) },
-                            onActualizarTelefonoProveedor = { prov, tel -> viewModel.actualizarTelefonoProveedor(prov, tel) },
                             enCaminoPorProducto = state.enCaminoPorProducto,
-                            contribuidoresCarrito = state.contribuidoresCarrito,
                             productoPendienteConfirmar = state.productoPendienteConfirmar,
                             cantidadExtraPropuesta = state.cantidadExtraPropuesta,
                             onConfirmarAdicionExtra = { viewModel.confirmarAdicionExtra() },
-                            onDescartarAdicionExtra = { viewModel.descartarAdicionExtra() }
+                            onDescartarAdicionExtra = { viewModel.descartarAdicionExtra() },
+                            onVincularProducto = { prod, prov -> viewModel.vincularProductoAProveedor(prod.id, prov) },
+                            listaState = viewModel.listaReposicion
                         )
                         "PROVEEDORES" -> {
                             val provSel = state.proveedorSeleccionado
@@ -196,9 +187,10 @@ fun ComprasScreen(
                                 onSeleccionarProveedor = { viewModel.seleccionarProveedor(it) },
                                 onCrearProveedor = { viewModel.abrirDialogoCrearProveedor() },
                                 onEditarProveedor = { viewModel.abrirDialogoEditarProveedor(it) },
-                                onEliminarProveedor = { prov -> viewModel.eliminarProveedor(prov, cantFact) { _, msg -> android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show() } },
+                                onEliminarProveedor = { prov -> viewModel.eliminarProveedor(prov, cantFact) { _, _ -> } },
                                 onCobrarSaldoAFavor = { monto, doc, onComplete -> viewModel.cobrarSaldoAFavor(state.proveedorSeleccionado?.id ?: "", monto, doc, onComplete) },
-                                onDeclararSaldoPerdido = { monto, motivo, onComplete -> viewModel.declararSaldoPerdido(state.proveedorSeleccionado?.id ?: "", monto, motivo, onComplete) }
+                                onDeclararSaldoPerdido = { monto, motivo, onComplete -> viewModel.declararSaldoPerdido(state.proveedorSeleccionado?.id ?: "", monto, motivo, onComplete) },
+                                listaState = viewModel.listaProveedores
                             )
                         }
                         "CUENTAS" -> PestanaCuentasPorPagar(
@@ -207,7 +199,8 @@ fun ComprasScreen(
                             onAbrirDialogoAbono = { viewModel.abrirDialogoAbono(it) },
                             onAbrirDialogoNotaCredito = { viewModel.abrirDialogoNotaCredito(it) },
                             onAbrirDialogoProrroga = { viewModel.abrirDialogoProrroga(it) },
-                            onAbrirDialogoAnular = { viewModel.abrirDialogoAnularFactura(it) }
+                            onAbrirDialogoAnular = { viewModel.abrirDialogoAnularFactura(it) },
+                            listaState = viewModel.listaCuentas
                         )
                     }
                 }

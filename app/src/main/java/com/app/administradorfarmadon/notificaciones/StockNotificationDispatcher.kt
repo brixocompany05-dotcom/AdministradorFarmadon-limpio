@@ -45,7 +45,7 @@ object StockNotificationDispatcher {
         val formatStock = if (currentStock % 1.0 == 0.0) currentStock.toInt().toString() else currentStock.toString()
         val formatMin = if (minStock % 1.0 == 0.0) minStock.toInt().toString() else minStock.toString()
 
-        val title = "──š ï¸ Stock Bajo: $productName"
+        val title = "⚠  Stock Bajo: $productName"
         val message = "Stock disponible: $formatStock (Mínimo requerido: $formatMin)"
 
         val notification = NotificationCompat.Builder(context, NotificationChannels.CHANNEL_STOCK_ALERTS)

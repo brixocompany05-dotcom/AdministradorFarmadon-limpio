@@ -246,7 +246,7 @@ private fun ItemCuentaBancaria(
                         color = colores.textoPrincipal
                     )
                     Text(
-                        text = "—¢ ${metodo.tipoCuenta}",
+                        text = " ·  ${metodo.tipoCuenta}",
                         style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = s.textLabel.value.sp * 0.95f),
                         color = colores.textoTerciario
                     )
@@ -307,7 +307,7 @@ private fun copiarAlPortapapeles(context: Context, texto: String, label: String)
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val clip = ClipData.newPlainText(label, limpio)
         clipboard?.setPrimaryClip(clip)
-        Toast.makeText(context, "──œ“ $label copiado al portapapeles", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, " $label copiado al portapapeles", Toast.LENGTH_SHORT).show()
     } catch (_: Exception) {
         Toast.makeText(context, "No se pudo copiar al portapapeles", Toast.LENGTH_SHORT).show()
     }
@@ -322,8 +322,8 @@ private fun abrirWhatsappCobranzas(
     try {
         val telLimpio = telefono.replace("+", "").replace(" ", "").replace("-", "")
         val msj = "Hola BRIXO, adjunto comprobante de pago de mi farmacia:\n" +
-                "—¢ *Farmacia:* ${nombreFarmacia.ifBlank { "Mi Farmacia" }}\n" +
-                (if (rucFarmacia.isNotBlank()) "—¢ *RUC:* $rucFarmacia\n" else "") +
+                " ·  *Farmacia:* ${nombreFarmacia.ifBlank { "Mi Farmacia" }}\n" +
+                (if (rucFarmacia.isNotBlank()) " ·  *RUC:* $rucFarmacia\n" else "") +
                 "Por favor confirmar renovación de nuestro plan."
         val url = "https://wa.me/$telLimpio?text=${URLEncoder.encode(msj, "UTF-8")}"
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {

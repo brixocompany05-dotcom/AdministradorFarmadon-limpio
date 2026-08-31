@@ -30,7 +30,7 @@ fun DetailPresentacionesTable(product: MoldeProductos) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "PRESENTACIí“N COMERCIAL",
+                text = "PRESENTACIÓN COMERCIAL",
                 color = SaaSTextSecondary,
                 fontSize = 8.sp,
                 fontWeight = FontWeight.Bold,

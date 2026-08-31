@@ -70,8 +70,21 @@ fun DialogoAnularFactura(
     var metodoDevolucion by remember { mutableStateOf<String?>(null) }
     var referenciaDevolucion by remember { mutableStateOf("") }
 
-    val puedeConfirmar = motivoSeleccionado != null &&
-        (!hayDineroEnJuego || (respuestaPlata != null && (respuestaPlata != "DEVOLUCION_RECIBIDA" || metodoDevolucion != null)))
+    // La anulación devuelve TODO el lote de la factura o no se hace (nunca a medias).
+    // Si falta stock, un lote o el producto, se bloquea el botón con la razón real.
+    val sinLineas = !cargandoLineas && lineas.isEmpty()
+    val bloqueoDevolucion = lineas.firstOrNull { it.noVuelve > 0.01 || !it.loteExiste || !it.productoExiste }
+    val puedeConfirmar = !cargandoLineas && motivoSeleccionado != null &&
+        (!hayDineroEnJuego || (respuestaPlata != null && (respuestaPlata != "DEVOLUCION_RECIBIDA" || metodoDevolucion != null))) &&
+        !sinLineas && bloqueoDevolucion == null
+
+    val motivoBloqueo = when {
+        sinLineas -> "Esta factura no tiene productos para devolver. No se puede anular con devolución de stock."
+        bloqueoDevolucion == null -> null
+        !bloqueoDevolucion.productoExiste -> "El producto '${bloqueoDevolucion.productoNombre}' ya no existe en inventario. No se puede anular devolviendo stock."
+        !bloqueoDevolucion.loteExiste -> "El lote '${bloqueoDevolucion.loteNumero}' de '${bloqueoDevolucion.productoNombre}' ya no existe (se vendió o se borró)."
+        else -> "Falta stock para devolver el lote '${bloqueoDevolucion.loteNumero}' de '${bloqueoDevolucion.productoNombre}': la factura dice ${bloqueoDevolucion.entro.toInt()}u y hoy hay ${bloqueoDevolucion.hoy.toInt()}u."
+    }
 
     BackHandler(enabled = true) { if (!procesando) onDismiss() }
 
@@ -374,7 +387,7 @@ fun DialogoAnularFactura(
                             if (cargandoLineas) "Contando…"
                             else {
                                 val textoDevuelve = "$totalDevuelve producto${if (totalDevuelve != 1) "s" else ""} se ${if (totalDevuelve == 1) "devuelve" else "devuelven"} al inventario"
-                                if (totalNoVuelve > 0) "$textoDevuelve · $totalNoVuelve ya no ${if (totalNoVuelve == 1) "está" else "están"} (se registran)"
+                                if (totalNoVuelve > 0) "$textoDevuelve · $totalNoVuelve sin stock para devolver: la anulación queda bloqueada"
                                 else textoDevuelve
                             },
                             FDColors.Primary
@@ -388,6 +401,28 @@ fun DialogoAnularFactura(
                             },
                             if (plataPagada > 0.01) FDColors.Primary else FDColors.TextTertiary
                         )
+
+                        if (motivoBloqueo != null) {
+                            Surface(
+                                color = FDColors.Error.copy(alpha = 0.08f),
+                                shape = FDShapes.Small,
+                                border = BorderStroke(s.borderWidth * 0.8f, FDColors.Error.copy(alpha = 0.4f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(s.padCard * 0.7f),
+                                    horizontalArrangement = Arrangement.spacedBy(s.gapSmall),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Icon(Icons.Default.WarningAmber, null, tint = FDColors.Error, modifier = Modifier.size(s.iconSmall))
+                                    Text(
+                                        motivoBloqueo,
+                                        style = FDType.BodySmall.copy(fontSize = s.textBody.value.sp * 0.92f, fontWeight = FontWeight.SemiBold),
+                                        color = FDColors.TextPrimary
+                                    )
+                                }
+                            }
+                        }
 
                         Spacer(Modifier.weight(1f))
 

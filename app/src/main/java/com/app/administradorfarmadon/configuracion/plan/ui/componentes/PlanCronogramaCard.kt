@@ -33,13 +33,13 @@ fun PlanCronogramaCard(
     val s = recordarMedidaAdaptativa()
 
     val badgeTexto = when {
-        planInfo.estadoSuscripcion == "sin_suscripcion" -> "SIN SUSCRIPCIí“N"
+        planInfo.estadoSuscripcion == "sin_suscripcion" -> "SIN SUSCRIPCIÓN"
         planInfo.estadoSuscripcion == "pausado" -> "EN PAUSA COMERCIAL"
         planInfo.estadoSuscripcion == "suspendido" -> "SUSPENDIDO"
         planInfo.estadoSuscripcion == "vencida" -> "VENCIDA"
         planInfo.estadoSuscripcion == "por_vencer" -> "POR VENCER"
-        planInfo.tieneBeneficioCortesia -> "CORTESíA (+${planInfo.diasCortesia} DíAS)"
-        planInfo.estadoSuscripcion == "prueba" -> "PERíODO DE PRUEBA"
+        planInfo.tieneBeneficioCortesia -> "CORTESÍA (+${planInfo.diasCortesia} DÍAS)"
+        planInfo.estadoSuscripcion == "prueba" -> "PERÍODO DE PRUEBA"
         else -> "ACTIVA"
     }
 
@@ -196,13 +196,13 @@ fun PlanCronogramaCard(
                     modifier = Modifier.weight(1f)
                 )
                 DatoVigenciaBloque(
-                    label = if (planInfo.tieneBeneficioCortesia) "PRí“RROGA" else "DíAS PRUEBA",
+                    label = if (planInfo.tieneBeneficioCortesia) "PRÓRROGA" else "DÍAS PRUEBA",
                     valor = if (planInfo.tieneBeneficioCortesia) "+${planInfo.diasCortesia}d" else if (planInfo.diasPruebaContratados > 0) "${planInfo.diasPruebaContratados}d" else "—”",
                     icono = Icons.Default.CardGiftcard,
                     modifier = Modifier.weight(1f)
                 )
                 DatoVigenciaBloque(
-                    label = "PRí“XIMO VENCIMIENTO",
+                    label = "PRÓXIMO VENCIMIENTO",
                     valor = planInfo.fechaFin.ifBlank { "—”" },
                     icono = Icons.Default.Event,
                     modifier = Modifier.weight(1f)

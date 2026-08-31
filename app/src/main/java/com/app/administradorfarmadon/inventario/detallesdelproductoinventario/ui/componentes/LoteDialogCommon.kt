@@ -380,7 +380,7 @@ internal fun EnterpriseModalShell(
 
 //
 
-// ESTADO DEL FORMULARIO DE RESOLUCIí“N
+// ESTADO DEL FORMULARIO DE RESOLUCIÓN
 // Agrupa todo el estado mutable de forma explícita y con nombres claros.
 
 
@@ -420,7 +420,7 @@ internal data class DevolucionFormState(
     val esCantidadParcial get() = modoCantidadIdx == 1
 }
 
-// Lí“GICA DE NEGOCIO —” FUNCIONES PURAS
+// LÓGICA DE NEGOCIO —” FUNCIONES PURAS
 // Sin estado, sin UI. Solo cálculos y reglas del formulario.
 
 

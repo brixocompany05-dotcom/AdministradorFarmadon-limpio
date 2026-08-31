@@ -48,7 +48,7 @@ fun FDTarjetaDireccionProfesional(
         verticalArrangement = Arrangement.spacedBy(s.gapTiny)
     ) {
         Text(
-            text = "DIRECCIí“N DE LA FARMACIA",
+            text = "DIRECCIÓN DE LA FARMACIA",
             style = TokensFarmadon.tipografia.etiqueta.copy(
                 letterSpacing = 1.sp,
                 fontWeight = FontWeight.Bold,

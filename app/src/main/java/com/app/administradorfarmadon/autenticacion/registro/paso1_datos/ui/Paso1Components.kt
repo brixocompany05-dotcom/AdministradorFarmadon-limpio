@@ -520,7 +520,7 @@ fun MiniMapaConfirmacion(
                         shape = TokensFarmadon.formas.completa
                     ) {
                         Text(
-                            "UBICACIí“N CONFIRMADA",
+                            "UBICACIÓN CONFIRMADA",
                             style = TokensFarmadon.tipografia.leyenda.copy(fontWeight = FontWeight.Bold),
                             color = TokensFarmadon.colores.estadoExito,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)

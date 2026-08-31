@@ -56,7 +56,7 @@ object SessionManager {
     var monedaCodigo: String by StringPreference("moneda_codigo", "PEN")
     var monedaSimbolo: String by StringPreference("moneda_simbolo", "S/")
 
-    // ──”€──”€ CONTEXTO DE ORGANIZACIí“N (esquema Organization-first, Fase 0) ──”€──”€
+    // ── CONTEXTO DE ORGANIZACIÓN (esquema Organization-first, Fase 0) ──
     var orgIdActiva: String by StringPreference("org_id_activa", "")
     var farmaciaIdActiva: String by StringPreference("farmacia_id_activa", "")
     var membresiasJson: String by StringPreference("membresias_json", "[]")
@@ -99,7 +99,7 @@ object SessionManager {
         monedaSimbolo = simbolo.ifBlank { "S/" }
     }
 
-    // ──”€──”€ MEMBRESíAS Y CONTEXTO ORGANIZATIVO ──”€──”€
+    // ── MEMBRESÍAS Y CONTEXTO ORGANIZATIVO ──
 
     /** El login alimenta aquí las organizaciones a las que pertenece la persona. */
     fun guardarMembresias(lista: List<com.app.administradorfarmadon.organizacion.modelo.MembresiaSesion>) {
@@ -139,7 +139,7 @@ object SessionManager {
         monedaCodigo = "PEN"
         monedaSimbolo = "S/"
 
-        // ──”€──”€ HIGIENE ANTI-FANTASMA (tablet compartida / base borrada) ──”€──”€
+        // ── HIGIENE ANTI-FANTASMA (tablet compartida / base borrada) ──
         // La caché offline de Firestore y los borradores del registro viven en
         // el DISPOSITIVO, fuera de la sesión. Si no se borran al cerrar, el
         // siguiente usuario puede ver reflejos de datos que ya no existen en

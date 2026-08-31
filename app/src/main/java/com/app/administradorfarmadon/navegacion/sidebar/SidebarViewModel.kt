@@ -209,7 +209,7 @@ class SidebarViewModel : ViewModel() {
             }
 
             // Coordinación en tiempo real (vida real): el usuario fue eliminado
-            // o se le revocó el acceso ──†’ su sesión activa debe terminar ya.
+            // o se le revocó el acceso → su sesión activa debe terminar ya.
             val existe = snapshot != null && snapshot.exists()
             val acceso = if (existe) FirestoreFieldUtils.parseBoolean(snapshot?.get("acceso")) else false
             if (!existe || !acceso) {
@@ -303,7 +303,7 @@ class SidebarViewModel : ViewModel() {
     private fun iniciarLoopLatidoPeriodico(clienteId: String) {
         latidoJob?.cancel()
         latidoJob = viewModelScope.launch {
-            // SINCRONIZACIí“N DE HORA DEL GATE (C4 sellado): mide el offset contra
+            // SINCRONIZACIÓN DE HORA DEL GATE (C4 sellado): mide el offset contra
             // Firestore al arrancar y lo refresca cada 30 latidos (~1 hora).
             // Sin esto, `HoraServidor.ahoraMs()` es reloj local disfrazado.
             var latidosDesdeSincronizacion = 0
@@ -353,7 +353,7 @@ class SidebarViewModel : ViewModel() {
     }
 
     /**
-     * REEVALUACIí“N DE LA PUERTA MAESTRA —” misma fórmula doble cerradura del
+     * REEVALUACIÓN DE LA PUERTA MAESTRA —” misma fórmula doble cerradura del
      * listener, ejecutada cada latido: el cruce de medianoche con sesión abierta
      * ya no opera indefinidamente. Sin escuchas nuevas, cero costo extra.
      */
@@ -549,7 +549,7 @@ class SidebarViewModel : ViewModel() {
         try {
             val codigoVivo = snap.getString("monedaOperativa")?.takeIf { it.isNotBlank() } ?: snap.getString("monedaCodigo") ?: "PEN"
             val simboloVivo = snap.getString("simboloMoneda")?.takeIf { it.isNotBlank() } ?: when (codigoVivo) {
-                "USD" -> "$"; "EUR" -> "──‚¬"; "COP" -> "$"; "CLP" -> "$"; "ARS" -> "$"; "VES" -> "Bs."; else -> "S/"
+                "USD" -> "$"; "EUR" -> "──"; "COP" -> "$"; "CLP" -> "$"; "ARS" -> "$"; "VES" -> "Bs."; else -> "S/"
             }
             if (codigoVivo != com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.monedaCodigo ||
                 simboloVivo != com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.monedaSimbolo) {
@@ -765,14 +765,14 @@ class SidebarViewModel : ViewModel() {
                     com.app.administradorfarmadon.modulos.domain.ModuloResuelto(
                         modulo = "inventario",
                         nombre = "Inventario & Stock",
-                        categoria = "OPERACIí“N",
+                        categoria = "OPERACIÓN",
                         orden = 10,
                         icono = "inventory2"
                     ),
                     com.app.administradorfarmadon.modulos.domain.ModuloResuelto(
                         modulo = "inventario_compras",
                         nombre = "Compras y Proveedores",
-                        categoria = "OPERACIí“N",
+                        categoria = "OPERACIÓN",
                         orden = 20,
                         icono = "proveedores"
                     )
@@ -787,7 +787,7 @@ class SidebarViewModel : ViewModel() {
                 moduloResuelto.modulo != "sucursales"
             }
             .filter { moduloResuelto ->
-            // RAíZ: permisos por USUARIO con fallback fino por módulo.
+            // RAÍZ: permisos por USUARIO con fallback fino por módulo.
             // Si usuario tiene entrada explícita para ese módulo, usa esa.
             // Si no, cae al rol. Si ambos vacíos, ve todo lo del plan (dueño).
             if (permisosUsuario.containsKey(moduloResuelto.modulo)) {

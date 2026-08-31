@@ -158,7 +158,7 @@ object FechaVencimientoHelper {
 
     /**
      * Fuente única para resolver un lote por su número.
-     * Busca en orden: llave actual ──†’ llave legada ──†’ scan por campo numero (ignora mayúsculas/espacios).
+     * Busca en orden: llave actual → llave legada → scan por campo numero (ignora mayúsculas/espacios).
      * Retorna Pair(claveReal, dataMutable) o null si no existe. Robusto y sin repetición.
      */
     fun resolverLote(

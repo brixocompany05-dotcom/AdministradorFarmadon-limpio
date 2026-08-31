@@ -388,7 +388,8 @@ fun CrearFormularioPanel(
                     trailingIcon = Icons.Outlined.PhotoCamera,
                     onTrailingIconClick = onAbrirCamaraScanner,
                     isError = state.errores.containsKey("codigoBarras"),
-                    errorMessage = state.errores["codigoBarras"] ?: ""
+                    errorMessage = state.errores["codigoBarras"] ?: "",
+                    helpText = "Si no lo escribes, el sistema creará un código único (ej. FMD-123456). Podrás imprimir su etiqueta y el escáner lo encontrará."
                 )
 
                 state.productoExistenteDuplicado?.let { (_, dupNombre) ->

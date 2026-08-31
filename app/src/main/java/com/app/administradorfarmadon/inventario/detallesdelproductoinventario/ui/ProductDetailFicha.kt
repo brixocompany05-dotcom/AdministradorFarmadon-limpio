@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,6 +47,36 @@ internal fun ModuloFichaInformativaGeneral(p: MoldeProductos) {
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+        // ── AVISO DE PRECIO: sin precio de venta no se puede vender (se desbloquea solo) ──
+        if (!p.tienePrecioVenta) {
+            Surface(
+                color = FDColors.WarningSubtle,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(Icons.Default.Warning, null, tint = FDColors.Warning, modifier = Modifier.size(18.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "PRODUCTO SIN PRECIO DE VENTA",
+                            style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp),
+                            color = FDColors.Warning
+                        )
+                        Text(
+                            "Fija el precio en la pestaña de Precios para poder venderlo. Se desbloquea solo al guardarlo.",
+                            style = FDType.BodySmall.copy(fontSize = 11.sp),
+                            color = FDColors.TextSecondary
+                        )
+                    }
+                }
+            }
+        }
+
         // ── 1. DASHBOARD DE STOCK Y VALORIZACIÓN ──
         Surface(
             color = FDColors.SurfaceElevated,

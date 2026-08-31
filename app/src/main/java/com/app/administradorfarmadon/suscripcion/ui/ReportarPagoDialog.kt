@@ -171,7 +171,7 @@ fun ReportarPagoDialog(
                 .padding(16.dp)
         ) {
             if (exitoEnvio) {
-                // Estado de í‰xito
+                // Estado de Éxito
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -267,7 +267,7 @@ fun ReportarPagoDialog(
 
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        text = "OBSERVACIí“N DEL AGENTE DE BRIXO:",
+                                        text = "OBSERVACIÓN DEL AGENTE DE BRIXO:",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Black,
                                         color = Color(0xFFF59E0B)
@@ -510,7 +510,7 @@ fun ReportarPagoDialog(
                                                             color = Color.White
                                                         )
                                                         Text(
-                                                            text = "—¢ ${metodo.tipoCuenta}",
+                                                            text = " ·  ${metodo.tipoCuenta}",
                                                             fontSize = 10.sp,
                                                             color = Color(0xFF94A3B8)
                                                         )
@@ -535,7 +535,7 @@ fun ReportarPagoDialog(
                                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                                                         val limpio = metodo.numeroCuenta.replace(" ", "").replace("-", "")
                                                         clipboard?.setPrimaryClip(ClipData.newPlainText("Cuenta ${metodo.bancoNombre}", limpio))
-                                                        Toast.makeText(context, "──œ“ Cuenta ${metodo.bancoNombre} copiada", Toast.LENGTH_SHORT).show()
+                                                        Toast.makeText(context, " Cuenta ${metodo.bancoNombre} copiada", Toast.LENGTH_SHORT).show()
                                                     },
                                                     modifier = Modifier.size(28.dp)
                                                 ) {
@@ -665,7 +665,7 @@ fun ReportarPagoDialog(
                                             // Nuevo reporte de pago
                                             // REGLA DE LA VENTANA DE PAGO (espejo del candado
                                             // de BRIXO): solo se reporta con el contrato POR
-                                            // VENCER (──‰¤5 días) o VENCIDO. FAIL-CLOSED: si la
+                                            // VENCER (5 días) o VENCIDO. FAIL-CLOSED: si la
                                             // vigencia no se puede VERIFICAR contra el servidor,
                                             // el reporte NO sale —” jamás adivinar la ventana.
                                             val subSnapVentana = try {
@@ -772,7 +772,7 @@ fun ReportarPagoDialog(
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
                             Text(
-                                text = if (estaObservada) "REENVIAR SUBSANACIí“N A BRIXO" else "ENVIAR CONSTANCIA A BRIXO",
+                                text = if (estaObservada) "REENVIAR SUBSANACIÓN A BRIXO" else "ENVIAR CONSTANCIA A BRIXO",
                                 fontWeight = FontWeight.Black,
                                 color = if (estaObservada) Color.Black else Color.White
                             )

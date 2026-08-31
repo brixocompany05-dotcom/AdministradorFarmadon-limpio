@@ -8,40 +8,40 @@ import androidx.compose.ui.graphics.Color
  * Sistema de Colores Comercial y Armónico de Farmadon (Enterprise 2026).
  *
  * REGLAS FUNDAMENTALES:
- * 1. CERO AZUL CHILLí“N: No se usan azules saturados ni colores fluorescentes.
- * 2. ARMONíA Y ALTO CONTRASTE: Tonalidades grafito, platino, carbón y obsidiana con
+ * 1. CERO AZUL CHILLÓN: No se usan azules saturados ni colores fluorescentes.
+ * 2. ARMONÍA Y ALTO CONTRASTE: Tonalidades grafito, platino, carbón y obsidiana con
  *    estados semánticos sobrios (esmeralda, ámbar, carmesí).
  * 3. CONTROL TOTAL POR TEMA: Cada elemento (pantalla, card, texto, botón, sidebar,
  *    divisor y estados) tiene su token exacto tanto para Tema Claro como Oscuro.
  */
 @Immutable
 data class ColoresFarmadon(
-    // ──”€──”€ 1. Pantallas y Fondos ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 1. Pantallas y Fondos ────────────────────────────────────────────
     val fondoBase: Color,
     val fondoSidebar: Color,
     val fondoModal: Color,
     val fondoOverlay: Color,
 
-    // ──”€──”€ 2. Cards y Superficies ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 2. Cards y Superficies ──────────────────────────────────────────
     val cardBase: Color,
     val cardElevada: Color,
     val cardHover: Color,
     val cardBorde: Color,
 
-    // ──”€──”€ 3. Controles e Inputs (Legibilidad) ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 3. Controles e Inputs (Legibilidad) ──────────────────────────────
     val inputFondo: Color,
     val inputFondoFoco: Color,
     val inputBorde: Color,
     val inputTexto: Color,
     val inputPlaceholder: Color,
 
-    // ──”€──”€ 4. Jerarquía de Textos ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 4. Jerarquía de Textos ──────────────────────────────────────────
     val textoPrincipal: Color,
     val textoSecundario: Color,
     val textoTerciario: Color,
     val textoInvertido: Color,
 
-    // ──”€──”€ 4. Botones y Controles ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 4. Botones y Controles ──────────────────────────────────────────
     val botonPrimarioFondo: Color,
     val botonPrimarioTexto: Color,
     val botonSecundarioFondo: Color,
@@ -49,7 +49,7 @@ data class ColoresFarmadon(
     val botonSecundarioTexto: Color,
     val botonGhostTexto: Color,
 
-    // ──”€──”€ 5. Sidebar y Navegación ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 5. Sidebar y Navegación ────────────────────────────────────────
     val sidebarFondo: Color,
     val sidebarBorde: Color,
     val sidebarItemActivoFondo: Color,
@@ -58,13 +58,13 @@ data class ColoresFarmadon(
     val sidebarItemInactivoTexto: Color,
     val sidebarItemInactivoIcono: Color,
 
-    // ──”€──”€ 6. Bordes y Divisores ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 6. Bordes y Divisores ──────────────────────────────────────────
     val bordeSutil: Color,
     val bordeDefecto: Color,
     val bordeEnfoque: Color,
     val divisor: Color,
 
-    // ──”€──”€ 7. Estados Comerciales Sobrios (Sin estridencias) ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 7. Estados Comerciales Sobrios (Sin estridencias) ────────────────
     val estadoExito: Color,
     val exitoSutil: Color,
     val estadoAlerta: Color,
@@ -74,7 +74,7 @@ data class ColoresFarmadon(
     val estadoNeutral: Color,
     val neutroSutil: Color,
 
-    // ──”€──”€ 8. Efectos y Transparencias ──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€──”€
+    // ── 8. Efectos y Transparencias ────────────────────────────────────
     val cristal: Color,
     val velo: Color,
     val esTemaClaro: Boolean

@@ -91,9 +91,15 @@ class IngresoMercaderiaRepository(
         stockMinimoNuevoPorProducto: Map<String, Double> = emptyMap(),
         proveedorIdFactura: String = "",
         proveedorNombreFactura: String = "",
-        rucProveedorFactura: String = ""
+        rucProveedorFactura: String = "",
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
     ): Result<Unit> {
-        val ids = obtenerIds() ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerIds() ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+        }
         val (farmaciaId, sucursalId) = ids
 
         val esRecepcionPedido = !pedidoId.isNullOrBlank()
@@ -178,6 +184,7 @@ class IngresoMercaderiaRepository(
                 var facturaRef: com.google.firebase.firestore.DocumentReference? = null
                 var facturaSnapExists = false
                 var effectiveFacturaId: String? = null
+                var esReusoFactura = false
                 if (numFacturaLimpio.isNotBlank()) {
                     val provKey = when {
                         proveedorIdTx.isNotBlank() -> proveedorIdTx.trim()
@@ -192,16 +199,16 @@ class IngresoMercaderiaRepository(
                         val existentePedidoId = snap.getString("pedidoId") ?: ""
                         val esMismoPedido = esRecepcionPedido && existentePedidoId.isNotBlank() && existentePedidoId == pedidoId
                         if (esMismoPedido) {
-                            // Misma factura para entrega parcial del mismo pedido — inmutable, no se reescribe, se reutiliza
-                            facturaRef = null
+                            // Misma factura para entrega parcial del mismo pedido: el papel no se
+                            // reescribe; los pagos de esta entrega se anexan como abonos (append-only).
+                            esReusoFactura = true
                             facturaSnapExists = false
-                            effectiveFacturaId = null
                         } else {
                             throw IllegalArgumentException("La factura $numFacturaLimpio ya fue registrada para ${if (provKey.isNotBlank()) proveedorNombreTx else "este proveedor"}. Usa un número nuevo.")
                         }
                     }
                     // Legacy fallback: si no existe con prefijo pero existe sin prefijo y mismo proveedor, también es duplicado
-                    if (!facturaSnapExists && provKey.isNotBlank() && facturaRef != null) {
+                    if (!esReusoFactura && !facturaSnapExists && provKey.isNotBlank() && facturaRef != null) {
                         val legacyRef = tiendaRef.collection("compras_facturas").document(cleanFacturaNumero)
                         if (legacyRef != facturaRef) {
                             val legSnap = tx.get(legacyRef)
@@ -330,9 +337,9 @@ class IngresoMercaderiaRepository(
                         (disp + bloq) * costUn
                     }
                     if (totalFisicoLotes > 0.0 && costoPonderadoLotes > 0.0) {
-                        productUpdates["precioCompra"] = costoPonderadoLotes / totalFisicoLotes
+                        productUpdates["precioCompra"] = redondear2(costoPonderadoLotes / totalFisicoLotes)
                     } else if (item.costoUnitarioReal > 0.0) {
-                        productUpdates["precioCompra"] = item.costoUnitarioReal
+                        productUpdates["precioCompra"] = redondear2(item.costoUnitarioReal)
                     }
                     // Stock mínimo solo si se pidió y el servidor aún no tiene
                     val stockMinimoNuevo = stockMinimoNuevoPorProducto[item.productoId] ?: 0.0
@@ -347,7 +354,9 @@ class IngresoMercaderiaRepository(
                     // el primer ingreso que lo trae lo deja atado para el próximo pedido. Cero trabajo extra.
                     // Si ya tiene proveedor, se respeta (no pisa).
                     val provActual = productSnap.getString("proveedor") ?: productSnap.getString("proveedorNombre") ?: productSnap.getString("proveedorBaseNombre") ?: ""
-                    val esVacio = provActual.isBlank()
+                    val provEsPlaceholder = provActual.isBlank() || listOf("N/A", "NA", "Genérico", "Sin asignar", "Sin Asignar")
+                        .any { it.equals(provActual.trim(), ignoreCase = true) }
+                    val esVacio = provEsPlaceholder
                     if (esVacio && proveedorNombreTx.isNotBlank()) {
                         productUpdates["proveedor"] = proveedorNombreTx
                         productUpdates["proveedorNombre"] = proveedorNombreTx
@@ -399,76 +408,191 @@ class IngresoMercaderiaRepository(
 
                 // ── 2. Factura inmutable ──
                 if (numFacturaLimpio.isNotBlank() && effectiveFacturaId != null && facturaRef != null && !facturaSnapExists) {
-                    val montoTotalDoc = if (montoFactura > 0) montoFactura else totalCostoCalculado
-
-                    // Pago mixto real de la recepción: porciones + saldo a favor.
-                    val pagosFinales = if (pagosRecepcion.isNotEmpty()) pagosRecepcion
-                        else if (montoPagadoEnRecepcion > 0.0) listOf(
-                            com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
-                                metodoPago = metodoPago.ifBlank { "Efectivo" },
-                                monto = montoPagadoEnRecepcion
-                            )
-                        ) else emptyList()
                     val saldoUsado = saldoAFavorUsado.coerceAtLeast(0.0)
-                    val totalPagado = montoPagadoEnRecepcion.coerceAtLeast(0.0) + saldoUsado
-                    val estadoPago = when {
-                        totalPagado <= 0.01 -> if (condicionPago.contains("Contado", ignoreCase = true)) "PAGADA" else "PENDIENTE"
-                        totalPagado >= montoTotalDoc - 0.01 -> "PAGADA"
-                        else -> "ABONADO_PARCIAL"
-                    }
+                    val hayPagoNuevo = montoPagadoEnRecepcion > 0.01 || saldoUsado > 0.01 || pagosRecepcion.isNotEmpty()
 
-                    val abonosNuevos = mutableListOf<Map<String, Any>>()
-                    if (montoPagadoEnRecepcion > 0.0) {
-                        abonosNuevos.add(crearAbonoRecepcion(
-                            idRecepcion = idempotenciaId.ifBlank { UUID.randomUUID().toString() },
-                            monto = montoPagadoEnRecepcion,
-                            metodoPago = metodoPago,
-                            pagos = pagosFinales,
-                            usuarioNombre = usuarioNombre,
-                            usuarioEmail = usuarioEmail,
-                            ahoraMs = ahoraMs,
-                            fechaLegible = fechaLegible
-                        ))
-                    }
-                    if (saldoUsado > 0.0) {
-                        abonosNuevos.add(mapOf(
-                            "id" to "saldo-${UUID.randomUUID().toString()}",
-                            "fechaLegible" to fechaLegible,
-                            "fechaMs" to ahoraMs,
-                            "monto" to saldoUsado,
-                            "metodoPago" to "Saldo a favor del proveedor",
-                            "numeroOperacion" to "",
-                            "pagos" to listOf(mapOf(
-                                "metodoPago" to "Saldo a favor del proveedor",
-                                "monto" to saldoUsado,
-                                "numeroOperacion" to ""
-                            )),
-                            "usuarioNombre" to (usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } }),
-                            "usuarioEmail" to usuarioEmail,
-                            "notas" to "Saldo a favor aplicado en la recepción"
-                        ))
-                    }
+                    if (esReusoFactura) {
+                        // Entrega parcial de la MISMA factura: el papel ya existe y no se reescribe.
+                        // Los pagos reales de esta entrega se anexan como abonos (append-only),
+                        // igual que en Cuentas por Pagar; el saldo a favor se descuenta del proveedor.
+                        if (hayPagoNuevo) {
+                            val snapFact = tx.get(facturaRef)
+                            if (!snapFact.exists()) throw IllegalStateException("La factura $numFacturaLimpio ya no existe; no se pudo registrar el pago de esta entrega. Regístralo desde Cuentas por Pagar.")
+                            if ((snapFact.getString("estadoPago") ?: "").equals("ANULADA", ignoreCase = true)) {
+                                throw IllegalStateException("La factura $numFacturaLimpio fue ANULADA. No se puede recibir ni pagar sobre una factura anulada: usa un número de factura nuevo para esta entrega.")
+                            }
+                            @Suppress("UNCHECKED_CAST")
+                            val abonosPrevios = (snapFact.get("abonos") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+                            val montoTotalFactura = snapFact.getDouble("montoTotal") ?: snapFact.getDouble("montoAcumulado") ?: montoFactura
+                            val montoPagadoPrevio = snapFact.getDouble("montoPagado") ?: abonosPrevios.sumOf { (it["monto"] as? Number)?.toDouble() ?: 0.0 }
+                            val pagosFinales = if (pagosRecepcion.isNotEmpty()) pagosRecepcion
+                                else if (montoPagadoEnRecepcion > 0.0) listOf(
+                                    com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                                        metodoPago = metodoPago.ifBlank { "Efectivo" },
+                                        monto = montoPagadoEnRecepcion
+                                    )
+                                ) else emptyList()
+                            if (pagosFinales.isNotEmpty() && kotlin.math.abs(pagosFinales.sumOf { it.monto } - montoPagadoEnRecepcion) > 0.01) {
+                                throw IllegalArgumentException("La distribución del pago no cuadra con el monto registrado.")
+                            }
+                            val abonosNuevos = mutableListOf<Map<String, Any>>()
+                            if (montoPagadoEnRecepcion > 0.0) {
+                                abonosNuevos.add(crearAbonoRecepcion(
+                                    idRecepcion = idempotenciaId.ifBlank { UUID.randomUUID().toString() },
+                                    monto = montoPagadoEnRecepcion,
+                                    metodoPago = metodoPago,
+                                    pagos = pagosFinales,
+                                    usuarioNombre = usuarioNombre,
+                                    usuarioEmail = usuarioEmail,
+                                    ahoraMs = ahoraMs,
+                                    fechaLegible = fechaLegible
+                                ))
+                            }
+                            if (saldoUsado > 0.0) {
+                                abonosNuevos.add(SaldoAFavorFirestore.crearAbonoSaldoAFavor(
+                                    id = UUID.randomUUID().toString(),
+                                    monto = saldoUsado,
+                                    facturaNumero = numFacturaLimpio,
+                                    motivo = "Saldo a favor aplicado en recepción de $numFacturaLimpio",
+                                    usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                    usuarioEmail = usuarioEmail,
+                                    ahoraMs = ahoraMs,
+                                    fechaLegible = fechaLegible
+                                ))
+                            }
+                            val totalPagadoNuevo = montoPagadoPrevio + montoPagadoEnRecepcion.coerceAtLeast(0.0) + saldoUsado
+                            if (totalPagadoNuevo > montoTotalFactura + 0.01) {
+                                throw IllegalArgumentException("El pago supera el total de la factura $numFacturaLimpio.")
+                            }
+                            if (saldoUsado > 0.0) {
+                                if (proveedorIdTx.isBlank()) throw IllegalStateException("La factura no tiene proveedor vinculado; no se puede aplicar el saldo a favor.")
+                                SaldoAFavorFirestore.aplicarEnTransaccion(
+                                    tx = tx,
+                                    refSaldo = SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorIdTx),
+                                    saldoAUsar = saldoUsado,
+                                    facturaId = effectiveFacturaId,
+                                    facturaNumero = numFacturaLimpio,
+                                    motivo = "Saldo a favor aplicado en recepción de $numFacturaLimpio",
+                                    usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                    usuarioEmail = usuarioEmail,
+                                    ahoraMs = ahoraMs,
+                                    fechaLegible = fechaLegible
+                                )
+                            }
+                            val nuevoEstado = when {
+                                totalPagadoNuevo >= montoTotalFactura - 0.01 -> "PAGADA"
+                                totalPagadoNuevo > 0.01 -> "ABONADO_PARCIAL"
+                                else -> snapFact.getString("estadoPago") ?: "PENDIENTE"
+                            }
+                            tx.update(
+                                facturaRef,
+                                mapOf(
+                                    "abonos" to abonosPrevios + abonosNuevos,
+                                    "montoPagado" to totalPagadoNuevo,
+                                    "estadoPago" to nuevoEstado,
+                                    "actualizadoEl" to FieldValue.serverTimestamp()
+                                )
+                            )
+                        }
+                    } else {
+                        // ── CREACIÓN: factura nueva (una sola vez, inmutable) ──
+                        val montoTotalDoc = if (montoFactura > 0) montoFactura else redondear2(totalCostoCalculado)
 
-                    val facturaData = mapOf(
-                        "id" to effectiveFacturaId,
-                        "numeroFactura" to numFacturaLimpio,
-                        "proveedorId" to proveedorIdTx,
-                        "proveedorNombre" to proveedorNombreTx,
-                        "rucProveedor" to proveedorRucTx,
-                        "pedidoId" to (pedidoId ?: ""),
-                        "condicionPago" to condicionPago,
-                        "fechaVencimientoPago" to fechaVencimientoPago,
-                        "estadoPago" to estadoPago,
-                        "montoTotal" to montoTotalDoc,
-                        "montoAcumulado" to totalCostoCalculado,
-                        "montoPagado" to totalPagado,
-                        "abonos" to abonosNuevos,
-                        "items" to itemsFacturaList,
-                        "usuarioRegistroEmail" to usuarioEmail,
-                        "creadoEl" to FieldValue.serverTimestamp(),
-                        "actualizadoEl" to FieldValue.serverTimestamp()
-                    )
-                    tx.set(facturaRef, facturaData)
+                        // Pago mixto real de la recepción: porciones + saldo a favor.
+                        val pagosFinales = if (pagosRecepcion.isNotEmpty()) pagosRecepcion
+                            else if (montoPagadoEnRecepcion > 0.0) listOf(
+                                com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                                    metodoPago = metodoPago.ifBlank { "Efectivo" },
+                                    monto = montoPagadoEnRecepcion
+                                )
+                            ) else emptyList()
+                        if (pagosFinales.isNotEmpty() && kotlin.math.abs(pagosFinales.sumOf { it.monto } - montoPagadoEnRecepcion) > 0.01) {
+                            throw IllegalArgumentException("La distribución del pago no cuadra con el monto registrado.")
+                        }
+                        val totalPagado = montoPagadoEnRecepcion.coerceAtLeast(0.0) + saldoUsado
+                        if (totalPagado > montoTotalDoc + 0.01) {
+                            throw IllegalArgumentException("El pago registrado supera el total de la factura.")
+                        }
+                        // Contado = se paga completo al recibir. Jamás una factura "PAGADA" sin plata registrada.
+                        if (condicionPago.contains("Contado", ignoreCase = true) && totalPagado < montoTotalDoc - 0.01) {
+                            throw IllegalArgumentException(
+                                "Factura al contado: registra el pago completo al recibir (faltan " +
+                                    String.format(java.util.Locale.US, "%.2f", (montoTotalDoc - totalPagado)) +
+                                    "). Si se pagará después, elige Crédito."
+                            )
+                        }
+                        val estadoPago = when {
+                            totalPagado <= 0.01 -> "PENDIENTE"
+                            totalPagado >= montoTotalDoc - 0.01 -> "PAGADA"
+                            else -> "ABONADO_PARCIAL"
+                        }
+
+                        val abonosNuevos = mutableListOf<Map<String, Any>>()
+                        if (montoPagadoEnRecepcion > 0.0) {
+                            abonosNuevos.add(crearAbonoRecepcion(
+                                idRecepcion = idempotenciaId.ifBlank { UUID.randomUUID().toString() },
+                                monto = montoPagadoEnRecepcion,
+                                metodoPago = metodoPago,
+                                pagos = pagosFinales,
+                                usuarioNombre = usuarioNombre,
+                                usuarioEmail = usuarioEmail,
+                                ahoraMs = ahoraMs,
+                                fechaLegible = fechaLegible
+                            ))
+                        }
+                        if (saldoUsado > 0.0) {
+                            abonosNuevos.add(SaldoAFavorFirestore.crearAbonoSaldoAFavor(
+                                id = UUID.randomUUID().toString(),
+                                monto = saldoUsado,
+                                facturaNumero = numFacturaLimpio,
+                                motivo = "Saldo a favor aplicado en la recepción",
+                                usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                usuarioEmail = usuarioEmail,
+                                ahoraMs = ahoraMs,
+                                fechaLegible = fechaLegible
+                            ))
+                        }
+
+                        // El saldo a favor SOLO se descuenta aquí, al guardar la recepción
+                        // (nunca al tocar el interruptor). Si el proveedor ya no tiene saldo,
+                        // la transacción aborta y no se asienta nada.
+                        if (saldoUsado > 0.0) {
+                            if (proveedorIdTx.isBlank()) throw IllegalStateException("La factura no tiene proveedor vinculado; no se puede aplicar el saldo a favor.")
+                            SaldoAFavorFirestore.aplicarEnTransaccion(
+                                tx = tx,
+                                refSaldo = SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorIdTx),
+                                saldoAUsar = saldoUsado,
+                                facturaId = effectiveFacturaId,
+                                facturaNumero = numFacturaLimpio,
+                                motivo = "Saldo a favor aplicado en la recepción",
+                                usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                usuarioEmail = usuarioEmail,
+                                ahoraMs = ahoraMs,
+                                fechaLegible = fechaLegible
+                            )
+                        }
+
+                        val facturaData = mapOf(
+                            "id" to effectiveFacturaId,
+                            "numeroFactura" to numFacturaLimpio,
+                            "proveedorId" to proveedorIdTx,
+                            "proveedorNombre" to proveedorNombreTx,
+                            "rucProveedor" to proveedorRucTx,
+                            "pedidoId" to (pedidoId ?: ""),
+                            "condicionPago" to condicionPago,
+                            "fechaVencimientoPago" to fechaVencimientoPago,
+                            "estadoPago" to estadoPago,
+                            "montoTotal" to montoTotalDoc,
+                            "montoAcumulado" to redondear2(totalCostoCalculado),
+                            "montoPagado" to totalPagado,
+                            "abonos" to abonosNuevos,
+                            "items" to itemsFacturaList,
+                            "usuarioRegistroEmail" to usuarioEmail,
+                            "creadoEl" to FieldValue.serverTimestamp(),
+                            "actualizadoEl" to FieldValue.serverTimestamp()
+                        )
+                        tx.set(facturaRef, facturaData)
+                    }
                 } else if (numFacturaLimpio.isNotBlank() && facturaSnapExists) {
                     // Ya existe → no se edita (inmutable). El throw arriba ya habría abortado, pero si llegó aquí por carrera, no tocar.
                 }
@@ -491,7 +615,7 @@ class IngresoMercaderiaRepository(
                         "numeroFactura" to numFacturaLimpio,
                         "condicionPago" to condicionPago,
                         "fechaVencimientoPago" to fechaVencimientoPago,
-                        "montoFactura" to (if (montoFactura > 0) montoFactura else totalCostoCalculado),
+                        "montoFactura" to (if (montoFactura > 0) montoFactura else redondear2(totalCostoCalculado)),
                         "cierreConAjuste" to cerrarConAjuste,
                         "origen" to "RECEPCION_PEDIDO",
                         "items" to itemsConIngreso.map { it2 ->
@@ -520,12 +644,21 @@ class IngresoMercaderiaRepository(
                         else -> "ENTREGA_PARCIAL"
                     }
                     val montoPrevio = pedidoSnap?.getDouble("montoFacturadoReal") ?: 0.0
+                    val montoEstaEntrega = if (montoFactura > 0) montoFactura else redondear2(totalCostoCalculado)
+                    // Factura ya existente (reuso en entrega parcial): el papel ya contabilizó
+                    // su total; el monto facturado del pedido no se suma otra vez (evita duplicar
+                    // la deuda reflejada). Factura nueva: se acumula porque es otro documento.
+                    val nuevoMontoFacturado = if (esReusoFactura) {
+                        if (montoPrevio > 0.0) montoPrevio else montoEstaEntrega
+                    } else {
+                        redondear2(montoPrevio + montoEstaEntrega)
+                    }
                     tx.update(
                         pedidoRef,
                         mapOf(
                             "items" to updatedItemsList,
                             "recepciones" to FieldValue.arrayUnion(entregaData),
-                            "montoFacturadoReal" to (montoPrevio + if (montoFactura > 0) montoFactura else totalCostoCalculado),
+                            "montoFacturadoReal" to nuevoMontoFacturado,
                             "estado" to nuevoEstado,
                             "fechaRecepcion" to fechaLegible,
                             "actualizadoEl" to FieldValue.serverTimestamp()
@@ -545,8 +678,8 @@ class IngresoMercaderiaRepository(
      * productoId → { númeroLote → { cantidad, vencimiento, … } }.
      * Si falla la lectura se retorna vacío: la anulación continúa sin inventario comparado.
      */
-    suspend fun leerLotesDeProductos(productoIds: List<String>): Map<String, Map<String, Any>> {
-        val ids = obtenerIds() ?: return emptyMap()
+    suspend fun leerLotesDeProductos(productoIds: List<String>): Map<String, Map<String, Any>>? {
+        val ids = obtenerIds() ?: return null
         val (farmaciaId, sucursalId) = ids
         val resultado = mutableMapOf<String, Map<String, Any>>()
         return try {
@@ -560,62 +693,10 @@ class IngresoMercaderiaRepository(
             resultado
         } catch (e: Exception) {
             Log.e(TAG, "Error leyendo lotes para anulación: ${e.message}", e)
-            emptyMap()
+            // R9: jamás convertir un error de lectura en "no existe". La pantalla debe
+            // decir la verdad: no se pudo leer el estante, no que el producto falta.
+            null
         }
-    }
-
-    // Compatibilidad para StockEntry simple (un solo producto) — delega al método principal con lista de 1
-    suspend fun ingresarLoteSimple(
-        productId: String,
-        productoNombre: String,
-        empaque: String,
-        numeroLote: String,
-        vencimiento: String,
-        cantidadTotal: Double,
-        cantidadComprada: Double,
-        bonificacion: Double,
-        costoTotal: Double,
-        costoUnitario: Double,
-        proveedorId: String,
-        proveedorNombre: String,
-        rucProveedor: String,
-        numeroFactura: String,
-        montoTotalFactura: Double,
-        condicionPago: String,
-        fechaVencimientoPago: String,
-        stockMinimoNuevo: Double,
-        usuarioEmail: String,
-        pedidoId: String? = null,
-        idempotenciaId: String = ""
-    ): Result<Unit> {
-        val item = ItemRecepcionEntrega(
-            productoId = productId,
-            productoNombre = productoNombre,
-            presentacion = empaque,
-            loteNumero = numeroLote,
-            vencimiento = vencimiento,
-            cantidadComprada = cantidadComprada.toInt(),
-            bonificacionGratis = bonificacion.toInt(),
-            cantidadTotal = cantidadTotal.toInt(),
-            costoUnitarioReal = costoUnitario,
-            costoTotalReal = costoTotal
-        )
-        return ingresar(
-            pedidoId = pedidoId,
-            numeroFactura = numeroFactura,
-            condicionPago = condicionPago,
-            fechaVencimientoPago = fechaVencimientoPago,
-            montoFactura = montoTotalFactura,
-            items = listOf(item),
-            cerrarConAjuste = false,
-            usuarioEmail = usuarioEmail,
-            usuarioNombre = "",
-            idempotenciaId = idempotenciaId,
-            stockMinimoNuevoPorProducto = if (stockMinimoNuevo > 0) mapOf(productId to stockMinimoNuevo) else emptyMap(),
-            proveedorIdFactura = proveedorId,
-            proveedorNombreFactura = proveedorNombre,
-            rucProveedorFactura = rucProveedor
-        )
     }
 
     /**
@@ -632,10 +713,16 @@ class IngresoMercaderiaRepository(
         usuarioNombre: String = "",
         respuestaPlata: String = "",
         metodoDevolucion: String = "",
-        referenciaDevolucion: String = ""
+        referenciaDevolucion: String = "",
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
     ): Result<Unit> {
         if (motivo.trim().isBlank()) return Result.failure(IllegalArgumentException("El motivo de anulación es obligatorio."))
-        val ids = obtenerIds() ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerIds() ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+        }
         val (farmaciaId, sucursalId) = ids
         if (facturaId.isBlank()) return Result.failure(IllegalArgumentException("ID de factura inválido."))
         return try {
@@ -655,7 +742,9 @@ class IngresoMercaderiaRepository(
                 val abonos = facturaSnap.get("abonos") as? List<*> ?: emptyList<Any>()
                 val montoPagado = facturaSnap.getDouble("montoPagado") ?: 0.0
                 val plataPagada = if (abonos.isNotEmpty()) {
-                    abonos.sumOf { (it as? Map<*, *>)?.let { m -> (m["monto"] as? Number)?.toDouble() ?: 0.0 } ?: 0.0 }
+                    // Misma regla que el modelo (totalAbonadoReal): solo abonos VIGENTES.
+                    abonos.filterNot { (it as? Map<*, *>)?.get("anulado") == true }
+                        .sumOf { (it as? Map<*, *>)?.let { m -> (m["monto"] as? Number)?.toDouble() ?: 0.0 } ?: 0.0 }
                 } else montoPagado
                 if (plataPagada > 0.01) {
                     val respuesta = respuestaPlata.trim().uppercase()
@@ -818,7 +907,7 @@ class IngresoMercaderiaRepository(
                         val totalFact = if (montoFactRaw > 0) montoFactRaw else itemsRaw.sumOf { (it["costoTotal"] as? Number)?.toDouble() ?: (it["montoTotal"] as? Number)?.toDouble() ?: 0.0 }
                         // Monto siempre se revierte (deuda anulada) aunque no devuelvas stock
                         val montoPrevio = pedidoSnap.getDouble("montoFacturadoReal") ?: 0.0
-                        val nuevoMonto = (montoPrevio - totalFact).coerceAtLeast(0.0)
+                        val nuevoMonto = redondear2((montoPrevio - totalFact).coerceAtLeast(0.0))
                         if (conDevolucion) {
                             @Suppress("UNCHECKED_CAST")
                             val itemsPed = (pedidoSnap.get("items") as? List<Map<String, Any>>) ?: emptyList()
@@ -903,4 +992,7 @@ class IngresoMercaderiaRepository(
             Result.failure(e)
         }
     }
+
+    /** Redondeo a centavos exactos: los montos guardados jamás arrastran ruido flotante. */
+    private fun redondear2(valor: Double): Double = Math.round(valor * 100.0) / 100.0
 }

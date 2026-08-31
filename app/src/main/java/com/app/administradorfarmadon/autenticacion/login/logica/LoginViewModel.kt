@@ -390,7 +390,7 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                             LoginIncidenteTipo.ERROR_BASE_DATOS
                         )
                     }
-                    Log.w(TAG, "[LOGIN] Sede $sedeObjetivo muerta ──†’ reacomodo verificado a principal")
+                    Log.w(TAG, "[LOGIN] Sede $sedeObjetivo muerta → reacomodo verificado a principal")
                     sucursalIdFinal = "principal"
                     sucursalNombreFinal = ancla.getString("nombre") ?: "Sede Principal"
                 } else {

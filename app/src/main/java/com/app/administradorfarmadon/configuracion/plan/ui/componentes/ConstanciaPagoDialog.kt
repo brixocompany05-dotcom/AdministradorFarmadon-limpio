@@ -53,7 +53,7 @@ fun ConstanciaPagoDialog(
                 modifier = Modifier.padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Cabecera con ícono de í‰xito
+                // Cabecera con Ícono de Éxito
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,

@@ -20,7 +20,7 @@ data class UsuarioFarmacia(
     val dadoDeBaja: Boolean = false,
     val fechaCreacion: Any? = null,
     val actualizadoEn: Any? = null,
-    // RAíZ: permisos por usuario y por módulo. Si el mapa está vacío, hereda del rol.
+    // RAÍZ: permisos por usuario y por módulo. Si el mapa está vacío, hereda del rol.
     // Si tiene entrada { "inventario": true, "compras": false }, esa es la verdad final.
     // Solo se muestran/se guardan módulos que están en el plan contratado (ModulosResueltos).
     val permisosModulos: Map<String, Boolean> = emptyMap()

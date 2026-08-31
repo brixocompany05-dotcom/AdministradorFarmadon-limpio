@@ -170,7 +170,7 @@ fun PanelAlertaVencimiento(
         // Chips de selección rápida con scroll horizontal
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = "AVISAR CON ANTICIPACIí“N ANTES DE VENCER:",
+                text = "AVISAR CON ANTICIPACIÓN ANTES DE VENCER:",
                 style = FDType.Label.copy(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,

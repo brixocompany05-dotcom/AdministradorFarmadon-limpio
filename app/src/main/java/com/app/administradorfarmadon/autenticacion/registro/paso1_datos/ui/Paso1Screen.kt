@@ -244,10 +244,10 @@ fun PasoDatosNegocioForm(
             }
         }
 
-        RegistroSection(title = "IDENTIFICACIí“N Y CONTACTO", s = s) {
-            // ──”€──”€ PAíS DE OPERACIí“N: PRIMERO, sin excepciones ──”€──”€
+        RegistroSection(title = "IDENTIFICACIÓN Y CONTACTO", s = s) {
+            // ── PAÍS DE OPERACIÓN: PRIMERO, sin excepciones ──
             // La moneda y el prefijo nacen del país y viajan internos.
-            // MIENTRAS NO HAYA PAíS el selector vive SIEMPRE: elegirlo es
+            // MIENTRAS NO HAYA PAÍS el selector vive SIEMPRE: elegirlo es
             // prerrequisito, no una "corrección" más (cero deadlocks en
             // correcciones legadas cuyo país nunca existió).
             com.app.administradorfarmadon.organizacion.ui.componentes.SelectorPaisProfesional(
@@ -436,7 +436,7 @@ fun PasoDatosNegocioForm(
                 }
             }
         } else {
-            RegistroSection(title = "ACLARACIí“N O DESCARGO PARA EL AUDITOR DE BRIXO", s = s) {
+            RegistroSection(title = "ACLARACIÓN O DESCARGO PARA EL AUDITOR DE BRIXO", s = s) {
                 RegistroTextField(
                     label = "Mensaje de Aclaración a BRIXO (Opcional)",
                     value = state.notaAclaratoria,

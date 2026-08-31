@@ -67,10 +67,17 @@ fun UsuarioFormularioPanel(
         partes.isNotEmpty() -> partes[0].take(2).uppercase()
         else -> "US"
     }
+    val tieneErroresActivos = state.formErrores.any { it.value.isNotBlank() }
     val puedeGuardar = if (state.esModoCreacion) {
-        !state.guardando && state.formNombre.isNotBlank() && state.formDni.isNotBlank() && state.formEmail.isNotBlank() && state.formPassword.isNotBlank()
+        !state.guardando &&
+            state.formNombre.isNotBlank() &&
+            state.formDni.isNotBlank() &&
+            state.formTelefono.isNotBlank() &&
+            state.formEmail.isNotBlank() &&
+            state.formPassword.isNotBlank() &&
+            !tieneErroresActivos
     } else {
-        !state.guardando && (state.hayCambiosSinGuardar || esRecontratacion)
+        !state.guardando && (state.hayCambiosSinGuardar || esRecontratacion) && !tieneErroresActivos
     }
 
     Surface(

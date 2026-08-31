@@ -70,12 +70,22 @@ data class PedidoCompra(
     val fechaEmisionMs: Long = 0L,
     val fechaRecepcion: String = "",
     val notas: String = "",
-    val usuarioEmisor: String = ""
+    val usuarioEmisor: String = "",
+    val bitacora: List<EntradaBitacoraPedido> = emptyList()
 ) {
     val totalUnidadesRecibidas: Int get() = items.sumOf { it.cantidadRecibida }
     val totalUnidadesPendientes: Int get() = items.sumOf { (it.cantidad - it.cantidadRecibida).coerceAtLeast(0) }
     val estaCompletamenteRecibido: Boolean get() = items.isNotEmpty() && items.all { it.cantidadRecibida >= it.cantidad }
 }
+
+/** Entrada de la bitácora interna de un pedido: creación y cada edición (qué, quién, cuándo). */
+data class EntradaBitacoraPedido(
+    val tipo: String = "",      // "CREACION" | "EDICION"
+    val usuario: String = "",
+    val fecha: String = "",
+    val fechaMs: Long = 0L,
+    val detalle: String = ""
+)
 
 /** Vista de un lote YA EXISTENTE en inventario, para inteligencia en vivo de recepción. */
 data class LoteExistenteVista(
@@ -116,7 +126,7 @@ class PedidoCompraRepository(
         return Pair(farmaciaId, sucursalId)
     }
 
-    // ──•──• CARRITO DE REPOSICIí“N COMPARTIDO EN FIRESTORE ──•──•
+    //  CARRITO DE REPOSICIÓN COMPARTIDO EN FIRESTORE 
     // Un documento por proveedor. Todos los usuarios de la sucursal ven el mismo carrito.
     // Estructura: {items: {productoId: cantidad}, actualizadoPor: email}
 
@@ -195,12 +205,13 @@ class PedidoCompraRepository(
         usuarioId: String = "",
         usuarioNombre: String = "",
         esDelta: Boolean = true
-    ): Boolean {
-        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) Pair(farmaciaIdParam, sucursalIdParam) else obtenerFarmaciaYSucursal() ?: return false
+    ): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) Pair(farmaciaIdParam, sucursalIdParam) else obtenerFarmaciaYSucursal()
+            ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para guardar el carrito."))
         val (farmaciaId, sucursalId) = ids
-        if (proveedorNombre.isBlank() || cambios.isEmpty()) return true
+        if (proveedorNombre.isBlank() || cambios.isEmpty()) return Result.success(Unit)
         val docRef = FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId).document(claveCarritoDoc(proveedorNombre))
-        var todoOk = true
+        var primeraFalla: Exception? = null
         val usuarioKey = usuarioId.ifBlank { usuarioNombre.ifBlank { "Sistema" } }
         for ((productoId, valor) in cambios) {
             try {
@@ -252,34 +263,47 @@ class PedidoCompraRepository(
                     )
                 }.await()
             } catch (e: Exception) {
-                todoOk = false
+                if (primeraFalla == null) primeraFalla = e
                 Log.e(TAG, "Error sincronizando carrito ($proveedorNombre / $productoId = $valor): ${e.message}", e)
             }
         }
-        return todoOk
+        return if (primeraFalla != null) Result.failure(primeraFalla) else Result.success(Unit)
     }
 
-    suspend fun eliminarCarritoProveedor(proveedorNombre: String, farmaciaIdParam: String? = null, sucursalIdParam: String? = null): Boolean {
-        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) Pair(farmaciaIdParam, sucursalIdParam) else obtenerFarmaciaYSucursal() ?: return false
+    suspend fun eliminarCarritoProveedor(proveedorNombre: String, farmaciaIdParam: String? = null, sucursalIdParam: String? = null): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para vaciar el carrito."))
+        }
         val (farmaciaId, sucursalId) = ids
         return try {
             FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId).document(claveCarritoDoc(proveedorNombre)).delete().await()
-            true
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error eliminando carrito ($proveedorNombre): ${e.message}", e)
-            false
+            Result.failure(e)
         }
     }
 
     /**
      * Reserva atómica del borrador compartido para envío:
      * retorna la versión VIGENTE de los items (con cambios de otros usuarios) y retira el borrador.
-     * í‰xito con mapa vacío = el borrador ya no existe (otro usuario lo envió o lo vació).
+     * Éxito con mapa vacío = el borrador ya no existe (otro usuario lo envió o lo vació).
      * Failure = falla real de red/servidor (jamás se confunde con "otro usuario").
      */
-    suspend fun consumirCarritoParaEnvio(proveedorNombre: String): Result<Map<String, Int>> {
-        val ids = obtenerFarmaciaYSucursal()
-            ?: return Result.failure(IllegalStateException("No hay sesión de farmacia o sucursal activa."))
+    suspend fun consumirCarritoParaEnvio(
+        proveedorNombre: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Map<String, Int>> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("No hay sesión de farmacia o sucursal activa."))
+        }
         val (farmaciaId, sucursalId) = ids
         if (proveedorNombre.isBlank()) return Result.success(emptyMap())
         val docRef = FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId).document(claveCarritoDoc(proveedorNombre))
@@ -343,7 +367,11 @@ class PedidoCompraRepository(
     /**
      * Guarda una nueva orden de compra emitida a un proveedor.
      */
-    suspend fun guardarPedidoEnviado(pedido: PedidoCompra): Result<String> {
+    suspend fun guardarPedidoEnviado(
+        pedido: PedidoCompra,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<String> {
         // Blindaje raíz: jamás crear una orden sin productos reales
         if (pedido.items.isEmpty()) {
             return Result.failure(IllegalArgumentException("La orden no tiene productos. Agrega al menos un producto con cantidad mayor a 0."))
@@ -352,8 +380,12 @@ class PedidoCompraRepository(
             return Result.failure(IllegalArgumentException("Todas las cantidades están en 0. La orden debe tener al menos un producto con cantidad."))
         }
         return try {
-            val ids = obtenerFarmaciaYSucursal()
-                ?: return Result.failure(IllegalStateException("No hay sesión de farmacia o sucursal activa."))
+            val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+                Pair(farmaciaIdParam, sucursalIdParam)
+            } else {
+                obtenerFarmaciaYSucursal()
+                    ?: return Result.failure(IllegalStateException("No hay sesión de farmacia o sucursal activa."))
+            }
             val (farmaciaId, sucursalId) = ids
 
             val coleccion = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId)
@@ -396,7 +428,7 @@ class PedidoCompraRepository(
                 "recepciones" to emptyList<Map<String, Any>>(),
                 "totalProductos" to pedido.items.size,
                 "totalUnidades" to pedido.items.sumOf { it.cantidad },
-                "totalInversion" to pedido.items.sumOf { it.cantidad * it.precioCompra },
+                "totalInversion" to Math.round(pedido.items.sumOf { it.cantidad * it.precioCompra } * 100.0) / 100.0,
                 "montoFacturadoReal" to 0.0,
                 "estado" to (pedido.estado.ifBlank { "ENVIADO" }),
                 "fechaEmision" to (pedido.fechaEmision.ifBlank { fechaLegible }),
@@ -404,6 +436,15 @@ class PedidoCompraRepository(
                 "fechaRecepcion" to pedido.fechaRecepcion,
                 "notas" to pedido.notas,
                 "usuarioEmisor" to (pedido.usuarioEmisor.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } }),
+                "bitacora" to listOf(
+                    mapOf(
+                        "tipo" to "CREACION",
+                        "usuario" to (pedido.usuarioEmisor.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } }),
+                        "fecha" to fechaLegible,
+                        "fechaMs" to ahoraMs,
+                        "detalle" to "Pedido creado con ${pedido.items.size} productos y ${pedido.items.sumOf { it.cantidad }} unidades."
+                    )
+                ),
                 "creadoEl" to FieldValue.serverTimestamp(),
                 "actualizadoEl" to FieldValue.serverTimestamp()
             )
@@ -412,6 +453,137 @@ class PedidoCompraRepository(
             Result.success(docRef.id)
         } catch (e: Exception) {
             Log.e(TAG, "Error guardando pedido: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Edición de un pedido REALIZADO con bitácora interna. La transacción re-lee el
+     * pedido para no pisar cambios de otro usuario, valida que siga sin mercadería
+     * recibida y agrega la entrada de auditoría (qué cambió, quién, cuándo).
+     */
+    suspend fun actualizarPedidoRealizado(
+        pedidoId: String,
+        items: List<ItemPedidoCompra>,
+        detalleCambio: String,
+        usuarioNombre: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para editar el pedido."))
+        }
+        val (farmaciaId, sucursalId) = ids
+        if (pedidoId.isBlank()) {
+            return Result.failure(IllegalArgumentException("El pedido no tiene identificador."))
+        }
+        if (items.isEmpty() || items.all { it.cantidad <= 0 }) {
+            return Result.failure(IllegalArgumentException("El pedido debe tener al menos un producto con cantidad."))
+        }
+
+        val docRef = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId).document(pedidoId)
+        return try {
+            firestore.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                if (!snap.exists()) {
+                    throw IllegalStateException("El pedido ya no existe.")
+                }
+                val estado = snap.getString("estado") ?: "ENVIADO"
+                @Suppress("UNCHECKED_CAST")
+                val itemsRaw = (snap.get("items") as? List<Map<String, Any>>) ?: emptyList()
+                val recibido = itemsRaw.sumOf { (it["cantidadRecibida"] as? Number)?.toInt() ?: 0 }
+                @Suppress("UNCHECKED_CAST")
+                val recepciones = (snap.get("recepciones") as? List<*>) ?: emptyList<Any>()
+                if (estado != "ENVIADO" || recibido > 0 || recepciones.isNotEmpty()) {
+                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede editar aquí. Usa la pestaña RECIBIR.")
+                }
+
+                val itemsMap = items.map { item ->
+                    mapOf(
+                        "productoId" to item.productoId,
+                        "productoNombre" to item.productoNombre,
+                        "presentacion" to item.presentacion,
+                        "categoria" to item.categoria,
+                        "codigo" to item.codigo,
+                        "precioCompra" to item.precioCompra,
+                        "cantidad" to item.cantidad,
+                        "cantidadRecibida" to item.cantidadRecibida
+                    )
+                }
+
+                val ahoraMs = HoraServidor.ahoraMs()
+                val fechaLegible = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ahoraMs))
+                @Suppress("UNCHECKED_CAST")
+                val bitacoraActual = (snap.get("bitacora") as? List<Map<String, Any>>) ?: emptyList()
+                val nuevaEntrada = mapOf(
+                    "tipo" to "EDICION",
+                    "usuario" to usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } },
+                    "fecha" to fechaLegible,
+                    "fechaMs" to ahoraMs,
+                    "detalle" to detalleCambio
+                )
+
+                tx.set(
+                    docRef,
+                    mapOf(
+                        "items" to itemsMap,
+                        "totalProductos" to items.size,
+                        "totalUnidades" to items.sumOf { it.cantidad },
+                        "totalInversion" to Math.round(items.sumOf { it.cantidad * it.precioCompra } * 100.0) / 100.0,
+                        "bitacora" to bitacoraActual + nuevaEntrada,
+                        "actualizadoEl" to FieldValue.serverTimestamp()
+                    ),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
+            }.await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error actualizando pedido realizado ($pedidoId): ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Borra un pedido realizado COMPLETO, incluida su bitácora: el pedido está
+     * muerto y ya no se conserva ningún rastro de él.
+     */
+    suspend fun eliminarPedidoRealizado(
+        pedidoId: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para eliminar el pedido."))
+        }
+        val (farmaciaId, sucursalId) = ids
+        if (pedidoId.isBlank()) {
+            return Result.failure(IllegalArgumentException("El pedido no tiene identificador."))
+        }
+        return try {
+            val docRef = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId).document(pedidoId)
+            firestore.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                if (!snap.exists()) throw IllegalStateException("El pedido ya no existe.")
+                val estado = snap.getString("estado") ?: "ENVIADO"
+                @Suppress("UNCHECKED_CAST")
+                val itemsRaw = (snap.get("items") as? List<Map<String, Any>>) ?: emptyList()
+                val recibido = itemsRaw.sumOf { (it["cantidadRecibida"] as? Number)?.toInt() ?: 0 }
+                @Suppress("UNCHECKED_CAST")
+                val recepciones = (snap.get("recepciones") as? List<*>) ?: emptyList<Any>()
+                if (estado != "ENVIADO" || recibido > 0 || recepciones.isNotEmpty()) {
+                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede eliminar. Usa la pestaña RECIBIR.")
+                }
+                tx.delete(docRef)
+            }.await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error eliminando pedido realizado ($pedidoId): ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -466,7 +638,9 @@ class PedidoCompraRepository(
         cerrarConAjuste: Boolean = false,
         usuarioEmail: String = "",
         usuarioNombre: String = "",
-        idempotenciaId: String = ""
+        idempotenciaId: String = "",
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
     ): Result<Unit> {
         // Fuente única —” delega al repositorio unificado (1 tx para lote+stock+kardex+factura inmutable+pedido)
         return IngresoMercaderiaRepository(firestore).ingresar(
@@ -483,7 +657,9 @@ class PedidoCompraRepository(
             cerrarConAjuste = cerrarConAjuste,
             usuarioEmail = usuarioEmail,
             usuarioNombre = usuarioNombre,
-            idempotenciaId = idempotenciaId
+            idempotenciaId = idempotenciaId,
+            farmaciaIdParam = farmaciaIdParam,
+            sucursalIdParam = sucursalIdParam
         )
     }
 
@@ -491,9 +667,18 @@ class PedidoCompraRepository(
      * Cierra una orden con ajuste (cuando la droguería quebró stock y no traerá el saldo).
      * Transaccional: relee el estado real antes de escribir para no pisar cambios concurrentes.
      */
-    suspend fun cerrarOrdenConAjuste(pedidoId: String, motivo: String = "Quiebre de stock en proveedor"): Result<Unit> {
-        val ids = obtenerFarmaciaYSucursal()
-            ?: return Result.failure(IllegalStateException("Sin sesión activa."))
+    suspend fun cerrarOrdenConAjuste(
+        pedidoId: String,
+        motivo: String = "Quiebre de stock en proveedor",
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("Sin sesión activa."))
+        }
         val (farmaciaId, sucursalId) = ids
 
         return try {
@@ -530,8 +715,18 @@ class PedidoCompraRepository(
      * Descarta quirúrgicamente un producto de un pedido enviado (por ejemplo si la droguería quebró stock).
      * Transaccional: dos descartes simultáneos se aplican ambos sin perderse.
      */
-    suspend fun descartarProductoDePedido(pedidoId: String, productoId: String): Result<Unit> {
-        val ids = obtenerFarmaciaYSucursal() ?: return Result.failure(IllegalStateException("Sin sesión activa."))
+    suspend fun descartarProductoDePedido(
+        pedidoId: String,
+        productoId: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("Sin sesión activa."))
+        }
         val (farmaciaId, sucursalId) = ids
 
         return try {
@@ -598,7 +793,7 @@ class PedidoCompraRepository(
      * ya recibió mercadería o cerró la orden, se rechaza con la verdad real.
      */
     /**
-     * índice de lotes EXISTENTES para los productos de una orden (lectura puntual al abrir
+     * Índice de lotes EXISTENTES para los productos de una orden (lectura puntual al abrir
      * la recepción). Llave = número de lote en mayúsculas. Si falla la lectura retorna vacío:
      * el flujo de recepción continúa normal, solo sin avisos inteligentes.
      */
@@ -635,9 +830,17 @@ class PedidoCompraRepository(
         }
     }
 
-    suspend fun cancelarPedido(pedidoId: String): Result<Unit> {
-        val ids = obtenerFarmaciaYSucursal()
-            ?: return Result.failure(IllegalStateException("Sin sesión activa."))
+    suspend fun cancelarPedido(
+        pedidoId: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("Sin sesión activa."))
+        }
         val (farmaciaId, sucursalId) = ids
 
         return try {
@@ -718,6 +921,17 @@ class PedidoCompraRepository(
                 )
             }
 
+            val bitacoraRaw = doc.get("bitacora") as? List<Map<String, Any>> ?: emptyList()
+            val bitacora = bitacoraRaw.map { b ->
+                EntradaBitacoraPedido(
+                    tipo = b["tipo"] as? String ?: "",
+                    usuario = b["usuario"] as? String ?: "",
+                    fecha = b["fecha"] as? String ?: "",
+                    fechaMs = (b["fechaMs"] as? Number)?.toLong() ?: 0L,
+                    detalle = b["detalle"] as? String ?: ""
+                )
+            }
+
             PedidoCompra(
                 id = doc.getString("id") ?: doc.id,
                 numeroOrden = doc.getString("numeroOrden") ?: "",
@@ -738,7 +952,8 @@ class PedidoCompraRepository(
                 fechaEmisionMs = doc.getLong("fechaEmisionMs") ?: 0L,
                 fechaRecepcion = doc.getString("fechaRecepcion") ?: "",
                 notas = doc.getString("notas") ?: "",
-                usuarioEmisor = doc.getString("usuarioEmisor") ?: ""
+                usuarioEmisor = doc.getString("usuarioEmisor") ?: "",
+                bitacora = bitacora
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error mapeando pedido ${doc.id}: ${e.message}", e)

@@ -126,7 +126,7 @@ fun PanelStockMinimo(
             stockMinimoActual > 0 && stockTotalActual <= stockMinimoActual -> DiagnosticoStock(
                 color = FDColors.Warning,
                 icon = Icons.Outlined.Warning,
-                titulo = "CRíTICO (${stockTotalActual.toInt()} $nombreStock)",
+                titulo = "CRÍTICO (${stockTotalActual.toInt()} $nombreStock)",
                 descripcion = "Quedan ${stockTotalActual.toInt()} $nombreStock, mínimo es ${stockMinimoActual.toInt()} $nombreMinimo."
             )
             stockMinimoActual > 0 -> DiagnosticoStock(
@@ -150,7 +150,7 @@ fun PanelStockMinimo(
             style = FDType.Body.copy(fontSize = 12.5.sp, color = FDColors.TextSecondary)
         )
 
-        // ──”€──”€ TARJETA DE DIAGNí“STICO EN VIVO ──”€──”€
+        // ── TARJETA DE DIAGNÓSTICO EN VIVO ──
         Surface(
             color = diagnostico.color.copy(alpha = 0.08f),
             shape = RoundedCornerShape(10.dp),

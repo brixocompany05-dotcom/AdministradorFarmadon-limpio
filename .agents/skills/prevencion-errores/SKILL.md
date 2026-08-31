@@ -48,6 +48,24 @@ caminos: éxito, error, cancelación, cierre e interrupción.
 Los mensajes deben decir qué pasó y cuál es el siguiente paso. Nunca ocultar el motivo con
 un texto genérico ni convertir incertidumbre en confirmación.
 
+### Regla de bloqueo y éxito visible
+
+Si la acción queda invalidada por una regla de negocio o un conflicto real (duplicado,
+estado no permitido, falta crítica, condición de carrera), la persona debe verlo en la UI
+exactamente en el campo, panel o botón afectado. El bloqueo visual debe ser claro, concreto
+y profesional, no un log del programador ni un mensaje silencioso.
+
+Cuando la operación se completa, la pantalla debe reflejar ese éxito de forma visible y
+honesta: toast, banner, estado actualizado o confirmación clara. No se puede anunciar un
+éxito solo porque el código ejecutó una línea; debe existir resultado visible para la persona.
+
+### Regla del catch
+
+El `catch` existe para diagnóstico del desarrollador: log, trazabilidad, contexto técnico y
+depuración. No se usa para ocultarle al usuario un problema, ni para maquillar una falla con
+mensaje genérico, ni para convertir una operación fallida en un falso éxito. El usuario debe
+recibir la verdad del bloqueo o del éxito; el programador recibe la excepción en el log.
+
 ## Datos y decisiones
 
 Los números, fechas, límites, disponibilidad y consecuencias deben venir de fuentes

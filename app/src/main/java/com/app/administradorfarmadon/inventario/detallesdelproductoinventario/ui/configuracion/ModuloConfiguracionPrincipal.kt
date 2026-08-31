@@ -105,7 +105,7 @@ fun ModuloConfiguracionPrincipal(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // ──”€──”€ Cabecera quiet —” tipográfica, no card
+        // ── Cabecera quiet —” tipográfica, no card
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -130,7 +130,7 @@ fun ModuloConfiguracionPrincipal(
 
         HorizontalDivider(color = FDColors.Border.copy(alpha = 0.35f), thickness = 0.5.dp)
 
-        // ──”€──”€ Cuerpo 32 | 68 —” navegación quiet + detalle con scroll único
+        // ── Cuerpo 32 | 68 —” navegación quiet + detalle con scroll único
         Row(
             modifier = Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(14.dp)

@@ -17,7 +17,7 @@ data class RegistroDraft(
     val longitud: Double? = null,
     // País elegido en el Paso 1. Sin esto, un borrador reabierto renacía
     // peruano: el aspirante veía planes PEN y podía enviar la solicitud
-    // con país equivocado. Legados sin país ──†’ vacío: vuelve a elegirlo.
+    // con país equivocado. Legados sin país → vacío: vuelve a elegirlo.
     val paisIso: String = ""
 )
 

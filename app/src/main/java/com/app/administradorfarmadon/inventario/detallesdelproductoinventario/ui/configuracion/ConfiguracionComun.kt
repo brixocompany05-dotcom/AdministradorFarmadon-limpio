@@ -196,7 +196,7 @@ fun AutoSaveBadge(
                 FDColors.Success.copy(alpha = 0.12f),
                 FDColors.Success.copy(alpha = 0.4f),
                 FDColors.Success,
-                "──œ“ Guardado automáticamente"
+                " Guardado automáticamente"
             )
             EstadoAutoGuardado.ERROR -> listOf(
                 FDColors.Error.copy(alpha = 0.12f),

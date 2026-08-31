@@ -1,4 +1,5 @@
 package com.app.administradorfarmadon.configuracion.sucursales.datos
+import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 
 import android.util.Log
@@ -142,8 +143,16 @@ class SucursalesRepository(
         awaitClose { listener.remove() }
     }
 
+    private fun validarPermisoPrincipal(accion: String) {
+        val sucursalActiva = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId }
+        if (!sucursalActiva.equals("principal", ignoreCase = true)) {
+            throw IllegalStateException("Solo la sede principal puede $accion.")
+        }
+    }
+
     suspend fun guardarSucursal(clienteId: String, sucursal: Sucursal, pagosSucursalNueva: Set<String>? = null) {
         if (clienteId.isBlank()) throw IllegalArgumentException("ID de farmacia inválido.")
+        validarPermisoPrincipal("registrar o editar sucursales")
 
         // CONTRATO CONGELADO (B4): maxSuclusales está en la suscripción, no en el
         // doc de farmacia. Leemos antes de la tx para feedback rápido, pero la verdad
@@ -409,6 +418,7 @@ class SucursalesRepository(
     }
 
     suspend fun eliminarSucursal(clienteId: String, sucursalId: String) {
+        validarPermisoPrincipal("activar, desactivar o eliminar sucursales")
         if (sucursalId == "principal") {
             throw IllegalStateException("La Sede Principal es el ancla del negocio y no puede ser eliminada.")
         }

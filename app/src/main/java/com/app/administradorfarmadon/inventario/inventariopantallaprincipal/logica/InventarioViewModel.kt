@@ -243,7 +243,7 @@ class InventarioViewModel(
         return false
     }
 
-    // ──”€──”€ Observador de búsqueda server-side con debounce 300ms y estados honestos ──”€──”€
+    // ── Observador de búsqueda server-side con debounce 300ms y estados honestos ──
     private fun observarBusquedaServerSide() {
         _uiState.map { it.searchQuery }.distinctUntilChanged()
             .debounce(300.milliseconds)
@@ -335,7 +335,7 @@ class InventarioViewModel(
                                 )
                             }
                         } else {
-                            // í‰xito: actualiza resultados acumulados (primera página)
+                            // Éxito: actualiza resultados acumulados (primera página)
                             _uiState.update {
                                 it.copy(
                                     busquedaEstado = InventarioBusquedaEstado.Exito(resultados),
@@ -389,7 +389,7 @@ class InventarioViewModel(
             }.launchIn(viewModelScope)
     }
 
-    // ──”€──”€ Paginación silenciosa: primera página (limit 50) ──”€──”€
+    // ── Paginación silenciosa: primera página (limit 50) ──
     fun cargarPaginaInicial() {
         val farmaciaId = SessionManager.clienteIdGarantizado
         val sucursalId = SessionManager.sucursalIdEfectiva
@@ -459,7 +459,7 @@ class InventarioViewModel(
             }.flowOn(Dispatchers.Default).launchIn(viewModelScope)
     }
 
-    // ──”€──”€ Carga incremental silenciosa: debounce 300ms y soporte búsqueda paginable ──”€──”€
+    // ── Carga incremental silenciosa: debounce 300ms y soporte búsqueda paginable ──
     fun cargarMas() {
         // Si está en búsqueda server-side, paginar búsqueda silenciosamente
         if (_uiState.value.isEnBusqueda) {
@@ -777,7 +777,7 @@ class InventarioViewModel(
      * tolera minutos de vejez). NO lleva listener permanente; se recarga:
      *   1. al entrar a la pantalla (init),
      *   2. tras marcar algo como visto,
-     *   3. al volver a primer plano (InventarioScreen ──†’ refrescarAlertasLeidas).
+     *   3. al volver a primer plano (InventarioScreen → refrescarAlertasLeidas).
      * Fallo de red: se registra con verdad y se conserva el último estado conocido.
      */
     fun refrescarAlertasLeidas() {

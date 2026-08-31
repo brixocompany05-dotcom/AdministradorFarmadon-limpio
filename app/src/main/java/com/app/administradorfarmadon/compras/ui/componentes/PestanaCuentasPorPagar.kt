@@ -4,14 +4,16 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +38,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.compras.pagos.logica.EtiquetaMetodoPago
+import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
 import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
@@ -110,12 +114,32 @@ private data class InfoVencimientoHumano(
 )
 
 private fun calcularVencimientoHumano(factura: FacturaCompra): InfoVencimientoHumano {
+    if (factura.esAnulada) {
+        return InfoVencimientoHumano(
+            esContado = false,
+            textoTarjeta = "Anulada" + (if (factura.motivoAnulacion.isNotBlank()) " · ${factura.motivoAnulacion}" else ""),
+            textoDetalle = "Factura anulada · No se debe nada",
+            esVencido = false,
+            esAlertaPronta = false
+        )
+    }
     if (factura.esContado) {
         val fechaEmision = factura.fechaRegistro.ifBlank { "Reciente" }
+        if (factura.esTotalmentePagada) {
+            return InfoVencimientoHumano(
+                esContado = true,
+                textoTarjeta = "Emitida: $fechaEmision · Contado",
+                textoDetalle = "Liquidado al recibir mercadería · Cero deuda pendiente",
+                esVencido = false,
+                esAlertaPronta = false
+            )
+        }
+        val simbolo = SessionManager.monedaSimbolo.ifBlank { "S/" }
+        val saldo = factura.saldoPendienteReal
         return InfoVencimientoHumano(
             esContado = true,
-            textoTarjeta = "Emitida: $fechaEmision · Contado",
-            textoDetalle = "Liquidado al recibir mercadería · Cero deuda pendiente",
+            textoTarjeta = "Contado · Falta pagar $simbolo " + String.format(Locale.US, "%.2f", saldo),
+            textoDetalle = "Factura al contado con saldo pendiente: $simbolo " + String.format(Locale.US, "%.2f", saldo),
             esVencido = false,
             esAlertaPronta = false
         )
@@ -205,7 +229,8 @@ fun PestanaCuentasPorPagar(
     onAbrirDialogoAbono: (FacturaCompra) -> Unit = {},
     onAbrirDialogoNotaCredito: (FacturaCompra) -> Unit = {},
     onAbrirDialogoProrroga: (FacturaCompra) -> Unit = {},
-    onAbrirDialogoAnular: (FacturaCompra) -> Unit = {}
+    onAbrirDialogoAnular: (FacturaCompra) -> Unit = {},
+    listaState: LazyListState = LazyListState()
 ) {
     val s = recordarMedidaAdaptativa()
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
@@ -230,14 +255,18 @@ fun PestanaCuentasPorPagar(
         facturas.filter { perteneceAPeriodo(it, periodoSeleccionado) }
     }
 
-    val facturasFiltradasPorEstado = remember(facturasDelPeriodo, filtroEstado) {
+    // Las anuladas ya no deben nada: se ven en "Todas" (historial), pero jamás
+    // cuentan como deuda pendiente, vencida ni pagada del período.
+    val facturasVivasPeriodo = remember(facturasDelPeriodo) { facturasDelPeriodo.filter { !it.esAnulada } }
+
+    val facturasFiltradasPorEstado = remember(facturasDelPeriodo, facturasVivasPeriodo, filtroEstado) {
         when (filtroEstado) {
-            "PENDIENTES" -> facturasDelPeriodo.filter { !it.esTotalmentePagada }
-            "VENCIDAS" -> facturasDelPeriodo.filter {
+            "PENDIENTES" -> facturasVivasPeriodo.filter { !it.esTotalmentePagada }
+            "VENCIDAS" -> facturasVivasPeriodo.filter {
                 val v = calcularVencimientoHumano(it)
                 !it.esTotalmentePagada && v.esVencido
             }
-            "PAGADAS" -> facturasDelPeriodo.filter { it.esTotalmentePagada }
+            "PAGADAS" -> facturasVivasPeriodo.filter { it.esTotalmentePagada }
             else -> facturasDelPeriodo
         }
     }
@@ -364,12 +393,12 @@ fun PestanaCuentasPorPagar(
                         horizontalArrangement = Arrangement.spacedBy(s.xs),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val countPendientes = facturasDelPeriodo.count { !it.esTotalmentePagada }
-                        val countVencidas = facturasDelPeriodo.count {
+                        val countPendientes = facturasVivasPeriodo.count { !it.esTotalmentePagada }
+                        val countVencidas = facturasVivasPeriodo.count {
                             val v = calcularVencimientoHumano(it)
                             !it.esTotalmentePagada && v.esVencido
                         }
-                        val countPagadas = facturasDelPeriodo.count { it.esTotalmentePagada }
+                        val countPagadas = facturasVivasPeriodo.count { it.esTotalmentePagada }
 
                         val opcionesFiltro = listOf(
                             Triple("TODAS", "Todas", facturasDelPeriodo.size),
@@ -426,11 +455,11 @@ fun PestanaCuentasPorPagar(
                     }
 
                     // ── FILA 3: TOTALES CONTABLES DEL PERÍODO ──
-                    val montoPendientePeriodo = facturasDelPeriodo
+                    val montoPendientePeriodo = facturasVivasPeriodo
                         .filter { !it.esTotalmentePagada }
                         .sumOf { it.saldoPendienteReal }
-                    val montoPagadoPeriodo = facturasDelPeriodo
-                        .sumOf { if (it.esContado) it.totalEfectivo else it.totalAbonadoReal }
+                    val montoPagadoPeriodo = facturasVivasPeriodo
+                        .sumOf { it.totalAbonadoReal }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -528,12 +557,14 @@ fun PestanaCuentasPorPagar(
                         }
                     } else {
                         LazyColumn(
+                            state = listaState,
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)
                         ) {
                             items(facturasMostradas, key = { it.id }) { fact ->
                                 val isSelected = fact.id == (facturaActiva?.id ?: "")
                                 val esContado = fact.esContado
+                                val esAnulada = fact.esAnulada
                                 val esPagada = fact.esTotalmentePagada
                                 val tieneAbonosParciales = fact.totalAbonadoReal > 0 && !esPagada
                                 val infoVenc = calcularVencimientoHumano(fact)
@@ -585,7 +616,8 @@ fun PestanaCuentasPorPagar(
 
                                             Surface(
                                                 color = when {
-                                                    esContado || esPagada -> FDColors.SuccessSubtle
+                                                    esAnulada -> FDColors.Error.copy(alpha = 0.10f)
+                                                    esPagada -> FDColors.SuccessSubtle
                                                     tieneAbonosParciales -> FDColors.Primary.copy(alpha = 0.10f)
                                                     infoVenc.esVencido -> FDColors.WarningSubtle
                                                     else -> FDColors.WarningSubtle
@@ -594,7 +626,8 @@ fun PestanaCuentasPorPagar(
                                                 border = BorderStroke(
                                                     0.8.dp,
                                                     when {
-                                                        esContado || esPagada -> FDColors.Success.copy(alpha = 0.35f)
+                                                        esAnulada -> FDColors.Error.copy(alpha = 0.45f)
+                                                        esPagada -> FDColors.Success.copy(alpha = 0.35f)
                                                         tieneAbonosParciales -> FDColors.Primary.copy(alpha = 0.35f)
                                                         infoVenc.esVencido -> FDColors.Warning.copy(alpha = 0.35f)
                                                         else -> FDColors.Warning.copy(alpha = 0.35f)
@@ -603,8 +636,8 @@ fun PestanaCuentasPorPagar(
                                             ) {
                                                 Text(
                                                     text = when {
-                                                        esContado -> "✓ CONTADO"
-                                                        esPagada -> "● PAGADA"
+                                                        esAnulada -> "✖ ANULADA"
+                                                        esPagada -> if (esContado) "✓ CONTADO" else "● PAGADA"
                                                         tieneAbonosParciales -> "● ABONO PARCIAL"
                                                         infoVenc.esVencido -> "● VENCIDA"
                                                         else -> "● PENDIENTE"
@@ -614,7 +647,8 @@ fun PestanaCuentasPorPagar(
                                                         fontWeight = FontWeight.Bold
                                                     ),
                                                     color = when {
-                                                        esContado || esPagada -> FDColors.Success
+                                                        esAnulada -> FDColors.Error
+                                                        esPagada -> FDColors.Success
                                                         tieneAbonosParciales -> FDColors.Primary
                                                         infoVenc.esVencido -> FDColors.Warning
                                                         else -> FDColors.Warning
@@ -644,13 +678,14 @@ fun PestanaCuentasPorPagar(
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
                                             Text(
-                                                text = if (esContado) "Emitida: ${fact.fechaRegistro.ifBlank { "Reciente" }} · Contado" else infoVenc.textoTarjeta,
+                                                text = if (esContado && esPagada) "Emitida: ${fact.fechaRegistro.ifBlank { "Reciente" }} · Contado" else infoVenc.textoTarjeta,
                                                 style = FDType.BodySmall.copy(
                                                     fontSize = 11.sp,
-                                                    fontWeight = if (!esContado && (infoVenc.esVencido || infoVenc.esAlertaPronta)) FontWeight.Bold else FontWeight.Normal
+                                                    fontWeight = if (!(esContado && esPagada) && (infoVenc.esVencido || infoVenc.esAlertaPronta)) FontWeight.Bold else FontWeight.Normal
                                                 ),
                                                 color = when {
-                                                    esContado -> FDColors.TextSecondary
+                                                    esAnulada -> FDColors.Error
+                                                    esContado && esPagada -> FDColors.TextSecondary
                                                     esPagada -> FDColors.TextTertiary
                                                     infoVenc.esVencido -> FDColors.Warning
                                                     infoVenc.esAlertaPronta -> FDColors.Warning
@@ -661,11 +696,11 @@ fun PestanaCuentasPorPagar(
                                             )
 
                                             Column(horizontalAlignment = Alignment.End) {
-                                                if (esContado) {
+                                                if (esAnulada) {
                                                     Text(
-                                                        text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", fact.totalEfectivo),
-                                                        style = FDType.Heading3.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold),
-                                                        color = FDColors.TextPrimary
+                                                        text = "Anulada",
+                                                        style = FDType.Label.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Black),
+                                                        color = FDColors.Error
                                                     )
                                                 } else if (tieneAbonosParciales) {
                                                     Text(
@@ -756,10 +791,27 @@ private fun DetalleFacturaLiquidacion(
     onAbrirDialogoAnular: (FacturaCompra) -> Unit
 ) {
     val s = recordarMedidaAdaptativa()
-    val infoVenc = calcularVencimientoHumano(factura)
     val esContado = factura.esContado
     val esPagada = factura.esTotalmentePagada
     val saldoRestante = factura.saldoPendienteReal
+    val etiquetaEstado = when {
+        factura.esAnulada -> "ANULADA"
+        esPagada -> if (esContado) "CONTADO · PAGADO" else "PAGADA"
+        factura.totalAbonadoReal > 0.01 -> "ABONO PARCIAL"
+        else -> "PENDIENTE"
+    }
+    val colorEstado = when {
+        factura.esAnulada -> FDColors.Error
+        esPagada -> FDColors.Success
+        factura.totalAbonadoReal > 0.01 -> FDColors.Primary
+        else -> FDColors.Warning
+    }
+    val fechaPagoTexto = when {
+        factura.esAnulada -> "Anulada"
+        factura.fechaVencimientoPago.isNotBlank() -> factura.fechaVencimientoPago
+        esPagada -> "Al contado (pagado)"
+        else -> "Sin fecha · pago pendiente"
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         // ── 1. CABECERA EJECUTIVA DEL DETALLE ──
@@ -784,70 +836,53 @@ private fun DetalleFacturaLiquidacion(
                     style = FDType.BodySmall.copy(fontSize = 11.5.sp),
                     color = FDColors.TextSecondary
                 )
+                if (factura.esAnulada) {
+                    Text(
+                        text = "✖ FACTURA ANULADA" + (if (factura.motivoAnulacion.isNotBlank()) " — ${factura.motivoAnulacion}" else ""),
+                        style = FDType.Label.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Black),
+                        color = FDColors.Error
+                    )
+                }
             }
 
-            // Acciones Rápidas (Prorrogar Vencimiento)
-            if (!esContado && !esPagada) {
-                FDBotonSecundario(
-                    texto = "PRORROGAR",
-                    onClick = { onAbrirDialogoProrroga(factura) },
-                    modifier = Modifier.height(s.btnSmallH)
-                )
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(s.xs)
+            ) {
+                Surface(
+                    color = colorEstado.copy(alpha = 0.10f),
+                    shape = FDShapes.XSmall,
+                    border = BorderStroke(0.8.dp, colorEstado.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = etiquetaEstado,
+                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
+                        color = colorEstado,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+                // Acciones Rápidas (Prorrogar Vencimiento)
+                if (!factura.esAnulada && !esContado && !esPagada) {
+                    FDBotonSecundario(
+                        texto = "PRORROGAR",
+                        onClick = { onAbrirDialogoProrroga(factura) },
+                        modifier = Modifier.height(s.btnSmallH)
+                    )
+                }
             }
         }
 
         HorizontalDivider(color = FDColors.Border, thickness = s.separatorH)
 
-        // ── 2. CUERPO SCROLLABLE: INFO + ITEMS + ABONOS ──
+        // ── 2. CUERPO SCROLLABLE: HISTORIAL DE PAGOS Y NOTAS DE CRÉDITO ──
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(s.padCard),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            // BLOQUE A: ESTADO FINANCIERO ACTUAL
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(s.gapMedium)
-            ) {
-                // Tarjeta: Vencimiento
-                Surface(
-                    color = if (infoVenc.esVencido) FDColors.WarningSubtle else FDColors.SurfaceElevated,
-                    shape = FDShapes.Small,
-                    border = BorderStroke(s.borderWidth, if (infoVenc.esVencido) FDColors.Warning.copy(alpha = 0.4f) else FDColors.Border),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Column(modifier = Modifier.padding(s.padCard * 0.65f)) {
-                        Text("VENCIMIENTO", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = if (esContado) "CONTADO" else infoVenc.textoDetalle,
-                            style = FDType.Body.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
-                            color = if (infoVenc.esVencido) FDColors.Warning else FDColors.TextPrimary
-                        )
-                    }
-                }
-
-                // Tarjeta: Saldo Pendiente
-                Surface(
-                    color = if (saldoRestante > 0) FDColors.WarningSubtle else FDColors.SuccessSubtle,
-                    shape = FDShapes.Small,
-                    border = BorderStroke(s.borderWidth, if (saldoRestante > 0) FDColors.Warning.copy(alpha = 0.4f) else FDColors.Success.copy(alpha = 0.4f)),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Column(modifier = Modifier.padding(s.padCard * 0.65f)) {
-                        Text("SALDO RESTANTE", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", saldoRestante),
-                            style = FDType.Numeric.copy(fontSize = 16.sp, fontWeight = FontWeight.Black),
-                            color = if (saldoRestante > 0) FDColors.Warning else FDColors.Success
-                        )
-                    }
-                }
-            }
-
             // BLOQUE B: HISTORIAL DE ABONOS REALIZADOS
             Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
                 Row(
@@ -865,18 +900,13 @@ private fun DetalleFacturaLiquidacion(
                     }
                 }
 
-                if (factura.abonos.isEmpty() && !esContado) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp)
-                            .background(FDColors.TextPrimary.copy(alpha = 0.02f), FDShapes.Small)
-                            .border(1.dp, FDColors.Border.copy(alpha = 0.3f), FDShapes.Small),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("No se han registrado abonos todavía.", style = FDType.BodySmall, color = FDColors.TextTertiary)
+                if (factura.abonos.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)) {
+                        factura.abonos.sortedByDescending { it.fechaMs }.forEach { abono ->
+                            ItemAbonoRow(abono, simboloMoneda)
+                        }
                     }
-                } else if (esContado) {
+                } else if (esContado && esPagada) {
                     Surface(
                         color = FDColors.SuccessSubtle,
                         shape = FDShapes.Small,
@@ -896,38 +926,102 @@ private fun DetalleFacturaLiquidacion(
                         }
                     }
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)) {
-                        factura.abonos.sortedByDescending { it.fechaMs }.forEach { abono ->
-                            ItemAbonoRow(abono, simboloMoneda)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(80.dp)
+                            .background(FDColors.TextPrimary.copy(alpha = 0.02f), FDShapes.Small)
+                            .border(1.dp, FDColors.Border.copy(alpha = 0.3f), FDShapes.Small),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No se han registrado abonos todavía.", style = FDType.BodySmall, color = FDColors.TextTertiary)
+                    }
+                }
+            }
+
+            // NOTAS DE CRÉDITO: cada ajuste del papel con su documento (append-only)
+            if (factura.ajustesFactura.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
+                    Text("NOTAS DE CRÉDITO", style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold), color = FDColors.TextSecondary)
+                    factura.ajustesFactura.sortedByDescending { it.fechaMs }.forEach { ajuste ->
+                        Surface(
+                            color = FDColors.Surface,
+                            shape = FDShapes.Small,
+                            border = BorderStroke(s.borderWidth * 0.6f, FDColors.Border),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "N° ${ajuste.numeroDocumento.ifBlank { "Sin N°" }}",
+                                        style = FDType.Label.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Black),
+                                        color = FDColors.TextPrimary,
+                                        modifier = Modifier.weight(1f).padding(end = 6.dp)
+                                    )
+                                    Text(
+                                        text = "- $simboloMoneda " + String.format(Locale.US, "%.2f", ajuste.monto),
+                                        style = FDType.Numeric.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Black),
+                                        color = FDColors.Warning
+                                    )
+                                }
+                                Text(
+                                    text = ajuste.motivo.ifBlank { "Ajuste por nota de crédito" },
+                                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
+                                    color = FDColors.TextSecondary
+                                )
+                                Text(
+                                    text = ajuste.fechaLegible.ifBlank { "—" } + (if (ajuste.usuarioNombre.isNotBlank()) " · ${ajuste.usuarioNombre}" else ""),
+                                    style = FDType.Caption.copy(fontSize = 10.sp),
+                                    color = FDColors.TextTertiary
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // ── 3. PIE DE PANEL: TOTALES Y BOTÓN DE ACCIÓN ──
+        // ── 3. PIE FIJO: RESUMEN CONTABLE DE LA FACTURA ──
         Surface(
             color = FDColors.SurfaceElevated,
             border = BorderStroke(s.borderWidth, FDColors.Border)
         ) {
             Column(modifier = Modifier.padding(s.padCard), verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column {
-                        Text("TOTAL DE LA FACTURA", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
-                        Text("$simboloMoneda " + String.format(Locale.US, "%,.2f", factura.totalEfectivo), style = FDType.Numeric.copy(fontSize = 18.sp, fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
-                    }
+                Text(
+                    "RESUMEN CONTABLE DE LA FACTURA",
+                    style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp),
+                    color = FDColors.TextTertiary
+                )
 
-                    if (factura.totalAbonadoReal > 0 && !esContado) {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("TOTAL ABONADO", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
-                            Text("$simboloMoneda " + String.format(Locale.US, "%,.2f", factura.totalAbonadoReal), style = FDType.Numeric.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold), color = FDColors.Success)
-                        }
-                    }
+                FilaContable("Emitida", factura.fechaRegistro.ifBlank { "—" }, s)
+                FilaContable("Fecha de pago", fechaPagoTexto, s)
+                if (factura.totalAjustes > 0.01) {
+                    FilaContable("Notas de crédito", "- $simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAjustes), s, color = FDColors.Warning)
                 }
+                FilaContable("Abonado", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAbonadoReal), s, color = FDColors.Success)
+                FilaContable(
+                    "Pendiente",
+                    "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoRestante),
+                    s,
+                    color = if (saldoRestante > 0.01) FDColors.Warning else FDColors.Success,
+                    bold = true
+                )
+                HorizontalDivider(color = FDColors.Border.copy(alpha = 0.6f), thickness = s.separatorH)
+                FilaContable(
+                    "Total de factura",
+                    "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel),
+                    s,
+                    color = FDColors.TextPrimary,
+                    bold = true,
+                    grande = true
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -948,7 +1042,7 @@ private fun DetalleFacturaLiquidacion(
                         )
                     }
 
-                    if (!esPagada && !esContado && !factura.esAnulada) {
+                    if (!esPagada && !factura.esAnulada) {
                         FDBotonPrimario(
                             texto = if (factura.totalAbonadoReal > 0) "REGISTRAR OTRO ABONO" else "REGISTRAR PAGO / ABONO",
                             onClick = { onAbrirDialogoAbono(factura) },
@@ -970,9 +1064,12 @@ private fun ItemAbonoRow(
     val s = recordarMedidaAdaptativa()
 
     Surface(
-        color = FDColors.Surface,
+        color = if (abono.anulado) FDColors.Error.copy(alpha = 0.05f) else FDColors.Surface,
         shape = FDShapes.Small,
-        border = BorderStroke(s.borderWidth * 0.6f, FDColors.Border),
+        border = BorderStroke(
+            s.borderWidth * 0.6f,
+            if (abono.anulado) FDColors.Error.copy(alpha = 0.35f) else FDColors.Border
+        ),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -993,7 +1090,7 @@ private fun ItemAbonoRow(
                 }
                 Column {
                     Text(
-                        text = abono.metodoPago.ifBlank { "Sin método" } + (if (abono.numeroOperacion.isNotBlank()) " · ${abono.numeroOperacion}" else ""),
+                        text = EtiquetaMetodoPago.nombreCorto(abono.metodoPago).ifBlank { "Sin método" } + (if (abono.numeroOperacion.isNotBlank()) " · Op. ${abono.numeroOperacion}" else ""),
                         style = FDType.Body.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Bold),
                         color = FDColors.TextPrimary
                     )
@@ -1005,11 +1102,21 @@ private fun ItemAbonoRow(
                 }
             }
 
-            Text(
-                text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", abono.monto),
-                style = FDType.Numeric.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Black),
-                color = FDColors.TextPrimary
-            )
+                    Text(
+                        text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", abono.monto),
+                        style = FDType.Numeric.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Black),
+                        color = if (abono.anulado) FDColors.Error else FDColors.TextPrimary
+                    )
+            }
+
+            if (abono.anulado) {
+                Text(
+                    text = "ABONO ANULADO" + (if (abono.motivoAnulacion.isNotBlank()) " · ${abono.motivoAnulacion}" else "") +
+                        (if (abono.anuladoPorNombre.isNotBlank()) " · ${abono.anuladoPorNombre}" else ""),
+                    style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black),
+                    color = FDColors.Error,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
             }
 
             // PAGO MIXTO: se muestra el desglose real ("en este medio pagué tanto, en este otro tanto").
@@ -1021,7 +1128,7 @@ private fun ItemAbonoRow(
                 ) {
                     abono.pagos.forEach { pago ->
                         Text(
-                            text = "${pago.metodoPago.ifBlank { "Sin método" }} · $simboloMoneda " + String.format(Locale.US, "%.2f", pago.monto) +
+                            text = "${EtiquetaMetodoPago.nombreCorto(pago.metodoPago).ifBlank { "Sin método" }} · $simboloMoneda " + String.format(Locale.US, "%.2f", pago.monto) +
                                 (if (pago.numeroOperacion.isNotBlank()) " · Op. ${pago.numeroOperacion}" else ""),
                             style = FDType.BodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                             color = FDColors.TextSecondary
@@ -1030,5 +1137,38 @@ private fun ItemAbonoRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FilaContable(
+    etiqueta: String,
+    valor: String,
+    s: MedidaAdaptativa,
+    color: Color = FDColors.TextSecondary,
+    bold: Boolean = false,
+    grande: Boolean = false
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = etiqueta.uppercase(),
+            style = FDType.Label.copy(fontSize = if (grande) 11.sp else 10.sp, fontWeight = FontWeight.Bold),
+            color = FDColors.TextTertiary
+        )
+        Text(
+            text = valor,
+            style = if (grande) {
+                FDType.Numeric.copy(fontSize = 17.sp, fontWeight = FontWeight.Black)
+            } else {
+                FDType.Numeric.copy(fontSize = if (bold) 13.5.sp else 12.5.sp, fontWeight = if (bold) FontWeight.Black else FontWeight.SemiBold)
+            },
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

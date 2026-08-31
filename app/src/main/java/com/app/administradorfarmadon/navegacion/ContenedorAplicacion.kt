@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -325,7 +326,7 @@ fun ContenedorAplicacion(
                                 // Solo el comprobante observado lleva al flujo de pago/subsanación
                                 com.app.administradorfarmadon.notificaciones.suscripcion.datos.TipoAlertaSuscripcion.COMPROBANTE_OBSERVADO ->
                                     com.app.administradorfarmadon.suscripcion.ReportarPagoManager.abrirDialogoManual()
-                                // Todo lo demás promete VER EL PLAN ──†’ llevar al plan de verdad
+                                // Todo lo demás promete VER EL PLAN → llevar al plan de verdad
                                 else -> navController.navigate("config_plan")
                             }
                         }
@@ -410,14 +411,19 @@ private fun AppNavHost(
         composable("ventas_dia")   { PantallaEnConstruccion("Ventas del Día") { navController.popBackStack() } }
         composable("ventas_devoluciones") { PantallaEnConstruccion("Devoluciones") { navController.popBackStack() } }
 
-        // --- DISPENSACIí“N ---
+        // --- DISPENSACIÓN ---
         composable("dispensacion_recetas") { PantallaEnConstruccion("Recetas Médicas") { navController.popBackStack() } }
         composable("dispensacion_controlados") { PantallaEnConstruccion("Medicamentos Controlados") { navController.popBackStack() } }
         composable("dispensacion_adulto") { PantallaEnConstruccion("Atención Adulto Mayor") { navController.popBackStack() } }
 
         // --- INVENTARIO Y COMPRAS ---
         val pantallaCompras: @Composable () -> Unit = {
-            val vm: com.app.administradorfarmadon.compras.logica.ComprasViewModel = viewModel()
+            // UN solo ViewModel para TODAS las rutas de compras (dueño: la actividad).
+            // Al navegar entre módulos los datos siguen vivos en tiempo real y la
+            // pantalla se pinta al instante: jamás se recarga ni se recrea de cero.
+            val owner = LocalContext.current as? androidx.activity.ComponentActivity
+            val vm: com.app.administradorfarmadon.compras.logica.ComprasViewModel =
+                if (owner != null) viewModel(viewModelStoreOwner = owner) else viewModel()
             com.app.administradorfarmadon.compras.ui.ComprasScreen(
                 viewModel = vm,
                 onNavigateToIngresoStock = { navController.navigate("ingreso_stock") }
@@ -447,7 +453,7 @@ private fun AppNavHost(
         composable("reportes_inventario") { PantallaEnConstruccion("Reportes de Inventario") { navController.popBackStack() } }
         composable("reportes_fiscal") { PantallaEnConstruccion("Reportes DIGEMID / SUNAT") { navController.popBackStack() } }
 
-        // --- CONFIGURACIí“N ---
+        // --- CONFIGURACIÓN ---
         val pantallaConfiguracion: @Composable () -> Unit = {
             ConfiguracionScreen(
                 onNavigateToSucursales = { navController.navigate("config_sucursales") },
@@ -471,8 +477,26 @@ private fun AppNavHost(
                 onVolver = { navController.popBackStack() }
             )
         }
-        composable("config_sucursales") { pantallaSucursales() }
-        composable("sucursales") { pantallaSucursales() }
+        composable("config_sucursales") {
+            if (com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalIdEfectiva.equals("principal", true)) {
+                pantallaSucursales()
+            } else {
+                PantallaMensajeBloqueo(
+                    titulo = "Acceso restringido",
+                    mensaje = "Solo la sede principal puede gestionar sucursales. Desde otra sede el módulo queda oculto."
+                )
+            }
+        }
+        composable("sucursales") {
+            if (com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalIdEfectiva.equals("principal", true)) {
+                pantallaSucursales()
+            } else {
+                PantallaMensajeBloqueo(
+                    titulo = "Acceso restringido",
+                    mensaje = "Solo la sede principal puede gestionar sucursales. Desde otra sede el módulo queda oculto."
+                )
+            }
+        }
         
         val pantallaUsuarios: @Composable () -> Unit = {
             val vm: UsuariosViewModel = viewModel()
@@ -493,7 +517,7 @@ private fun AppNavHost(
         composable("config_plan") { pantallaPlan() }
         composable("plan") { pantallaPlan() }
 
-        // --- Mí“DULOS DEL CATÁLOGO (rutas por código canónico) ---
+        // --- MÓDULOS DEL CATÁLOGO (rutas por código canónico) ---
         // El sidebar navega por código de módulo (plan/rol/overrides en tiempo
         // real). Cada módulo sin pantalla propia aún llega a un placeholder
         // honesto. "inventario", "compras", "sucursales" y "usuarios" ya tienen pantalla real arriba.

@@ -194,7 +194,7 @@ class LotesBloqueoRepository(
             return Result.failure(
                 Exception(
                     "No puedes anular el lote ${lote.numero}: tiene $ventasPrevias venta(s) previa(s). " +
-                            "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIí“N para las unidades restantes."
+                            "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIÓN para las unidades restantes."
                 )
             )
         }
@@ -247,7 +247,7 @@ class LotesBloqueoRepository(
                 if (ventasRegistradas > 0) {
                     throw Exception(
                         "No puedes anular el lote ${lote.numero}: ya tiene ${ventasRegistradas.toLong()} venta(s) registrada(s). " +
-                                "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIí“N para las unidades restantes."
+                                "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIÓN para las unidades restantes."
                     )
                 }
                 val cleanKey = cleanKeyRealAnular
@@ -328,7 +328,7 @@ class LotesBloqueoRepository(
                                     ?.equals(lote.numero.trim(), ignoreCase = true) == true
                             } ?: emptyList<Any>()
                             // Si la factura queda sin contenido tras la anulación, se marca ANULADA
-                            // registrando QUIí‰N la anuló, CUíNDO y POR QUí‰ —” coherencia multiusuario.
+                            // registrando QUIÉN la anuló, CUíNDO y POR QUÉ —” coherencia multiusuario.
                             val updatesFactura = mutableMapOf<String, Any>(
                                 "montoAcumulado" to nuevoAcumulado,
                                 "items" to itemsRestantes,

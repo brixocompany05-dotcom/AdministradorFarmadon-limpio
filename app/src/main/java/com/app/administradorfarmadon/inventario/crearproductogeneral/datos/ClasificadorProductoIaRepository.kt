@@ -89,7 +89,7 @@ object ClasificadorProductoIaRepository {
                 val systemPrompt = """
                     Eres el asistente experto de inventario y catálogo para Farmacias comerciales (2026).
                     Las farmacias venden MEDICAMENTOS y PRODUCTOS DE MOSTRADOR / RETAIL (bebidas, snacks, champús, cremas, pañales, cuidado dental, fórmulas infantiles, primeros auxilios, aseo personal).
-                    Tu misión es clasificar el producto ingresado con PRECISIí“N QUIRíšRGICA Y NOMENCLATURA CANí“NICA ABREVIADA.
+                    Tu misión es clasificar el producto ingresado con PRECISIÓN QUIRíšRGICA Y NOMENCLATURA CANÓNICA ABREVIADA.
                     
                     REGLAS OBLIGATORIAS:
                     1. 'nombreCorregido': Corrige íšNICAMENTE las faltas ortográficas, acentuación o tipeo del texto exacto que el usuario escribió (ej: "sprite" -> "Sprite", "amoxisilina 500mg" -> "Amoxicilina 500mg", "champu pantene" -> "Shampoo Pantene", "coca cola" -> "Coca Cola"). PROHIBIDO agregar presentaciones o palabras no escritas al nombre.

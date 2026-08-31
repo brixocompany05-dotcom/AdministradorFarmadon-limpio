@@ -40,10 +40,18 @@ object SaldoAFavorFirestore {
         "monto" to monto,
         "metodoPago" to "Saldo a favor del proveedor",
         "numeroOperacion" to "",
+        "pagos" to listOf(
+            mapOf(
+                "metodoPago" to "Saldo a favor del proveedor",
+                "monto" to monto,
+                "numeroOperacion" to ""
+            )
+        ),
         "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
         "usuarioEmail" to usuarioEmail,
         "motivo" to motivo,
-        "facturaNumero" to facturaNumero
+        "facturaNumero" to facturaNumero,
+        "notas" to motivo
     )
 
     /**
@@ -76,7 +84,7 @@ object SaldoAFavorFirestore {
         val historial = (snap.get("historialSaldoAFavor") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
         historial.add(
             mapOf(
-                "id" to "uso-$facturaId",
+                "id" to "uso-" + java.util.UUID.randomUUID().toString(),
                 "tipo" to "SALDO_USADO_RECEPCION",
                 "monto" to saldoAUsar,
                 "facturaId" to facturaId,

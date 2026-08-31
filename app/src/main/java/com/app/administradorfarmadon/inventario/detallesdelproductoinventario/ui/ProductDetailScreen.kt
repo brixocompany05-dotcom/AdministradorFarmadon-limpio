@@ -131,7 +131,7 @@ fun ProductDetailScreen(
                         motivoEliminacion = info?.motivo ?: ""
                     )
                 } else if (uiState.isDeleted) {
-                    // Estado stale de otro producto borrado ──†’ mostrar carga, no overlay ajeno
+                    // Estado stale de otro producto borrado → mostrar carga, no overlay ajeno
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = FDColors.Primary, strokeWidth = 2.5.dp)
                     }
@@ -236,7 +236,7 @@ fun ProductDetailScreen(
                 }
             }
         }
-        // ──”€──”€ Banner enterprise animado (reemplaza Toast viejo) ──”€──”€
+        // ── Banner enterprise animado (reemplaza Toast viejo) ──
         AnimatedVisibility(
             visible = enterpriseMsg != null,
             enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),

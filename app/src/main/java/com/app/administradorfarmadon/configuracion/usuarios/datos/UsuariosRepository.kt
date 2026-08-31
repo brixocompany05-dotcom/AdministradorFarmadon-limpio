@@ -204,46 +204,34 @@ class UsuariosRepository(
         val actorUid = auth.currentUser?.uid ?: "anon"
         val actorEmail = auth.currentUser?.email ?: "admin@farmacia"
 
-        val dniLimpio = dni.trim()
+        val dniLimpio = dni.filter { it.isDigit() }
+        val telefonoLimpio = telefono.filter { it.isDigit() || it == '+' }
+        val telefonoUnico = telefonoLimpio.filter { it.isDigit() }
         val emailFinal = email.trim().lowercase()
+        
         if (emailFinal.isBlank()) {
             throw IllegalArgumentException("El correo electrónico es obligatorio para el registro y recuperación de acceso.")
         }
         if (!android.util.Patterns.EMAIL_ADDRESS.matcher(emailFinal).matches()) {
             throw IllegalArgumentException("El formato del correo electrónico '$emailFinal' no es válido.")
         }
+        if (dniLimpio.length < 6) {
+            throw IllegalArgumentException("El DNI debe tener al menos 6 dígitos.")
+        }
+        if (telefonoUnico.isBlank()) {
+            throw IllegalArgumentException("El teléfono móvil es obligatorio para el registro del colaborador.")
+        }
+
+        val finalIdCheck = usuarioId ?: ""
+        val existingTelefono = UsuariosPaths.usuariosGlobal(db)
+            .whereEqualTo("telefono", telefonoUnico)
+            .get()
+            .await()
+        if (!existingTelefono.isEmpty && existingTelefono.documents.any { it.id != finalIdCheck }) {
+            throw IllegalArgumentException("Este teléfono ya está registrado con otro colaborador en el sistema.")
+        }
 
         val esCreacion = usuarioId.isNullOrBlank()
-        val finalIdCheck = usuarioId ?: ""
-
-        // 2. Validación de Unicidad de DNI en todo el ecosistema
-        val existingDni = UsuariosPaths.usuariosGlobal(db)
-            .whereEqualTo("dni", dniLimpio)
-            .get()
-            .await()
-        if (!existingDni.isEmpty && existingDni.documents.any { it.id != finalIdCheck }) {
-            throw IllegalArgumentException("El DNI $dniLimpio ya se encuentra registrado con otro colaborador en el sistema.")
-        }
-
-        // 3. Validación de Unicidad de Correo Electrónico
-        val existingEmail = UsuariosPaths.usuariosGlobal(db)
-            .whereEqualTo("email", emailFinal)
-            .get()
-            .await()
-        if (!existingEmail.isEmpty && existingEmail.documents.any { it.id != finalIdCheck }) {
-            throw IllegalArgumentException("El correo electrónico $emailFinal ya se encuentra registrado con otro colaborador.")
-        }
-
-        // 4. Validación de No Duplicidad de Nombre + Rol en la misma Farmacia
-        val existingNameRole = UsuariosPaths.usuariosSubcoleccion(db, clienteId)
-            .whereEqualTo("rolId", rolId)
-            .get()
-            .await()
-        if (!existingNameRole.isEmpty && existingNameRole.documents.any {
-                it.id != finalIdCheck && it.getString("nombre").equals(nombre.trim(), ignoreCase = true)
-            }) {
-            throw IllegalArgumentException("Ya existe un colaborador registrado con el nombre '$nombre' y rol '$rolNombre' en esta farmacia.")
-        }
 
         var authUid = usuarioId ?: ""
         var credencialCreada: com.google.firebase.auth.FirebaseUser? = null
@@ -278,6 +266,25 @@ class UsuariosRepository(
         db.runTransaction { tx ->
             val subcoleccionRef = UsuariosPaths.usuariosSubcoleccion(db, clienteId)
             val globalUsuariosRef = UsuariosPaths.usuariosGlobal(db)
+            
+            // Llaves de Unicidad Atómicas (Lock System)
+            val lockDniRef = db.collection("compartido").document("ecosistema").collection("unicidad_usuarios").document("dni_$dniLimpio")
+            val lockEmailRef = db.collection("compartido").document("ecosistema").collection("unicidad_usuarios").document("email_$emailFinal")
+            val lockTelefonoRef = db.collection("compartido").document("ecosistema").collection("unicidad_usuarios").document("telefono_$telefonoUnico")
+             
+            val snapDni = tx.get(lockDniRef)
+            val snapEmail = tx.get(lockEmailRef)
+            val snapTelefono = tx.get(lockTelefonoRef)
+             
+            if (snapDni.exists() && snapDni.getString("uid") != finalId) {
+                throw IllegalArgumentException("El DNI $dniLimpio ya está registrado con otro colaborador.")
+            }
+            if (snapEmail.exists() && snapEmail.getString("uid") != finalId) {
+                throw IllegalArgumentException("El correo $emailFinal ya está registrado con otro colaborador.")
+            }
+            if (snapTelefono.exists() && snapTelefono.getString("uid") != finalId) {
+                throw IllegalArgumentException("Este teléfono ya está registrado con otro colaborador.")
+            }
 
             val docSubRef = subcoleccionRef.document(finalId)
             val docGlobalRef = globalUsuariosRef.document(finalId)
@@ -285,13 +292,35 @@ class UsuariosRepository(
             val snapshotSub = tx.get(docSubRef)
             val datosPrevios = if (snapshotSub.exists()) snapshotSub.data else null
 
+            // Liberar locks anteriores si cambiaron los valores
+            if (datosPrevios != null) {
+                val dniAnterior = datosPrevios["dni"] as? String
+                val emailAnterior = datosPrevios["email"] as? String
+                val telefonoAnterior = datosPrevios["telefono"] as? String
+                 
+                if (dniAnterior != null && dniAnterior != dniLimpio) {
+                    tx.delete(db.collection("compartido").document("ecosistema").collection("unicidad_usuarios").document("dni_$dniAnterior"))
+                }
+                if (emailAnterior != null && emailAnterior != emailFinal) {
+                    tx.delete(db.collection("compartido").document("ecosistema").collection("unicidad_usuarios").document("email_$emailAnterior"))
+                }
+                if (telefonoAnterior != null && telefonoAnterior.filter { it.isDigit() } != telefonoUnico) {
+                    tx.delete(db.collection("compartido").document("ecosistema").collection("unicidad_usuarios").document("telefono_${telefonoAnterior.filter { it.isDigit() }}"))
+                }
+            }
+ 
+            // Registrar nuevos locks
+            tx.set(lockDniRef, mapOf("uid" to finalId, "tipo" to "dni", "valor" to dniLimpio, "clienteId" to clienteId))
+            tx.set(lockEmailRef, mapOf("uid" to finalId, "tipo" to "email", "valor" to emailFinal, "clienteId" to clienteId))
+            tx.set(lockTelefonoRef, mapOf("uid" to finalId, "tipo" to "telefono", "valor" to telefonoUnico, "clienteId" to clienteId))
+
             // Payload para la subcolección del tenant
             val payloadTenant = mutableMapOf<String, Any>(
                 "clienteId" to clienteId,
                 "farmaciaId" to clienteId,
                 "nombre" to nombre.trim(),
-                "dni" to dni.trim(),
-                "telefono" to telefono.trim(),
+                "dni" to dniLimpio,
+                "telefono" to telefonoLimpio,
                 "email" to emailFinal,
                 "rolId" to rolId,
                 "rolNombre" to rolNombre,
@@ -308,8 +337,8 @@ class UsuariosRepository(
             val payloadGlobal = mutableMapOf<String, Any>(
                 "clienteId" to clienteId,
                 "nombre" to nombre.trim(),
-                "dni" to dni.trim(),
-                "telefono" to telefono.trim(),
+                "dni" to dniLimpio,
+                "telefono" to telefonoLimpio,
                 "email" to emailFinal,
                 "rol" to rolNombre,
                 "rolId" to rolId,
@@ -373,7 +402,7 @@ class UsuariosRepository(
                     llaveRecienNacida.delete().await()
                     Log.w(TAG, "U2 Rollback de acceso aplicado para $emailFinal tras fallo de guardado")
                 } catch (delEx: Exception) {
-                    Log.e(TAG, "CRíTICO U2: no se pudo revertir la llave de $emailFinal; queda huérfana y requerirá soporte.", delEx)
+                    Log.e(TAG, "CRÍTICO U2: no se pudo revertir la llave de $emailFinal; queda huérfana y requerirá soporte.", delEx)
                 }
             }
             throw e

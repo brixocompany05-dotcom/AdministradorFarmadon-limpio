@@ -83,7 +83,8 @@ internal fun CrearTextFieldSimetrico(
     imeAction: ImeAction = ImeAction.Next,
     onImeAction: (() -> Unit)? = null,
     isError: Boolean = false,
-    errorMessage: String = ""
+    errorMessage: String = "",
+    helpText: String = ""
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -196,6 +197,13 @@ internal fun CrearTextFieldSimetrico(
             Text(
                 text = errorMessage,
                 style = FDType.Caption.copy(color = FDColors.Error, fontWeight = FontWeight.Medium),
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+        if (!isError && helpText.isNotBlank()) {
+            Text(
+                text = helpText,
+                style = FDType.Caption.copy(color = FDColors.TextTertiary, fontSize = 11.sp),
                 modifier = Modifier.padding(top = 4.dp)
             )
         }
@@ -318,7 +326,9 @@ internal fun CrearDropdownSimetrico(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
                 modifier = Modifier
-                    .widthIn(min = 200.dp)
+                    .widthIn(min = 200.dp, max = 420.dp)
+                    // Selector FIJO y con scroll interno: nunca ocupa toda la pantalla.
+                    .heightIn(max = 280.dp)
                     .background(FDColors.SurfaceElevated)
                     .border(1.dp, FDColors.Border, RoundedCornerShape(8.dp))
             ) {

@@ -290,7 +290,7 @@ fun PanelRegistrarPago(
                                         ) {
                                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    pago.metodoPago,
+                                                    EtiquetaMetodoPago.nombreCorto(pago.metodoPago),
                                                     style = TokensFarmadon.tipografia.titulo3.copy(
                                                         fontSize = s.textBody.value.sp,
                                                         fontWeight = FontWeight.Bold,

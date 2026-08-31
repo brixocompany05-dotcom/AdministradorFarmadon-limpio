@@ -133,7 +133,7 @@ fun UsuarioItemCard(
                             shape = RoundedCornerShape(s.radiusChip * 0.6f)
                         ) {
                             Text(
-                                text = "Tíš",
+                                text = "TÚ",
                                 style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = s.textLabel.value.sp * 0.85f, fontWeight = FontWeight.Black),
                                 color = colores.textoPrincipal,
                                 modifier = Modifier.padding(horizontal = s.xs * 0.75f, vertical = 2.dp)
@@ -160,7 +160,7 @@ fun UsuarioItemCard(
                     }
 
                     Text(
-                        text = "—¢ ${usuario.sucursalNombre}",
+                        text = " ·  ${usuario.sucursalNombre}",
                         style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp),
                         color = colores.textoTerciario,
                         maxLines = 1,

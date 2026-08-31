@@ -106,7 +106,7 @@ class AlertaSuscripcionRepository(
                         AlertaSuscripcionItem(
                             id = obsId,
                             tipo = TipoAlertaSuscripcion.COMPROBANTE_OBSERVADO,
-                            titulo = "──š ï¸ Comprobante Observado por BRIXO",
+                            titulo = "⚠  Comprobante Observado por BRIXO",
                             mensaje = mensajeBrixo,
                             fechaReferencia = "",
                             esPersistente = true,
@@ -117,11 +117,11 @@ class AlertaSuscripcionRepository(
                 }
             }
 
-            // 0c. ACUSE AMBIENTE —” COMPROBANTE EN REVISIí“N (H4 sellado):
+            // 0c. ACUSE AMBIENTE —” COMPROBANTE EN REVISIÓN (H4 sellado):
             // tras cerrar el diálogo de envío, la farmacia SABE que su voucher
             // está vivo en la bandeja de BRIXO, sin abrir Mi Plan a ciegas.
             // Persistente hasta decisión del panel; silencioso en APROBADO
-            // porque esa verdad ya llega por "Plan Renovado con í‰xito".
+            // porque esa verdad ya llega por "Plan Renovado con Éxito".
             if (pagoObs != null && pagoObs.exists()) {
                 val estEnCurso = (pagoObs.getString("estado") ?: "").uppercase()
                 if (estEnCurso == "PENDIENTE" || estEnCurso == "SUBSANADA") {
@@ -148,7 +148,7 @@ class AlertaSuscripcionRepository(
             val planNombreSub = subDoc.getString("planNombre") ?: ""
             val planFirmaActual = "$planIdSub|$planNombreSub"
             // Sello único del evento: cada escritura del panel tiene su updatedAt,
-            // así A──†’B──†’A──†’B avisa en CADA cambio real sin duplicar ni callarse.
+            // así A→B→A→B avisa en CADA cambio real sin duplicar ni callarse.
             val selloEventoMs = subDoc.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
             val planPrevio = ultimoPlanVisto[subDoc.id]
             if (!planPrevio.isNullOrBlank() && planPrevio != planFirmaActual && fFinIdStr.isNotBlank()) {
@@ -174,7 +174,7 @@ class AlertaSuscripcionRepository(
                     AlertaSuscripcionItem(
                         id = "AVISO_48H_$fFinIdStr",
                         tipo = TipoAlertaSuscripcion.AVISO_PREVENTIVO_48H,
-                        titulo = "──š ï¸ Tu Plan Finaliza en ${if (diasRestantesTotal == 0) "pocas horas" else "$diasRestantesTotal días"}",
+                        titulo = "⚠  Tu Plan Finaliza en ${if (diasRestantesTotal == 0) "pocas horas" else "$diasRestantesTotal días"}",
                         mensaje = "Tu vigencia termina el $fFinHumana. Regulariza tu mensualidad con BRIXO para evitar pausas en el servicio.",
                         fechaReferencia = fFinHumana,
                         esPersistente = true,
@@ -184,7 +184,7 @@ class AlertaSuscripcionRepository(
                 )
             }
 
-            // 2. PRí“RROGA DE CORTESíA OTORGADA (Todos los usuarios)
+            // 2. PRÓRROGA DE CORTESÍA OTORGADA (Todos los usuarios)
             if (beneficioTipo == "DIAS_GRATIS" && beneficioValor > 0 && fFinIdStr.isNotBlank()) {
                 candidatas.add(
                     AlertaSuscripcionItem(
@@ -200,7 +200,7 @@ class AlertaSuscripcionRepository(
                 )
             }
 
-            // 3. PAGO / RENOVACIí“N vs BIENVENIDA INICIAL
+            // 3. PAGO / RENOVACIÓN vs BIENVENIDA INICIAL
             if (pagosRealizados > 0 && fFinIdStr.isNotBlank()) {
                 if (esPrimerAlta) {
                     candidatas.add(
@@ -220,7 +220,7 @@ class AlertaSuscripcionRepository(
                         AlertaSuscripcionItem(
                             id = "PAGO_$fFinIdStr",
                             tipo = TipoAlertaSuscripcion.PAGO_EXITOSO,
-                            titulo = "──œ“ ¡Plan Renovado con í‰xito!",
+                            titulo = " ¡Plan Renovado con Éxito!",
                             mensaje = "Tu pago ha sido registrado por BRIXO. Servicio activo hasta el $fFinHumana.",
                             fechaReferencia = fFinHumana,
                             esPersistente = false,
@@ -248,7 +248,7 @@ class AlertaSuscripcionRepository(
                 )
             }
 
-            // 5. AVISO PREVENTIVO 7 DíAS (Solo Admin/Dueño)
+            // 5. AVISO PREVENTIVO 7 DÍAS (Solo Admin/Dueño)
             if (diasRestantesTotal in 3..7 && estado != "vencida" && fFinIdStr.isNotBlank()) {
                 candidatas.add(
                     AlertaSuscripcionItem(

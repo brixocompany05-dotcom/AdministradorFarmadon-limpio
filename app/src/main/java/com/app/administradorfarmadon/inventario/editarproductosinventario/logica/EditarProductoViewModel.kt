@@ -277,6 +277,18 @@ class EditarProductoViewModel(
             return
         }
 
+        // La categoría es OBLIGATORIA: editar nunca puede dejar un producto sin categoría.
+        if (s.categoriaNombre.trim().isBlank()) {
+            _uiState.update {
+                it.copy(
+                    fieldErrors = it.fieldErrors + ("categoria" to "Elige la categoría del producto (es obligatoria)."),
+                    estadoGuardado = EstadoGuardadoEdicion.ERROR,
+                    mensajeErrorGuardado = "Elige la categoría del producto (es obligatoria)."
+                )
+            }
+            return
+        }
+
         if (s.productoExistenteDuplicado != null) {
             _uiState.update {
                 it.copy(

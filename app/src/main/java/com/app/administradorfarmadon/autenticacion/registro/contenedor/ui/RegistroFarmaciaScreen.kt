@@ -204,7 +204,7 @@ fun RegistroFarmaciaScreen(
                 TopAppBar(
                     title = { 
                         Text(
-                            if (state.esCorreccion) "CORRECCIí“N DE EXPEDIENTE" else "REGISTRO",
+                            if (state.esCorreccion) "CORRECCIÓN DE EXPEDIENTE" else "REGISTRO",
                             style = TokensFarmadon.tipografia.etiqueta.copy(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 2.sp
@@ -423,7 +423,7 @@ fun RegistroFarmaciaScreen(
                                             ) {
                                                 Text(
                                                     if (state.esCorreccion && state.camposACorregir.none { it == "planId" || it == "plan" })
-                                                        "ENVIAR CORRECCIí“N"
+                                                        "ENVIAR CORRECCIÓN"
                                                     else
                                                         "CONTINUAR",
                                                     style = TokensFarmadon.tipografia.titulo3.copy(fontWeight = FontWeight.Bold),
@@ -592,7 +592,7 @@ fun CargandoOverlay(
                     }
 
                     Text(
-                        text = if (esCorreccion) "ENVIANDO CORRECCIí“N" else "ENVIANDO SOLICITUD",
+                        text = if (esCorreccion) "ENVIANDO CORRECCIÓN" else "ENVIANDO SOLICITUD",
                         color = TokensFarmadon.colores.textoPrincipal,
                         style = TokensFarmadon.tipografia.etiqueta.copy(
                             fontWeight = FontWeight.Bold,

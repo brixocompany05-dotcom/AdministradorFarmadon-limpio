@@ -5,7 +5,7 @@ import kotlinx.coroutines.tasks.await
 /**
  * Operaciones de lotes —” bloqueo, devolución, canje, anulación y merma. Transacciones atómicas todo-o-nada.
  * Fachada compatibilidad: delega a LotesBloqueoRepository y LotesDevolucionCanjeRepository.
- * Extraído de ProductDetailFirestoreRepository (1.268 líneas) y God Lotes 673 ──†’ 2 repos.
+ * Extraído de ProductDetailFirestoreRepository (1.268 líneas) y God Lotes 673 → 2 repos.
  */
 class LotesOperacionesRepository(
     private val db: com.google.firebase.firestore.FirebaseFirestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
@@ -20,7 +20,7 @@ class LotesOperacionesRepository(
 
     /**
      * PRIORIDAD DE VENTA: define qué lote se consume primero. loteId = null/vacío vuelve a FEFO.
-     * AUDITORíA OBLIGATORIA: dentro de la misma transacción se registra QUIí‰N (email), CON QUí‰
+     * AUDITORÍA OBLIGATORIA: dentro de la misma transacción se registra QUIÉN (email), CON QUÉ
      * ROL, qué lote anterior quedaba y cuál queda ahora —” la decisión nunca es anónima.
      */
     suspend fun definirLotePrioritario(clienteId: String, productId: String, loteId: String?, usuarioRol: String, usuarioEmail: String): Result<Unit> {
@@ -55,7 +55,7 @@ class LotesOperacionesRepository(
                     "actualizadoPor" to usuarioEmail
                 ))
 
-                // Asiento de auditoría atómico: quién, con qué rol, antes ──†’ ahora.
+                // Asiento de auditoría atómico: quién, con qué rol, antes → ahora.
                 tx.set(
                     tiendaRef.collection("auditoria").document(),
                     mapOf(

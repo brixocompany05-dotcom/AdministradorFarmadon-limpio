@@ -65,6 +65,12 @@ class RecepcionMercaderiaEstado(
     var errorGeneral by mutableStateOf<String?>(null)
         private set
 
+    // Al abrir con pago al contado, el monto a pagar se auto-completa (total menos
+    // saldo a favor): el usuario no escribe de más ni de menos por descuido.
+    init {
+        if (condicionPago == "Contado") sincronizarPagoContado()
+    }
+
     /** Métodos REALES de esta sucursal para pagar al proveedor (sin POS: el POS
      * cobra a clientes, no paga proveedores). */
     val opcionesMetodoPago: List<InstanciaPago> = metodosPagoConfigurados
@@ -98,20 +104,41 @@ class RecepcionMercaderiaEstado(
         errorGeneral = null
     }
 
-    fun onCondicionPagoChanged(condicion: String) { condicionPago = condicion }
+    fun onCondicionPagoChanged(condicion: String) {
+        condicionPago = condicion
+        if (condicion == "Contado") sincronizarPagoContado()
+        errorGeneral = null
+    }
     fun onDiasCreditoChanged(dias: Int) { diasCredito = dias }
-    fun onMontoFacturaChanged(valor: String) { montoFacturaManual = valor; errorGeneral = null }
+    fun onMontoFacturaChanged(valor: String) {
+        montoFacturaManual = valor
+        if (condicionPago == "Contado") sincronizarPagoContado()
+        errorGeneral = null
+    }
     fun onMontoPagadoChanged(valor: String) {
         montoPagadoManual = valor
         editorPagos.actualizarMontoMaximo(valor.replace(',', '.').toDoubleOrNull() ?: 0.0)
         errorGeneral = null
     }
-    fun onUsarSaldoAFavorChanged(usar: Boolean) { usarSaldoAFavor = usar; errorGeneral = null }
+    fun onUsarSaldoAFavorChanged(usar: Boolean) {
+        usarSaldoAFavor = usar
+        if (condicionPago == "Contado") sincronizarPagoContado()
+        errorGeneral = null
+    }
     fun onDecisionFaltanteChanged(decision: String) { decisionFaltante = decision }
     fun onErrorMostrado() { errorGeneral = null }
     fun setError(msg: String) { errorGeneral = msg }
 
-    // ──”€──”€ CÁLCULOS EN VIVO ──”€──”€
+    /** Al contado se paga todo al recibir: el monto se auto-completa (total menos saldo a favor). */
+    private fun sincronizarPagoContado() {
+        val auto = liquidacionSaldoAFavor.netoAPagar
+        if (auto > 0.0) {
+            montoPagadoManual = String.format(Locale.US, "%.2f", auto)
+            editorPagos.actualizarMontoMaximo(auto)
+        }
+    }
+
+    // ── CÁLCULOS EN VIVO ──
     val unidadesCompradas: Int get() = items.sumOf { it.cantidadRecibir.toIntOrNull() ?: 0 }
     val unidadesRegalo: Int get() = items.sumOf { it.bonificacionGratis.toIntOrNull() ?: 0 }
     val unidadesRecibidasAntes: Int get() = items.sumOf { it.cantidadPrevia }
@@ -128,7 +155,7 @@ class RecepcionMercaderiaEstado(
     val montoPagadoFinal: Double
         get() = montoPagadoManual.replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 } ?: -1.0
     val liquidacionSaldoAFavor: SaldoAFavorLiquidacion
-        get() = SaldoAFavorCalculo.liquidacion(saldoAFavorDisponible, usarSaldoAFavor, totalFacturaFinal)
+        get() = SaldoAFavorCalculo.liquidacion(saldoAFavorDisponible, usarSaldoAFavor, deudaVivaAntesDePago)
     val saldoAFavorAplicado: Double
         get() = liquidacionSaldoAFavor.aplicado
     val montoPagadoAntes: Double
@@ -136,19 +163,30 @@ class RecepcionMercaderiaEstado(
             ?: pedido.recepciones.filter { it.numeroFactura.trim().equals(numeroFactura.trim(), ignoreCase = true) }.sumOf { it.montoPagado }
     val saldoFacturaAntesDePago: Double
         get() = ((facturaExistente?.montoTotal ?: 0.0) - (facturaExistente?.totalAbonadoReal ?: 0.0)).coerceAtLeast(0.0)
+    /** Deuda viva de ESTA factura antes de pagar hoy: factura nueva = total; factura continuada = saldo pendiente. */
+    val deudaVivaAntesDePago: Double
+        get() = if (facturaExistente != null) saldoFacturaAntesDePago else totalFacturaFinal
+    val esContado: Boolean
+        get() = condicionPago == "Contado"
 
     val hayFaltantes: Boolean get() = items.any { it.tieneFaltante }
     val algoPorRecibir: Boolean get() = items.any { it.totalHoy > 0 }
     val productosConSobrante: Int get() = items.count { it.esSobrante }
+    val itemsConSobrante: List<String>
+        get() = items
+            .filter { (it.cantidadRecibir.toIntOrNull() ?: 0) > it.saldoPendiente }
+            .map { it.productoNombre }
     val lotesRepetidosNuevos: List<String>
         get() = items.mapNotNull { it.loteNumero.trim().uppercase().takeIf { s -> s.isNotBlank() && !indiceLotes.containsKey(s) } }
             .groupingBy { it }.eachCount().filterValues { it > 1 }.keys.toList()
 
-    // ──”€──”€ PREVENCIí“N ACTIVA: el botón se bloquea solo y dice qué falta ──”€──”€
+    // ── PREVENCIÓN ACTIVA: el botón se bloquea solo y dice qué falta ──
     val puedeAsentar: Boolean
         get() = algoPorRecibir && numeroFactura.isNotBlank() && totalFacturaFinal > 0.0 && montoPagadoFinal >= 0.0 &&
-            montoPagadoFinal <= (saldoFacturaAntesDePago + liquidacionSaldoAFavor.netoAPagar + 0.01) &&
+            montoPagadoFinal <= (liquidacionSaldoAFavor.netoAPagar + 0.01) &&
+            (!esContado || montoPagadoFinal >= (liquidacionSaldoAFavor.netoAPagar - 0.01)) &&
             !faltaPlazoCredito &&
+            itemsConSobrante.isEmpty() &&
             (montoPagadoFinal <= 0.0 || editorPagos.cuadra)
     val razonesBloqueo: List<String>
         get() = buildList {
@@ -156,9 +194,11 @@ class RecepcionMercaderiaEstado(
             if (numeroFactura.isBlank()) add("Falta el N° de factura del proveedor")
             if (totalFacturaFinal <= 0.0) add("Escribe el total que aparece en la factura")
             if (montoPagadoFinal < 0.0) add("El pago registrado no es válido")
-            if (montoPagadoFinal > (saldoFacturaAntesDePago + liquidacionSaldoAFavor.netoAPagar + 0.01)) add("El pago supera el saldo de la factura (después del descuento)")
+            if (montoPagadoFinal > (liquidacionSaldoAFavor.netoAPagar + 0.01)) add("El pago supera el saldo de la factura (después del descuento)")
+            if (esContado && montoPagadoFinal >= 0.0 && montoPagadoFinal < (liquidacionSaldoAFavor.netoAPagar - 0.01)) add("Para contado, el pago debe cubrir el total (después del saldo a favor)")
             if (montoPagadoFinal > 0.0 && !editorPagos.cuadra) add("La distribución del pago no cuadra: reparte el monto entre los métodos")
             if (faltaPlazoCredito) add("Elige los días de crédito")
+            if (itemsConSobrante.isNotEmpty()) add("Recibes más de lo pedido en: ${itemsConSobrante.joinToString(", ")}. El máximo es lo que falta del pedido; el exceso solo puede ir en REG.")
         }
     val faltaPlazoCredito: Boolean
         get() = condicionPago == "Crédito" && (diasCredito ?: 0) <= 0 && fechaVencimientoExistente.isNullOrBlank()
