@@ -98,7 +98,8 @@ class SucursalesViewModel @JvmOverloads constructor(
                         _uiState.update {
                             it.copy(
                                 planNombre = infoPlan.planNombre,
-                                maxSucursales = infoPlan.maxSucursales
+                                maxSucursales = infoPlan.maxSucursales,
+                                limiteNoConfigurado = infoPlan.limiteNoConfigurado
                             )
                         }
                     }
@@ -267,6 +268,11 @@ class SucursalesViewModel @JvmOverloads constructor(
 
     fun iniciarNuevaSucursal() {
         val s = _uiState.value
+        // Verdad honesta: si BRIXO no configuró el límite, no se simula un cupo falso.
+        if (s.limiteNoConfigurado) {
+            _uiState.update { it.copy(mensajeError = "El límite de sedes de tu plan no está configurado por BRIXO. Contacta a soporte para habilitarlo.") }
+            return
+        }
         if (!s.puedeCrearMas) {
             _uiState.update { it.copy(mostrarDialogoLimite = true) }
             return
@@ -453,7 +459,10 @@ class SucursalesViewModel @JvmOverloads constructor(
                     e.message?.contains("NOMBRE_DUPLICADO") == true -> "Ya tienes una sede registrada con este nombre."
                     e.message?.contains("DIRECCION_DUPLICADA") == true -> "Ya tienes una sede registrada en esta misma dirección."
                     e.message?.contains("No se encontró") == true -> "No se encontró el registro de la farmacia."
-                    else -> "No se pudo guardar la sede. Revisa tu conexión a internet e intenta de nuevo."
+                    // R9: si el servidor dijo algo concreto (p. ej. reubicación pendiente tras
+                    // eliminar), se muestra SU verdad, nunca un comodín genérico.
+                    else -> e.message?.takeIf { it.isNotBlank() }
+                        ?: "No se pudo guardar la sede. Revisa tu conexión a internet e intenta de nuevo."
                 }
                 _uiState.update {
                     it.copy(
@@ -494,10 +503,12 @@ class SucursalesViewModel @JvmOverloads constructor(
                     )
                 }
             } catch (e: Exception) {
+                // Verdad antes de borrar: si no se pudo verificar quiénes trabajan en la
+                // sede, NO se abre el diálogo (nada se elimina a ciegas ni a medias).
                 _uiState.update {
                     it.copy(
-                        mostrarDialogoEliminar = true,
-                        colaboradoresAsignadosNombres = emptyList()
+                        mensajeError = "No se pudo verificar quiénes trabajan en la sede (${e.message ?: "error de red"}). " +
+                            "No se elimina nada hasta poder confirmarlo. Revisa tu conexión e intenta de nuevo."
                     )
                 }
             }

@@ -32,18 +32,20 @@ service cloud.firestore {
     // --- ÁREA OPERATIVA FARMADON — AISLAMIENTO ESTRICTO POR FARMACIA (R1) ---
     // FarmadonPaths: farmacias/{farmaciaId}/sucursales/{sucursalId}/{inventario,movimientos,...}
     // farmaciaId == uid del dueño (clienteId). Solo su farmacia.
-    // R1 + lógica real: dueño (uid==farmaciaId) O colaborador miembro en usuarios/{uid}
-    // Así el cajero/almacenero entra a su farmacia sin pisar otra.
+    // R1 + lógica real: dueño (uid==farmaciaId) O colaborador con ficha vigente y acceso=true.
+    // La comprobación de acceso es en el SERVIDOR: aunque la tablet de un suspendido
+    // esté sin internet al momento de la suspensión, sus operaciones en cola son
+    // RECHAZADAS al reconectar (cero fantasmas, cero datos que no deban existir).
     match /farmaciapp/app/farmacias/{farmaciaId} {
       allow read, write: if request.auth != null && (
         request.auth.uid == farmaciaId ||
-        exists(/databases/$(database)/documents/farmaciapp/app/farmacias/$(farmaciaId)/usuarios/$(request.auth.uid))
+        get(/databases/$(database)/documents/farmaciapp/app/farmacias/$(farmaciaId)/usuarios/$(request.auth.uid)).data.acceso == true
       );
     }
     match /farmaciapp/app/farmacias/{farmaciaId}/{path=**} {
       allow read, write: if request.auth != null && (
         request.auth.uid == farmaciaId ||
-        exists(/databases/$(database)/documents/farmaciapp/app/farmacias/$(farmaciaId)/usuarios/$(request.auth.uid))
+        get(/databases/$(database)/documents/farmaciapp/app/farmacias/$(farmaciaId)/usuarios/$(request.auth.uid)).data.acceso == true
       );
     }
 

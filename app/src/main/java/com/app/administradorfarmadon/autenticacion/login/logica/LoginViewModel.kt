@@ -454,7 +454,10 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         cargando = false,
                         estadoPantalla = LoginScreenState.ACCESO_RESTRINGIDO,
-                        mensajeRestringido = "Tu acceso fue suspendido por la administración de la farmacia."
+                        mensajeRestringido = if (userDoc.getBoolean("dadoDeBaja") == true)
+                            "Tu ficha fue dada de baja por la administración de la farmacia."
+                        else
+                            "Tu acceso fue suspendido por la administración de la farmacia. Contacta a la administración para reactivarlo."
                     )
                 }
                 return PuertaResultado.ACCESO_REVOCADO

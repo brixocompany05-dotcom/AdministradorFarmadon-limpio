@@ -175,7 +175,12 @@ class PantallaPrincipal : AppCompatActivity() {
                                     is com.app.administradorfarmadon.autenticacion.login.logica.LoginViewModel.ResultadoVerificacionPostLogin.AccesoRevocado -> {
                                         auth.signOut()
                                         SessionManager.limpiarSesion(this@PantallaPrincipal)
-                                        loginViewModel.mostrarAccesoSuspendido("Tu acceso fue suspendido por la administración de la farmacia.")
+                                        loginViewModel.mostrarAccesoSuspendido(
+                                            if (userDoc.getBoolean("dadoDeBaja") == true)
+                                                "Tu ficha fue dada de baja por la administración de la farmacia."
+                                            else
+                                                "Tu acceso fue suspendido por la administración de la farmacia. Contacta a la administración para reactivarlo."
+                                        )
                                         estadoApp = EstadoApp.NoAutenticado
                                     }
                                     is com.app.administradorfarmadon.autenticacion.login.logica.LoginViewModel.ResultadoVerificacionPostLogin.PerfilEnProceso -> {
@@ -271,7 +276,12 @@ class PantallaPrincipal : AppCompatActivity() {
                                 auth.signOut()
                                 SessionManager.limpiarSesion(this@PantallaPrincipal)
                                 if (clienteId.isNotBlank()) {
-                                    loginViewModel.mostrarAccesoSuspendido("Tu acceso fue suspendido por la administración de la farmacia.")
+                                    loginViewModel.mostrarAccesoSuspendido(
+                                        if (userSnap.getBoolean("dadoDeBaja") == true)
+                                            "Tu ficha fue dada de baja por la administración de la farmacia."
+                                        else
+                                            "Tu acceso fue suspendido por la administración de la farmacia. Contacta a la administración para reactivarlo."
+                                    )
                                 } else {
                                     loginViewModel.volverALogin()
                                 }

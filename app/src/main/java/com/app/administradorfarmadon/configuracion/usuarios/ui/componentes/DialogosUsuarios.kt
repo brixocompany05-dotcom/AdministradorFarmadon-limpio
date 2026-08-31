@@ -223,7 +223,6 @@ fun DialogoConfirmarEliminarUsuario(
                     value = motivo,
                     onValueChange = { if (it.length <= 200) onMotivoChange(it) },
                     label = { Text("Motivo de la baja (obligatorio)", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = s.textLabel.value.sp)) },
-                    placeholder = { Text("Ej: Renuncia voluntaria / fin de contrato", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp)) },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )

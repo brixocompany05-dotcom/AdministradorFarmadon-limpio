@@ -29,6 +29,7 @@ fun PlanCapacidadBanner(
     maxSucursales: Int,
     porcentaje: Float,
     puedeCrearMas: Boolean,
+    limiteNoConfigurado: Boolean = false,
     modifier: Modifier = Modifier,
     s: MedidaAdaptativa = recordarMedidaAdaptativa()
 ) {
@@ -72,16 +73,29 @@ fun PlanCapacidadBanner(
                     )
                 }
 
-                Text(
-                    text = "$totalSucursales / $maxSucursales",
-                    style = TokensFarmadon.tipografia.etiqueta.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = s.textLabel.value.sp
-                    ),
-                    color = colores.textoPrincipal
-                )
+                if (limiteNoConfigurado) {
+                    // Cero cupo falso: se dice la verdad de lo que existe.
+                    Text(
+                        text = "Límite de sedes no configurado por BRIXO",
+                        style = TokensFarmadon.tipografia.etiqueta.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = s.textLabel.value.sp
+                        ),
+                        color = colores.estadoAlerta
+                    )
+                } else {
+                    Text(
+                        text = "$totalSucursales / $maxSucursales",
+                        style = TokensFarmadon.tipografia.etiqueta.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = s.textLabel.value.sp
+                        ),
+                        color = colores.textoPrincipal
+                    )
+                }
             }
 
+            if (!limiteNoConfigurado) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -96,6 +110,7 @@ fun PlanCapacidadBanner(
                         .clip(CircleShape)
                         .background(FDColors.TextPrimary)
                 )
+            }
             }
         }
     }

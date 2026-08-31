@@ -223,6 +223,7 @@ fun SucursalesScreen(
                     maxSucursales = state.maxSucursales,
                     porcentaje = state.porcentajeOcupado,
                     puedeCrearMas = state.puedeCrearMas,
+                    limiteNoConfigurado = state.limiteNoConfigurado,
                     s = s
                 )
 

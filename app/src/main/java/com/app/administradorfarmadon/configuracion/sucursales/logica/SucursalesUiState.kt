@@ -11,6 +11,8 @@ data class SucursalesUiState(
     val clienteId: String = "",
     val planNombre: String = "Plan Estándar",
     val maxSucursales: Int = 1,
+    // Verdad honesta: BRIXO no escribió el límite de sedes en la suscripción.
+    val limiteNoConfigurado: Boolean = false,
 
     val cargando: Boolean = true,
     val guardando: Boolean = false,
@@ -50,7 +52,7 @@ data class SucursalesUiState(
         }
     }
 
-    val puedeCrearMas: Boolean get() = totalSucursales < maxSucursales
+    val puedeCrearMas: Boolean get() = !limiteNoConfigurado && totalSucursales < maxSucursales
     val porcentajeOcupado: Float get() = if (maxSucursales > 0) (totalSucursales.toFloat() / maxSucursales.toFloat()).coerceIn(0f, 1f) else 1f
 
     /** Métodos marcados que NO podrán copiarse porque la principal no los tiene configurados. */

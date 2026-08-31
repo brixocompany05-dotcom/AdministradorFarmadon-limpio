@@ -11,6 +11,7 @@ import com.app.administradorfarmadon.configuracion.metodospago.datos.SucursalCat
 import com.app.administradorfarmadon.configuracion.metodospago.modelo.InstanciaPago
 import com.app.administradorfarmadon.configuracion.metodospago.modelo.TIPOS_PAGO_FIJOS
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 /**
@@ -33,6 +34,10 @@ class MetodosPagoViewModel(
     var mensajeError by mutableStateOf<String?>(null)
         private set
     var mensajeExito by mutableStateOf<String?>(null)
+        private set
+
+    /** Error real de carga (red/permisos). No es lo mismo que una lista vacía. */
+    var errorCarga by mutableStateOf<String?>(null)
         private set
 
     /** Lista de sucursales de la farmacia (para el selector del administrador). */
@@ -61,14 +66,20 @@ class MetodosPagoViewModel(
     private fun iniciarObservacionSucursales() {
         jobSucursales?.cancel()
         jobSucursales = viewModelScope.launch {
-            repository.observarSucursales().collect { lista ->
-                sucursales = lista
-                // Si la sucursal configurada ya no existe (fue eliminada), se cae a la principal.
-                val actual = sucursalConfiguradaId
-                if (actual != null && actual != "principal" && lista.isNotEmpty() && lista.none { it.id == actual }) {
-                    seleccionarSucursal("principal")
+            repository.observarSucursales()
+                .catch { e ->
+                    // Verdad, no silencio (R9): la falla se muestra y tiene salida con Reintentar.
+                    errorCarga = "No se pudieron cargar las sucursales: ${e.message ?: "error de red"}"
                 }
-            }
+                .collect { lista ->
+                    sucursales = lista
+                    errorCarga = null
+                    // Si la sucursal configurada ya no existe (fue eliminada), se cae a la principal.
+                    val actual = sucursalConfiguradaId
+                    if (actual != null && actual != "principal" && lista.isNotEmpty() && lista.none { it.id == actual }) {
+                        seleccionarSucursal("principal")
+                    }
+                }
         }
     }
 
@@ -76,11 +87,24 @@ class MetodosPagoViewModel(
         jobMetodos?.cancel()
         cargando = true
         jobMetodos = viewModelScope.launch {
-            repository.observarMetodosPago(sucursalId).collect { lista ->
-                instancias = lista
-                cargando = false
-            }
+            repository.observarMetodosPago(sucursalId)
+                .catch { e ->
+                    cargando = false
+                    errorCarga = "No se pudieron cargar los métodos de pago: ${e.message ?: "error de red"}"
+                }
+                .collect { lista ->
+                    instancias = lista
+                    cargando = false
+                    errorCarga = null
+                }
         }
+    }
+
+    /** Reintenta la carga tras un fallo de red o permisos (R3: todo error tiene salida). */
+    fun reintentarCarga() {
+        errorCarga = null
+        iniciarObservacionSucursales()
+        iniciarObservacionMetodos(sucursalConfiguradaId ?: "principal")
     }
 
     /** El administrador elige qué sucursal configurar. Cada una tiene sus propios métodos. */

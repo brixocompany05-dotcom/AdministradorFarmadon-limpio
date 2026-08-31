@@ -37,6 +37,9 @@ class UsuariosViewModel @JvmOverloads constructor(
     private var accionPendienteVolver: (() -> Unit)? = null
     private var observadoresJob: kotlinx.coroutines.Job? = null
 
+    // Escuchas del plan de herramientas: cada una con dueno y removidas al salir o reintentar.
+    private val registrosEscuchaHerramientas = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+
     init {
         iniciarObservadores()
     }
@@ -143,6 +146,9 @@ class UsuariosViewModel @JvmOverloads constructor(
     private var planNombreCache: String = ""
 
     private suspend fun observarHerramientasDelPlan(clienteId: String) {
+        // Reintento seguro: primero se apagan las escuchas anteriores (cero duplicados).
+        registrosEscuchaHerramientas.forEach { it.remove() }
+        registrosEscuchaHerramientas.clear()
         if (clienteId.isBlank()) {
             _uiState.update { it.copy(herramientasPlan = emptyList(), cargandoHerramientas = false) }
             return
@@ -160,7 +166,11 @@ class UsuariosViewModel @JvmOverloads constructor(
                     CatalogoHerramienta(id = doc.id, modulo = doc.getString("modulo") ?: doc.id, nombre = nombre, categoria = doc.getString("categoria") ?: "OTROS", orden = doc.getDouble("orden")?.toInt() ?: 0, icono = doc.getString("icono") ?: "", estado = doc.getString("estado") ?: "activo", hijos = hijos)
                 }
             }
-        } catch (_: Exception) { catalogoHerramientas = emptyList() }
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo leer el catalogo de herramientas: ${e.message}", e)
+            catalogoHerramientas = emptyList()
+            _uiState.update { it.copy(errorHerramientas = true, cargandoHerramientas = false) }
+        }
 
         // Listener suscripción + farmacia en vivo (simplificado con snapshot listeners)
         val susRef = FarmadonFirestore.db.collection("farmaciapp").document("app").collection("farmacias").document(clienteId).collection("suscripciones").limit(1)
@@ -176,7 +186,10 @@ class UsuariosViewModel @JvmOverloads constructor(
             @Suppress("UNCHECKED_CAST")
             overridesClienteHerramientas = (farmSnap.get("featureOverrides") as? Map<String, Boolean>) ?: emptyMap()
             if (planNombreCache.isBlank()) planNombreCache = farmSnap.getString("planNombre") ?: farmSnap.getString("plan") ?: "Plan Contratado"
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo leer la suscripcion del plan: ${e.message}", e)
+            _uiState.update { it.copy(errorHerramientas = true, cargandoHerramientas = false) }
+        }
 
         fun resolverYActualizar() {
             // CONTRATO CONGELADO: sin features pactadas no se hereda todo el catálogo.
@@ -196,9 +209,16 @@ class UsuariosViewModel @JvmOverloads constructor(
         }
         resolverYActualizar()
 
-        // Escuchas vivas para que selector se repinte si BRIXO cambia plan
+        // Escuchas vivas para que selector se repinte si BRIXO cambia plan.
+        // Cada registro se guarda con dueno: se remueven al salir de la pantalla o al reintentar,
+        // para que la app no siga consumiendo datos de Firebase despues de cerrar (R8).
         try {
-            EcosistemaPaths.herramientasPlan(dbHerramientas).whereEqualTo("estado", "activo").addSnapshotListener { snap, _ ->
+            registrosEscuchaHerramientas += EcosistemaPaths.herramientasPlan(dbHerramientas).whereEqualTo("estado", "activo").addSnapshotListener { snap, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error escuchando catalogo de herramientas: ${error.message}", error)
+                    _uiState.update { it.copy(errorHerramientas = true, cargandoHerramientas = false) }
+                    return@addSnapshotListener
+                }
                 catalogoHerramientas = snap?.documents?.mapNotNull { doc ->
                     val nombre = doc.getString("nombre") ?: return@mapNotNull null
                     if (nombre.isBlank()) return@mapNotNull null
@@ -206,22 +226,53 @@ class UsuariosViewModel @JvmOverloads constructor(
                     val hijos = (doc.get("hijos") as? List<Map<String, Any?>>)?.mapNotNull { h -> CatalogoHijo(h["clave"] as? String ?: "", h["nombre"] as? String ?: "", (h["activo"] as? Boolean) ?: true) } ?: emptyList()
                     CatalogoHerramienta(doc.id, doc.getString("modulo") ?: doc.id, nombre, doc.getString("categoria") ?: "OTROS", doc.getDouble("orden")?.toInt() ?: 0, doc.getString("icono") ?: "", doc.getString("estado") ?: "activo", hijos)
                 } ?: emptyList()
+                _uiState.update { it.copy(errorHerramientas = false) }
                 resolverYActualizar()
             }
-            susRef.addSnapshotListener { snap, _ ->
+            registrosEscuchaHerramientas += susRef.addSnapshotListener { snap, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error escuchando suscripcion del plan: ${error.message}", error)
+                    _uiState.update { it.copy(errorHerramientas = true, cargandoHerramientas = false) }
+                    return@addSnapshotListener
+                }
                 val doc = snap?.documents?.firstOrNull()
                 @Suppress("UNCHECKED_CAST")
                 featuresPlanHerramientas = (doc?.get("planHerramientasContratadas") as? List<String>)?.toSet() ?: emptySet()
                 planNombreCache = doc?.getString("planNombre") ?: planNombreCache
+                _uiState.update { it.copy(errorHerramientas = false) }
                 resolverYActualizar()
             }
-            farmRef.addSnapshotListener { snap, _ ->
+            registrosEscuchaHerramientas += farmRef.addSnapshotListener { snap, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error escuchando overrides de la farmacia: ${error.message}", error)
+                    _uiState.update { it.copy(errorHerramientas = true, cargandoHerramientas = false) }
+                    return@addSnapshotListener
+                }
                 @Suppress("UNCHECKED_CAST")
                 overridesClienteHerramientas = (snap?.get("featureOverrides") as? Map<String, Boolean>) ?: emptyMap()
                 if (planNombreCache.isBlank()) planNombreCache = snap?.getString("planNombre") ?: snap?.getString("plan") ?: planNombreCache
+                _uiState.update { it.copy(errorHerramientas = false) }
                 resolverYActualizar()
             }
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudieron abrir las escuchas del plan: ${e.message}", e)
+            _uiState.update { it.copy(errorHerramientas = true, cargandoHerramientas = false) }
+        }
+    }
+
+    /** Reintenta la carga del plan contratado tras un fallo de red o permisos (R3: todo error tiene salida). */
+    fun reintentarHerramientas() {
+        val clienteId = _uiState.value.clienteId
+        if (clienteId.isBlank()) return
+        _uiState.update { it.copy(cargandoHerramientas = true, errorHerramientas = false) }
+        viewModelScope.launch { observarHerramientasDelPlan(clienteId) }
+    }
+
+    override fun onCleared() {
+        registrosEscuchaHerramientas.forEach { it.remove() }
+        registrosEscuchaHerramientas.clear()
+        observadoresJob?.cancel()
+        super.onCleared()
     }
 
     fun solicitarSeleccionarUsuario(usuario: UsuarioFarmacia) {
@@ -673,6 +724,9 @@ class UsuariosViewModel @JvmOverloads constructor(
     }
 
     fun aplicarDominioEmail(dominio: String) {
+        // Candado: el dominio solo aplica en creación. En edición el correo de acceso
+        // es la identidad real del colaborador y no se toca desde esta pantalla.
+        if (!_uiState.value.esModoCreacion) return
         _uiState.update { currentState ->
             val actual = currentState.formEmail.trim()
             val usuarioParte = if (actual.contains("@")) {

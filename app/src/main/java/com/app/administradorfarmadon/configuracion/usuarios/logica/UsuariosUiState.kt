@@ -43,6 +43,8 @@ data class UsuariosUiState(
     val herramientasPlan: List<ModuloResuelto> = emptyList(),
     val planNombre: String = "",
     val cargandoHerramientas: Boolean = true,
+    // Verdad honesta: si la lectura del plan fallo, no es lo mismo que "no contrato nada" (R3)
+    val errorHerramientas: Boolean = false,
     // Selector por usuario: qué módulos opera este usuario (solo los del plan)
     val formPermisosModulos: Map<String, Boolean> = emptyMap()
 ) {

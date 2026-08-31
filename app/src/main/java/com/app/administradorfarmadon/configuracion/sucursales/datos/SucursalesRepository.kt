@@ -13,6 +13,7 @@ import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
@@ -21,7 +22,10 @@ import java.util.UUID
 data class InfoPlanCliente(
     val planId: String = "",
     val planNombre: String = "Plan Estándar",
-    val maxSucursales: Int = 1
+    val maxSucursales: Int = 1,
+    // Verdad honesta: la suscripción existe pero BRIXO no escribió el límite.
+    // La app no inventa un "1/1": muestra que falta configuración del panel central.
+    val limiteNoConfigurado: Boolean = false
 )
 
 class SucursalesRepository(
@@ -56,10 +60,14 @@ class SucursalesRepository(
         var planId = ""
         var planNombre = "Plan Estándar"
         var maxSucursalesSub: Int? = null
+        var subDocumentoExiste = false
 
         fun emitir() {
             val maxFinal = maxSucursalesSub ?: 1
-            trySend(InfoPlanCliente(planId = planId, planNombre = planNombre, maxSucursales = maxFinal))
+            // Si hay suscripción pero sin límite escrito, se reporta como no configurado
+            // (sin suscripción alguna se mantiene el 1 cerrado: fail-closed honesto).
+            val limiteNoConfigurado = subDocumentoExiste && maxSucursalesSub == null
+            trySend(InfoPlanCliente(planId = planId, planNombre = planNombre, maxSucursales = maxFinal, limiteNoConfigurado = limiteNoConfigurado))
         }
 
         val farmaciaListener = SucursalesPaths.farmacia(db, clienteId)
@@ -83,6 +91,7 @@ class SucursalesRepository(
                     return@addSnapshotListener
                 }
                 val subDoc = subSnapshot?.documents?.firstOrNull()
+                subDocumentoExiste = subDoc != null
                 maxSucursalesSub = (subDoc?.getLong("maxSucursalesAlContratar") ?: 0L).toInt().takeIf { it > 0 }
                 emitir()
             }
@@ -507,29 +516,45 @@ class SucursalesRepository(
             tx.set(auditGlobalRef, auditData)
             tx.set(auditLocalRef, auditData)
         }.await()
-        // Compensación eventual: si un colaborador fue asignado a esta sede justo
-        // entre la query previa y la tx, quedaría huérfano. Lo reubicamos best-effort
-        // sin trabar el borrado (no afecta atomicidad, solo higiene operativa).
-        try {
-            val huerfanos = SucursalesPaths.usuarios(db, clienteId)
-                .whereEqualTo("sucursalId", sucursalId).get().await()
-            if (!huerfanos.isEmpty) {
-                val batch = db.batch()
-                huerfanos.documents.forEach { d ->
-                    batch.update(d.reference, mapOf(
-                        "sucursalId" to "todas",
-                        "sucursalNombre" to "Todas las Sedes (Itinerante)",
-                        "actualizadoEn" to FieldValue.serverTimestamp()
-                    ))
-                    val gRef = SucursalesPaths.usuariosFarmacia(db).document(d.id)
-                    batch.set(gRef, mapOf(
-                        "sucursalId" to "todas",
-                        "sucursalNombre" to "Todas las Sedes (Itinerante)",
-                        "updatedAt" to FieldValue.serverTimestamp()
-                    ), com.google.firebase.firestore.SetOptions.merge())
+        // Cierre del todo-o-nada: ningún colaborador puede quedar apuntando a una sede
+        // que ya no existe (ni siquiera por un alta simultánea durante el borrado).
+        // Se reintenta; si no cierra, se grita la verdad: jamás silencio ni éxito falso (R3/R9).
+        var reubicacionCerrada = false
+        repeat(3) { intento ->
+            if (!reubicacionCerrada) {
+                try {
+                    val huerfanos = SucursalesPaths.usuarios(db, clienteId)
+                        .whereEqualTo("sucursalId", sucursalId).get().await()
+                    if (!huerfanos.isEmpty) {
+                        val batch = db.batch()
+                        huerfanos.documents.forEach { d ->
+                            batch.update(d.reference, mapOf(
+                                "sucursalId" to "todas",
+                                "sucursalNombre" to "Todas las Sedes (Itinerante)",
+                                "actualizadoEn" to FieldValue.serverTimestamp()
+                            ))
+                            val gRef = SucursalesPaths.usuariosFarmacia(db).document(d.id)
+                            batch.set(gRef, mapOf(
+                                "sucursalId" to "todas",
+                                "sucursalNombre" to "Todas las Sedes (Itinerante)",
+                                "updatedAt" to FieldValue.serverTimestamp()
+                            ), com.google.firebase.firestore.SetOptions.merge())
+                        }
+                        batch.commit().await()
+                    }
+                    reubicacionCerrada = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Reubicación post-borrado: intento ${intento + 1} falló: ${e.message}", e)
+                    if (intento < 2) delay(1500)
                 }
-                batch.commit().await()
             }
-        } catch (_: Exception) { /* higiene best-effort, no tumba borrado */ }
+        }
+        if (!reubicacionCerrada) {
+            throw IllegalStateException(
+                "La sede fue eliminada, pero no se pudo confirmar la reubicación de colaboradores por un fallo de red. " +
+                    "Nada quedó oculto: abre la pantalla Personal y confirma que nadie siga en la sede eliminada; " +
+                    "si el problema persiste, contacta a soporte BRIXO."
+            )
+        }
     }
 }

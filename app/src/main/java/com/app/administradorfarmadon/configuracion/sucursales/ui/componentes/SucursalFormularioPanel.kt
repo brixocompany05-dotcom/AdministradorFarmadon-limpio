@@ -288,7 +288,7 @@ fun SucursalFormularioPanel(
                                             label = "Nombre de la Sede",
                                             value = state.formNombre,
                                             icon = Icons.Default.Storefront,
-                                            placeholder = "Ej. Farmacia Farmadon - Principal",
+                                            placeholder = "Nombre comercial de la sede",
                                             errorText = state.formErrores["nombre"],
                                             onValueChange = { onFieldChanged("nombre", it) })
 
@@ -818,7 +818,7 @@ fun SucursalFormularioPanel(
                             label = "Nombre de la Sede",
                             value = state.formNombre,
                             icon = Icons.Default.Storefront,
-                            placeholder = "Ej. Farmacia Farmadon - Principal",
+                            placeholder = "Nombre comercial de la sede",
                             errorText = state.formErrores["nombre"],
                             onValueChange = { onFieldChanged("nombre", it) })
 

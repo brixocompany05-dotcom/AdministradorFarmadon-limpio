@@ -10,6 +10,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
@@ -286,6 +287,15 @@ class UsuariosRepository(
                 throw IllegalArgumentException("Este teléfono ya está registrado con otro colaborador.")
             }
 
+            // Candado de sede viva: nadie nace ni se edita apuntando a una sede que no
+            // existe. Así jamás queda un colaborador mal ubicado tras una eliminación.
+            if (sucursalId.isNotBlank() && sucursalId != "todas") {
+                val sedeSnap = tx.get(UsuariosPaths.sucursales(db, clienteId).document(sucursalId))
+                if (!sedeSnap.exists()) {
+                    throw IllegalArgumentException("La sede seleccionada ya no existe. Elige otra sede para el colaborador.")
+                }
+            }
+
             val docSubRef = subcoleccionRef.document(finalId)
             val docGlobalRef = globalUsuariosRef.document(finalId)
 
@@ -398,11 +408,30 @@ class UsuariosRepository(
             // para no atrapar el correo del candidato para siempre (Regla R3).
             if (esCreacion && credencialCreada != null) {
                 val llaveRecienNacida = credencialCreada
-                try {
-                    llaveRecienNacida.delete().await()
-                    Log.w(TAG, "U2 Rollback de acceso aplicado para $emailFinal tras fallo de guardado")
-                } catch (delEx: Exception) {
-                    Log.e(TAG, "CRÍTICO U2: no se pudo revertir la llave de $emailFinal; queda huérfana y requerirá soporte.", delEx)
+                var llaveRevertida = false
+                // Reintentos acotados: Firebase decide la conectividad (R11). No se abandona
+                // la llave a la primera falla de red: todo-o-nada también en el rollback.
+                repeat(3) { intento ->
+                    if (!llaveRevertida) {
+                        try {
+                            llaveRecienNacida.delete().await()
+                            llaveRevertida = true
+                            Log.w(TAG, "U2 Rollback de acceso aplicado para $emailFinal tras fallo de guardado")
+                        } catch (delEx: Exception) {
+                            Log.e(TAG, "U2: intento ${intento + 1} de revertir la llave de $emailFinal falló", delEx)
+                            if (intento < 2) delay(1200)
+                        }
+                    }
+                }
+                if (!llaveRevertida) {
+                    // Verdad completa (R9): la ficha NO se guardó y el acceso NO pudo
+                    // cancelarse. Se informa tal cual, con el siguiente paso concreto.
+                    Log.e(TAG, "CRÍTICO U2: llave de $emailFinal quedó huérfana tras 3 intentos.")
+                    throw IllegalStateException(
+                        "La ficha no se pudo guardar y el acceso de $emailFinal no se pudo cancelar automáticamente. " +
+                            "Nada quedó guardado en la farmacia, pero el correo queda reservado: " +
+                            "reintenta en unos minutos; si vuelve a pasar, contacta a soporte BRIXO."
+                    )
                 }
             }
             throw e

@@ -415,6 +415,7 @@ fun UsuariosScreen(
                         onAccesoChanged = viewModel::onAccesoChanged,
                         onPermisoModuloChanged = viewModel::onPermisoModuloChanged,
                         onToggleTodosPermisos = viewModel::onToggleTodosPermisos,
+                        onReintentarHerramientas = { viewModel.reintentarHerramientas() },
                         onGuardar = { viewModel.guardarUsuario() },
                         onSolicitarSuspender = { viewModel.solicitarSuspender() },
                         onSolicitarEliminar = { viewModel.solicitarEliminar() },

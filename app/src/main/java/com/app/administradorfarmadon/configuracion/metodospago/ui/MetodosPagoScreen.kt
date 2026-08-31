@@ -331,6 +331,33 @@ fun MetodosPagoScreen(
                 }
             }
 
+            if (viewModel.errorCarga != null) {
+                // Verdad visible: la falla real de carga, con salida (R3/R9).
+                Surface(
+                    color = colores.estadoPeligro.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(s.radiusCard * 0.75f),
+                    border = BorderStroke(s.borderWidth, colores.estadoPeligro.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(s.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(s.sm)
+                    ) {
+                        Icon(Icons.Default.WarningAmber, null, tint = colores.estadoPeligro, modifier = Modifier.size(s.iconSmall))
+                        Text(
+                            text = viewModel.errorCarga ?: "",
+                            style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp),
+                            color = colores.textoPrincipal,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { viewModel.reintentarCarga() }) {
+                            Text("REINTENTAR", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp), color = colores.estadoPeligro)
+                        }
+                    }
+                }
+            }
+
             // ── Área de trabajo: riel de tipos (izquierda) + detalle (derecha) ──
             Row(
                 modifier = Modifier

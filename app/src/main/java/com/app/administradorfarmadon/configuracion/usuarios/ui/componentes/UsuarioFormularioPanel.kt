@@ -44,6 +44,7 @@ fun UsuarioFormularioPanel(
     onAccesoChanged: (Boolean) -> Unit,
     onPermisoModuloChanged: (String, Boolean) -> Unit = { _, _ -> },
     onToggleTodosPermisos: (Boolean) -> Unit = {},
+    onReintentarHerramientas: () -> Unit = {},
     onGuardar: () -> Unit,
     onSolicitarSuspender: () -> Unit,
     onSolicitarEliminar: () -> Unit,
@@ -155,24 +156,24 @@ fun UsuarioFormularioPanel(
                                     Text("Verificamos identidad con DNI y correo único en todo el ecosistema.", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp * 0.92f), color = colores.textoSecundario, modifier = Modifier.weight(1f))
                                 }
                             }
-                            ExecutiveInput(s = s, label = "Nombre completo", value = state.formNombre, icon = Icons.Default.Person, placeholder = "Ej. María López", errorText = state.formErrores["nombre"], onValueChange = { onFieldChanged("nombre", it) })
+                            ExecutiveInput(s = s, label = "Nombre completo", value = state.formNombre, icon = Icons.Default.Person, placeholder = "Nombre y apellidos", errorText = state.formErrores["nombre"], onValueChange = { onFieldChanged("nombre", it) })
                             Row(horizontalArrangement = Arrangement.spacedBy(s.sm)) {
                                 Box(modifier = Modifier.weight(1f)) {
                                     ExecutiveInput(s = s, label = "DNI / Documento", value = state.formDni, icon = Icons.Default.Badge, placeholder = "8 a 12 dígitos", keyboardType = KeyboardType.Number, errorText = state.formErrores["dni"], onValueChange = { onFieldChanged("dni", it) })
                                 }
                                 Box(modifier = Modifier.weight(1f)) {
-                                    ExecutiveInput(s = s, label = "Teléfono móvil", value = state.formTelefono, icon = Icons.Default.Phone, placeholder = "987 654 321", keyboardType = KeyboardType.Phone, errorText = state.formErrores["telefono"], onValueChange = { onFieldChanged("telefono", it) })
+                                    ExecutiveInput(s = s, label = "Teléfono móvil", value = state.formTelefono, icon = Icons.Default.Phone, placeholder = "9 dígitos", keyboardType = KeyboardType.Phone, errorText = state.formErrores["telefono"], onValueChange = { onFieldChanged("telefono", it) })
                                 }
                             }
                             var menuDominioExpandido by remember { mutableStateOf(false) }
                             val dominios = listOf("@gmail.com", "@outlook.com", "@hotmail.com", "@yahoo.com")
                             ExecutiveInput(
                                 s = s, label = "Correo electrónico (único para acceso)", value = state.formEmail, icon = Icons.Default.Email,
-                                placeholder = "usuario@dominio.com", keyboardType = KeyboardType.Email, errorText = state.formErrores["email"],
+                                placeholder = "correo del colaborador", keyboardType = KeyboardType.Email, errorText = state.formErrores["email"], readOnly = !state.esModoCreacion,
                                 onValueChange = { onFieldChanged("email", it) },
                                 trailing = {
                                     Box {
-                                        TextButton(onClick = { menuDominioExpandido = true }, contentPadding = PaddingValues(horizontal = s.xs)) {
+                                        TextButton(onClick = { menuDominioExpandido = true }, enabled = state.esModoCreacion, contentPadding = PaddingValues(horizontal = s.xs)) {
                                             Text("@", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Bold), color = colores.textoPrincipal)
                                         }
                                         DropdownMenu(expanded = menuDominioExpandido, onDismissRequest = { menuDominioExpandido = false }) {
@@ -183,6 +184,13 @@ fun UsuarioFormularioPanel(
                                     }
                                 }
                             )
+                            if (!state.esModoCreacion) {
+                                Text(
+                                    "El correo de acceso no se edita aquí: es la identidad con la que el colaborador entra al sistema. Para recuperar la clave usa «Restablecer acceso» en la pestaña SEGURIDAD.",
+                                    style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textLabel.value.sp * 0.92f),
+                                    color = colores.textoTerciario
+                                )
+                            }
                         }
                         1 -> {
                             // Banner plan — tokens, cero Color.White
@@ -379,7 +387,22 @@ fun UsuarioFormularioPanel(
                             }
                         }
                         if (state.herramientasPlan.isEmpty()) {
-                            Text(if (state.cargandoHerramientas) "Cargando…" else "Sin herramientas por plan", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp), color = colores.textoTerciario)
+                            if (state.cargandoHerramientas) {
+                                Text("Cargando…", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp), color = colores.textoTerciario)
+                            } else if (state.errorHerramientas) {
+                                Column(verticalArrangement = Arrangement.spacedBy(s.xs * 0.5f)) {
+                                    Text(
+                                        "No se pudo cargar el plan contratado (revisa tu conexión).",
+                                        style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp),
+                                        color = colores.estadoPeligro
+                                    )
+                                    TextButton(onClick = onReintentarHerramientas, contentPadding = PaddingValues(0.dp)) {
+                                        Text("Reintentar", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = s.textLabel.value.sp, fontWeight = FontWeight.Bold), color = colores.textoPrincipal)
+                                    }
+                                }
+                            } else {
+                                Text("Sin herramientas por plan", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp), color = colores.textoTerciario)
+                            }
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(s.xs * 0.7f)) {
                                 state.herramientasPlan.take(6).forEach { m ->
