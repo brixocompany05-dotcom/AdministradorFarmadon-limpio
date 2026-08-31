@@ -83,6 +83,13 @@ class LotesDevolucionCanjeRepository(
                 if (!snap.exists()) throw Exception("El producto no existe.")
                 if (tx.get(movimientoRef).exists()) return@runTransaction
 
+                // ══ FASE DE LECTURAS (Firestore: TODAS las lecturas antes de cualquier
+                // escritura — un get posterior abortaría la devolución completa) ══
+                val snapFacturaPrevio = facturaRef?.let { tx.get(it) }
+                val provRefDev = if (snapFacturaPrevio != null && snapFacturaPrevio.exists() && lote.proveedorId.isNotBlank())
+                    tiendaRef.collection("proveedores").document(lote.proveedorId) else null
+                val provSnapDev = provRefDev?.let { tx.get(it) }
+
                 val lotesMap = (snap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
                 val res2 = FechaVencimientoHelper.resolverLote(lotesMap, lote.numero) ?: throw Exception("El lote no se encuentra en el inventario.")
                 val (cleanKeyReal, loteData) = res2
@@ -182,7 +189,9 @@ class LotesDevolucionCanjeRepository(
                 //    (ajustesFactura, que Cuentas por Pagar lee) y suma el "saldo a favor" del proveedor
                 //    (plata que la droguería nos debe). Todo en la misma transacción, jamás en silencio.
                 if (facturaRef != null) {
-                    val snapFactura = tx.get(facturaRef)
+                    // La foto de la factura se tomó en la fase de lecturas (jamás se lee tras escribir).
+                    val snapFactura = snapFacturaPrevio
+                        ?: throw IllegalStateException("No se pudo leer la factura de origen dentro de la operación. Intenta de nuevo.")
                     if (snapFactura.exists()) {
                         val estadoFacturaOrigen = snapFactura.getString("estadoPago") ?: ""
                         if (estadoFacturaOrigen.equals("ANULADA", ignoreCase = true)) {
@@ -238,8 +247,11 @@ class LotesDevolucionCanjeRepository(
                         // no se inventa un saldo a favor.
                         val excesoPagado = (totalAbonado - nuevoTotalEfectivo).coerceAtLeast(0.0)
                         if (lote.proveedorId.isNotBlank() && excesoPagado > 0.0) {
-                            val provRef = tiendaRef.collection("proveedores").document(lote.proveedorId)
-                            val provSnap = tx.get(provRef)
+                            // La foto del proveedor se tomó en la fase de lecturas.
+                            val provRef = provRefDev
+                                ?: tiendaRef.collection("proveedores").document(lote.proveedorId)
+                            val provSnap = provSnapDev
+                                ?: throw IllegalStateException("No se pudo leer el proveedor dentro de la operación. Intenta de nuevo.")
                             val entradaSaldo = mapOf(
                                 "id" to reclamoRef.id,
                                 "tipo" to "SALDO_A_FAVOR_NOTA_CREDITO",

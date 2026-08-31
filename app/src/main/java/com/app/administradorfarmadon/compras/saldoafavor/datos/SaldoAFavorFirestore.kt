@@ -55,9 +55,10 @@ object SaldoAFavorFirestore {
     )
 
     /**
-     * Aplica el descuento dentro de la transacción: relee el saldo fresco (si otro
-     * usuario lo cambió, aborta con la verdad), baja el saldo y deja historial
-     * con justificación (factura, monto, quién, cuándo, motivo).
+     * Aplica el descuento dentro de la transacción: usa el saldo FRESCO leído en la
+     * zona de lecturas de la operación (Firestore exige leer todo antes de escribir).
+     * Si el llamador ya tiene la foto ([saldoSnapshot]), se valida contra ella; si no,
+     * se lee aquí (válido solo si aún no hubo escrituras en la transacción).
      */
     fun aplicarEnTransaccion(
         tx: Transaction,
@@ -69,9 +70,10 @@ object SaldoAFavorFirestore {
         usuarioNombre: String,
         usuarioEmail: String,
         ahoraMs: Long,
-        fechaLegible: String
+        fechaLegible: String,
+        saldoSnapshot: com.google.firebase.firestore.DocumentSnapshot? = null
     ) {
-        val snap = tx.get(refSaldo)
+        val snap = saldoSnapshot ?: tx.get(refSaldo)
         val saldoActual = snap.getDouble("saldoAFavor") ?: 0.0
         if (saldoAUsar > saldoActual + 0.01) {
             throw IllegalStateException(
@@ -170,10 +172,11 @@ object SaldoAFavorFirestore {
         usuarioNombre: String,
         usuarioEmail: String,
         ahoraMs: Long,
-        fechaLegible: String
+        fechaLegible: String,
+        saldoSnapshot: com.google.firebase.firestore.DocumentSnapshot? = null
     ) {
         if (monto <= 0.0) return
-        val snap = tx.get(refSaldo)
+        val snap = saldoSnapshot ?: tx.get(refSaldo)
         val saldoActual = snap.getDouble("saldoAFavor") ?: 0.0
         @Suppress("UNCHECKED_CAST")
         val historial = (snap.get("historialSaldoAFavor") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()

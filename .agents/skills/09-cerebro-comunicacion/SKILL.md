@@ -1,21 +1,49 @@
----
-name: cerebro-comunicacion
-description: Explica y revisa flujos de software con lenguaje humano, bocetos simples y ejemplos del trabajo real. Úsala al comunicar decisiones, riesgos, cambios o resultados.
----
+COMUNICACIÓN HUMANA: HALLAZGO + PROPUESTA
+Regla obligatoria
 
-# COMUNICACIÓN HUMANA Y FLUJOS CLAROS
+Cada vez que se detecte algo (un bug, un riesgo, una decisión técnica, un resultado de revisión), la respuesta se organiza SIEMPRE en dos bloques, en ese orden:
 
-## Propósito
+text
+🔎 QUÉ ENCONTRÉ
+(en lenguaje de negocio, lo que pasa y por qué importa)
 
-La explicación debe permitir que una persona del negocio entienda qué intenta hacer,
-qué toca, qué verá, qué puede cambiar y cómo recuperarse. Primero se explica el flujo;
-el código y la jerga quedan para cuando sean necesarios.
+✅ QUÉ PROPONGO
+(en lenguaje de negocio, qué se haría y qué cambiaría para la persona)
 
-## Boceto antes de la implementación
+Nada de código, nombres de clases, funciones, variables ni jerga técnica en estos dos bloques. Si hace falta mostrar código, va DESPUÉS, aparte, y solo si se pide o es imprescindible.
 
-Usar un dibujo breve con esta secuencia:
+Prohibido
+Explicar el hallazgo con nombres de archivos, funciones, clases o stacktraces como primera línea.
+Usar palabras como "null", "excepción", "caché", "listener", "race condition", "estado" sin traducirlas a lo que la persona vive ("se cae la app", "muestra datos viejos", "dos personas pueden pisarse el cambio al mismo tiempo").
+Dejar el hallazgo sin una propuesta concreta al lado. Un hallazgo sin propuesta es una queja, no un reporte útil.
+Prometer que algo "ya está resuelto" cuando solo fue intentado o no se verificó.
+Cómo redactar "QUÉ ENCONTRÉ"
 
-```text
+Responder, en un párrafo corto o 2-3 líneas:
+
+Qué ve o vive la persona (el síntoma real, no la causa técnica).
+Qué se esperaba que pasara en cambio.
+Qué consecuencia tiene para el negocio (dinero, tiempo, confianza, error visible al cliente).
+Cómo redactar "QUÉ PROPONGO"
+
+Responder, en un párrafo corto o lista breve:
+
+Qué se va a cambiar, en términos de comportamiento visible ("cuando pase X, el sistema hará Y").
+Cómo se confirma que quedó bien.
+Qué pasa si algo falla en el camino (para que no sea sorpresa).
+Ejemplo de tono correcto
+text
+🔎 QUÉ ENCONTRÉ
+Cuando dos personas editan el mismo lote casi al mismo tiempo, la segunda
+edición borra sin avisar lo que guardó la primera. La persona no se entera
+de que perdió su cambio.
+
+✅ QUÉ PROPONGO
+Antes de guardar, el sistema va a avisar si alguien más modificó ese lote
+mientras tanto, y va a dejar elegir qué versión conservar. Así nadie pierde
+un cambio sin darse cuenta.
+Boceto de flujo (cuando se explica un cambio o una pantalla nueva)
+text
 intención de la persona
         ↓
 acción visible
@@ -23,27 +51,9 @@ acción visible
 respuesta honesta del sistema
         ↓
 consecuencia y siguiente paso
-```
 
-El boceto debe mostrar la experiencia, no nombres de clases, variables o servicios.
-Mantenerlo corto; si mezcla dos problemas, dividirlo.
+El boceto muestra experiencia, no nombres de clases, variables o servicios. Si mezcla dos problemas, se divide en dos bocetos.
 
-## Para explicar un problema
+Regla de claridad final
 
-1. qué ve la persona;
-2. qué esperaba que ocurriera;
-3. qué está ocurriendo realmente;
-4. qué consecuencia produce;
-5. cómo debería quedar el flujo corregido.
-
-## Para explicar un cambio
-
-Describir quién lo usa, qué trabajo mejora, qué toca, cómo se confirma, qué pasa si falla
-y qué queda actualizado después. Hablar de guardado completo o no guardado, datos vigentes,
-pasos y decisiones; evitar palabras técnicas si no agregan comprensión.
-
-## Regla de claridad
-
-Una persona no debería tener que memorizar el estado del sistema ni adivinar el siguiente
-paso. La comunicación debe ser directa, humana, precisa y honesta, sin prometer algo que
-solo fue intentado.
+Una persona no debería tener que memorizar el estado del sistema ni adivinar el siguiente paso. Todo hallazgo va acompañado de su propuesta, y ambos se entienden sin saber programar.

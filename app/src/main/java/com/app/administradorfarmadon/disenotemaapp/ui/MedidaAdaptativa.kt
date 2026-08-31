@@ -1,6 +1,5 @@
 package com.app.administradorfarmadon.disenotemaapp.ui
 
-import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
@@ -8,9 +7,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.pow
 
-// 
-// MEDIDA ADAPTATIVA —” Geometría Física 2026
-// 
+//
+// MEDIDA ADAPTATIVA” Geometría Física 2026
+//
 // Tablet-First (600dp → 1360dp) con matemática física real.
 // Fórmula base:  f = (W / Wref) ^ curva   clamp [0.85 , 1.18]
 // Wref = 1280dp (ancho enterprise estándar). Curva 0.55 = física
@@ -20,7 +19,7 @@ import kotlin.math.pow
 // porque ya existe escalado global de densidad)
 // Garantiza: nada apretado, nada roto, nada pegado —” simetría
 // geométrica preservada en cualquier pantalla, claro/oscuro idéntico.
-// 
+//
 
 private const val REFERENCE_WIDTH = 1280f
 private const val REFERENCE_HEIGHT = 800f
@@ -64,11 +63,7 @@ class MedidaAdaptativa(
     val textInput        get() = (14f * typographyScale).sp
     val textSubtitle     get() = (16f * typographyScale).sp
     val textTitle        get() = (20f * typographyScale).sp
-    val textDisplay      get() = (32f * typographyScale).sp
-    val textDisplayLg    get() = (48f * typographyScale).sp
-    val textHeaderLbl    get() = (11f * typographyScale).sp
-    val textBodyLineHeight get() = (textBody.value * 1.5f).sp
-    val textLetterSpacing get() = (0.4f * typographyScale).sp
+
 
     // ── Espaciado (proporción áurea Ï†=1.618 entre saltos) ──────
     val gapTiny   get() = (6f  * spacingScale).dp
@@ -154,24 +149,3 @@ fun recordarMedidaAdaptativa(): MedidaAdaptativa {
     }
 }
 
-/**
- * Variante BoxWithConstraints: cálculo exacto con ancho/alto del contenedor.
- * íšsala dentro de BoxWithConstraints para que cada panel calcule su escala
- * con su viewport real —” no el del dispositivo —” y todo quede simétrico.
- */
-@Composable
-fun recordarMedidaGeomtrica(
-    anchoDisponibleDp: Float,
-    altoDisponibleDp: Float
-): MedidaAdaptativa {
-    val config = LocalConfiguration.current
-    val smallestW = config.smallestScreenWidthDp.toFloat()
-    return remember(smallestW, anchoDisponibleDp, altoDisponibleDp) {
-        // smallestW sigue como base, pero modulamos con el viewport real
-        MedidaAdaptativa(
-            smallestW = smallestW,
-            screenW = anchoDisponibleDp,
-            screenH = altoDisponibleDp
-        )
-    }
-}

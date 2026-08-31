@@ -148,7 +148,7 @@ class RecepcionMercaderiaEstado(
         (it.saldoPendiente - it.totalHoy).coerceAtLeast(0)
     }
     val totalCostoCalculado: Double get() = items.sumOf {
-        (it.cantidadRecibir.toIntOrNull() ?: 0) * (it.costoUnitario.toDoubleOrNull() ?: 0.0)
+        (it.cantidadRecibir.toIntOrNull() ?: 0) * (it.costoUnitario.replace(',', '.').toDoubleOrNull() ?: 0.0)
     }
     val totalFacturaFinal: Double
         get() = montoFacturaManual.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 } ?: 0.0
@@ -180,6 +180,11 @@ class RecepcionMercaderiaEstado(
         get() = items.mapNotNull { it.loteNumero.trim().uppercase().takeIf { s -> s.isNotBlank() && !indiceLotes.containsKey(s) } }
             .groupingBy { it }.eachCount().filterValues { it > 1 }.keys.toList()
 
+    /** Pago declarado vs detalle por método: deben ser EL MISMO número (tolerancia 1 céntimo). */
+    val descuadreDetallePago: Boolean
+        get() = montoPagadoFinal > 0.0 &&
+            kotlin.math.abs(editorPagos.sumaPorciones - montoPagadoFinal) > 0.01
+
     // ── PREVENCIÓN ACTIVA: el botón se bloquea solo y dice qué falta ──
     val puedeAsentar: Boolean
         get() = algoPorRecibir && numeroFactura.isNotBlank() && totalFacturaFinal > 0.0 && montoPagadoFinal >= 0.0 &&
@@ -187,7 +192,7 @@ class RecepcionMercaderiaEstado(
             (!esContado || montoPagadoFinal >= (liquidacionSaldoAFavor.netoAPagar - 0.01)) &&
             !faltaPlazoCredito &&
             itemsConSobrante.isEmpty() &&
-            (montoPagadoFinal <= 0.0 || editorPagos.cuadra)
+            (montoPagadoFinal <= 0.0 || (editorPagos.cuadra && !descuadreDetallePago))
     val razonesBloqueo: List<String>
         get() = buildList {
             if (!algoPorRecibir) add("Escribe las unidades que están llegando hoy")
@@ -197,6 +202,7 @@ class RecepcionMercaderiaEstado(
             if (montoPagadoFinal > (liquidacionSaldoAFavor.netoAPagar + 0.01)) add("El pago supera el saldo de la factura (después del descuento)")
             if (esContado && montoPagadoFinal >= 0.0 && montoPagadoFinal < (liquidacionSaldoAFavor.netoAPagar - 0.01)) add("Para contado, el pago debe cubrir el total (después del saldo a favor)")
             if (montoPagadoFinal > 0.0 && !editorPagos.cuadra) add("La distribución del pago no cuadra: reparte el monto entre los métodos")
+            if (descuadreDetallePago) add("El detalle por métodos (${String.format(java.util.Locale.US, "%.2f", editorPagos.sumaPorciones)}) no cuadra con el pago registrado (${String.format(java.util.Locale.US, "%.2f", montoPagadoFinal)}). Deben ser el mismo monto.")
             if (faltaPlazoCredito) add("Elige los días de crédito")
             if (itemsConSobrante.isNotEmpty()) add("Recibes más de lo pedido en: ${itemsConSobrante.joinToString(", ")}. El máximo es lo que falta del pedido; el exceso solo puede ir en REG.")
         }
@@ -239,7 +245,7 @@ class RecepcionMercaderiaEstado(
                 setError("La fecha de vencimiento '${fila.vencimiento}' de '${fila.productoNombre}' ya está vencida.")
                 return null
             }
-            val costUn = fila.costoUnitario.toDoubleOrNull() ?: 0.0
+            val costUn = fila.costoUnitario.replace(',', '.').toDoubleOrNull() ?: 0.0
             if (cant > 0 && costUn <= 0.0) {
                 setError("Digita el costo unitario real de '${fila.productoNombre}'. Mercadería sin costo no se puede asentar.")
                 return null

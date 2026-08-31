@@ -58,6 +58,8 @@ fun DialogoCrearProveedor(
         )
     }
 
+    var errorMontoMinimo by remember { mutableStateOf<String?>(null) }
+
     var menuDominioExpandido by remember { mutableStateOf(false) }
     val dominiosComunes = listOf("@gmail.com", "@outlook.com", "@hotmail.com", "@yahoo.com", "@empresa.com")
     val esEdicion = proveedorEditando != null
@@ -215,11 +217,16 @@ fun DialogoCrearProveedor(
 
                 FDCampoTexto(
                     valor = montoMinimoTexto,
-                    onValorCambio = { montoMinimoTexto = it },
+                    onValorCambio = { nuevo ->
+                        // Teclado decimal peruano: la coma es separador válido; letras no.
+                        montoMinimoTexto = nuevo.filter { it.isDigit() || it == '.' || it == ',' }
+                        errorMontoMinimo = null
+                    },
                     etiqueta = "PEDIDO MÍNIMO DE DESPACHO ($) (OPCIONAL)",
                     placeholder = "0.00",
                     iconoInicio = Icons.Default.ShoppingBag,
-                    textoAyuda = "ℹ️ Monto mínimo exigido por la droguería para despachar. Si los pedidos alcanzan este valor, el sistema confirmará que ya puedes pedir.",
+                    textoError = errorMontoMinimo,
+                    textoAyuda = if (errorMontoMinimo == null) "ℹ️ Monto mínimo exigido por la droguería para despachar. Si los pedidos alcanzan este valor, el sistema confirmará que ya puedes pedir." else null,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Decimal,
                         imeAction = ImeAction.Done
@@ -250,17 +257,25 @@ fun DialogoCrearProveedor(
                 texto = if (esEdicion) "ACTUALIZAR PROVEEDOR" else "GUARDAR PROVEEDOR",
                 icono = Icons.Default.Check,
                 onClick = {
-                    val montoDouble = montoMinimoTexto.trim().toDoubleOrNull() ?: 0.0
-                    val montoLimpio = if (montoDouble < 0.0) 0.0 else montoDouble
-                    onGuardar(
-                        nombre.trim(),
-                        idFiscal.trim(),
-                        "",
-                        telefono.trim(),
-                        email.trim(),
-                        direccion.trim(),
-                        montoLimpio
-                    )
+                    // La coma decimal peruana se acepta y se normaliza. Un texto no
+                    // numérico JAMÁS se convierte en 0 a escondidas: se bloquea aquí.
+                    val textoMonto = montoMinimoTexto.trim()
+                    val montoDouble = if (textoMonto.isBlank()) 0.0
+                        else textoMonto.replace(',', '.').toDoubleOrNull() ?: -1.0
+                    if (montoDouble < 0.0) {
+                        errorMontoMinimo = "Escribe un monto válido (ej. 0.00 o 50.00). No se guardó nada."
+                    } else {
+                        errorMontoMinimo = null
+                        onGuardar(
+                            nombre.trim(),
+                            idFiscal.trim(),
+                            "",
+                            telefono.trim(),
+                            email.trim(),
+                            direccion.trim(),
+                            montoDouble
+                        )
+                    }
                 },
                 habilitado = !guardando && formularioValido,
                 cargando = guardando,

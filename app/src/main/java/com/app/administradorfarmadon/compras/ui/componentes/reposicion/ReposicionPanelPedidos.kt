@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -137,7 +138,7 @@ fun ReposicionPanelPedidos(
                                     shape = FDShapes.XSmall
                                 ) {
                                     Text(
-                        text = "${if (subTabPedidosDerecha == "RECIBIR") pedidosPendientes.size else pedidosGuardados.size}",
+                        text = "${if (clave == "RECIBIR") pedidosPendientes.size else pedidosGuardados.size}",
                                         style = FDType.Label.copy(
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Black
@@ -251,92 +252,61 @@ private fun FilaPedidoRealizado(
     s: MedidaAdaptativa,
     onClick: () -> Unit
 ) {
-    val estadoTexto = when (pedido.estado) {
-        "ENTREGA_PARCIAL" -> "ENTREGA PARCIAL"
-        "RECIBIDO" -> "RECIBIDO"
-        "COMPLETADA_AJUSTE" -> "CERRADO CON AJUSTE"
-        "CANCELADO" -> "CANCELADO"
-        else -> "REALIZADO"
-    }
-    val estadoColor = when (pedido.estado) {
-        "ENTREGA_PARCIAL" -> FDColors.Warning
-        "RECIBIDO" -> FDColors.Primary
-        "COMPLETADA_AJUSTE" -> FDColors.TextTertiary
-        "CANCELADO" -> FDColors.Error
-        else -> FDColors.Success
-    }
-
-    Column(
+    Surface(
+        color = Color.Transparent,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .background(FDColors.TextPrimary.copy(alpha = 0.03f))
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+        Column {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 Text(
-                    text = pedido.proveedorNombre,
-                    style = FDType.Heading3.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                    text = pedido.proveedorNombre.uppercase(),
+                    style = FDType.Label.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 11.5.sp,
+                        letterSpacing = 0.5.sp
                     ),
                     color = FDColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = listOfNotNull(
-                        pedido.numeroOrden.takeIf { it.isNotBlank() },
-                        pedido.fechaEmision.takeIf { it.isNotBlank() }
-                    ).joinToString("  ·  "),
-                    style = FDType.BodySmall.copy(fontSize = 11.sp),
-                    color = FDColors.TextTertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
 
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Surface(
-                    color = estadoColor.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(s.radiusChip),
-                    border = BorderStroke(1.dp, estadoColor.copy(alpha = 0.4f))
-                ) {
-                    Text(
-                        text = estadoTexto,
-                        style = FDType.Label.copy(
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Black
-                        ),
-                        color = estadoColor,
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                    )
-                }
                 Text(
-                    text = "$simboloMoneda ${String.format(Locale.US, "%,.2f", pedido.totalInversion)}",
+                    text = "ORDEN: ${pedido.numeroOrden.ifBlank { "SIN NRO" }}",
                     style = FDType.Numeric.copy(
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
                     ),
-                    color = FDColors.TextPrimary
-                )
-                Text(
-                    text = "${pedido.totalProductos} productos · ${pedido.totalUnidades} unidades",
-                    style = FDType.Label.copy(fontSize = 9.5.sp),
                     color = FDColors.TextTertiary
                 )
+
+                Surface(
+                    color = FDColors.TextPrimary.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.2f))
+                ) {
+                    Text(
+                        text = "${pedido.totalProductos} PRODUCTOS",
+                        style = FDType.Label.copy(
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black
+                        ),
+                        color = FDColors.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
             }
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                color = FDColors.Border.copy(alpha = 0.3f)
+            )
         }
-        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f))
     }
 }

@@ -185,6 +185,11 @@ class IngresoMercaderiaRepository(
                 var facturaSnapExists = false
                 var effectiveFacturaId: String? = null
                 var esReusoFactura = false
+                // REGLA DURA de transacción Firestore: TODAS las lecturas van ANTES de
+                // cualquier escritura. La foto de la factura en reuso se toma AQUÍ
+                // (zona de lecturas) y se reutiliza en la sección 2 —jamás se relee
+                // después de escribir productos (eso abortaría la recepción completa).
+                var facturaSnapReuso: com.google.firebase.firestore.DocumentSnapshot? = null
                 if (numFacturaLimpio.isNotBlank()) {
                     val provKey = when {
                         proveedorIdTx.isNotBlank() -> proveedorIdTx.trim()
@@ -203,6 +208,7 @@ class IngresoMercaderiaRepository(
                             // reescribe; los pagos de esta entrega se anexan como abonos (append-only).
                             esReusoFactura = true
                             facturaSnapExists = false
+                            facturaSnapReuso = snap
                         } else {
                             throw IllegalArgumentException("La factura $numFacturaLimpio ya fue registrada para ${if (provKey.isNotBlank()) proveedorNombreTx else "este proveedor"}. Usa un número nuevo.")
                         }
@@ -220,8 +226,14 @@ class IngresoMercaderiaRepository(
                                 if (same) {
                                     val esMismoPedidoLegacy = esRecepcionPedido && legPedidoId.isNotBlank() && legPedidoId == pedidoId
                                     if (esMismoPedidoLegacy) {
-                                        facturaRef = null
-                                        effectiveFacturaId = null
+                                        // Factura legada (id sin prefijo) de ESTE pedido: es el mismo papel.
+                                        // Se reutiliza para anexar pagos como abonos; si no, la plata de esta
+                                        // entrega quedaría sin asiento (datos a medias).
+                                        facturaRef = legacyRef
+                                        effectiveFacturaId = legacyRef.id
+                                        esReusoFactura = true
+                                        facturaSnapExists = false
+                                        facturaSnapReuso = legSnap
                                     } else {
                                         throw IllegalArgumentException("La factura $numFacturaLimpio ya existe (registro legado) para $proveedorNombreTx. Usa número nuevo.")
                                     }
@@ -231,14 +243,30 @@ class IngresoMercaderiaRepository(
                     }
                 }
 
-                // ── 1. Actualizar cada producto + kardex ──
+                // ══ FASE DE LECTURAS (Firestore: TODAS las lecturas antes de cualquier escritura) ══
+                // Foto fresca de CADA producto de la recepción (con 2+ productos, leer dentro
+                // del bucle de escrituras abortaría la transacción entera: "reads before writes").
+                val productoSnaps = HashMap<String, com.google.firebase.firestore.DocumentSnapshot>(itemsConIngreso.size)
+                for (item in itemsConIngreso) {
+                    if (productoSnaps.containsKey(item.productoId)) continue
+                    val snapProducto = tx.get(tiendaRef.collection("inventario").document(item.productoId))
+                    if (!snapProducto.exists()) throw IllegalStateException("El producto '${item.productoNombre}' (ID: ${item.productoId}) no existe en inventario.")
+                    productoSnaps[item.productoId] = snapProducto
+                }
+                // Foto fresca del saldo a favor SI se va a descontar en esta operación.
+                val saldoSnap = if (saldoAFavorUsado > 0.01) {
+                    if (proveedorIdTx.isBlank()) throw IllegalStateException("La factura no tiene proveedor vinculado; no se puede aplicar el saldo a favor.")
+                    tx.get(SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorIdTx))
+                } else null
+
+                // ── 1. Actualizar cada producto + kardex (fase de escrituras) ──
                 val itemsFacturaList = mutableListOf<Map<String, Any>>()
                 var totalCostoCalculado = 0.0
 
                 for (item in itemsConIngreso) {
                     val productRef = tiendaRef.collection("inventario").document(item.productoId)
-                    val productSnap = tx.get(productRef)
-                    if (!productSnap.exists()) throw IllegalStateException("El producto '${item.productoNombre}' (ID: ${item.productoId}) no existe en inventario.")
+                    val productSnap = productoSnaps[item.productoId]
+                        ?: throw IllegalStateException("No se pudo leer el producto '${item.productoNombre}' dentro de la operación.")
                     val movimientoId = UUID.randomUUID().toString()
                     val movimientoRef = tiendaRef.collection("movimientos").document(movimientoId)
                     val cleanLoteKey = FechaVencimientoHelper.llaveLote(item.loteNumero)
@@ -278,7 +306,6 @@ class IngresoMercaderiaRepository(
                     val facturaOriginal = (loteActualData?.get("factura") as? String)?.takeIf { it.isNotBlank() }
                     @Suppress("UNCHECKED_CAST")
                     val historialEntradas = (loteActualData?.get("entradas") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
-                    val proveedorParaHistorial = if (esRecepcionPedido) proveedorNombreTx else item.productoNombre // fallback, pero caller directo debería pasar proveedor
                     historialEntradas.add(
                         mapOf(
                             "fechaLegible" to fechaLegible,
@@ -416,7 +443,8 @@ class IngresoMercaderiaRepository(
                         // Los pagos reales de esta entrega se anexan como abonos (append-only),
                         // igual que en Cuentas por Pagar; el saldo a favor se descuenta del proveedor.
                         if (hayPagoNuevo) {
-                            val snapFact = tx.get(facturaRef)
+                            val snapFact = facturaSnapReuso
+                                ?: throw IllegalStateException("La factura $numFacturaLimpio no se pudo leer dentro de la operación. No se asentó nada; intenta de nuevo.")
                             if (!snapFact.exists()) throw IllegalStateException("La factura $numFacturaLimpio ya no existe; no se pudo registrar el pago de esta entrega. Regístralo desde Cuentas por Pagar.")
                             if ((snapFact.getString("estadoPago") ?: "").equals("ANULADA", ignoreCase = true)) {
                                 throw IllegalStateException("La factura $numFacturaLimpio fue ANULADA. No se puede recibir ni pagar sobre una factura anulada: usa un número de factura nuevo para esta entrega.")
@@ -476,7 +504,8 @@ class IngresoMercaderiaRepository(
                                     usuarioNombre = usuarioNombre.ifBlank { "Administración" },
                                     usuarioEmail = usuarioEmail,
                                     ahoraMs = ahoraMs,
-                                    fechaLegible = fechaLegible
+                                    fechaLegible = fechaLegible,
+                                    saldoSnapshot = saldoSnap
                                 )
                             }
                             val nuevoEstado = when {
@@ -568,7 +597,8 @@ class IngresoMercaderiaRepository(
                                 usuarioNombre = usuarioNombre.ifBlank { "Administración" },
                                 usuarioEmail = usuarioEmail,
                                 ahoraMs = ahoraMs,
-                                fechaLegible = fechaLegible
+                                fechaLegible = fechaLegible,
+                                saldoSnapshot = saldoSnap
                             )
                         }
 
@@ -746,6 +776,10 @@ class IngresoMercaderiaRepository(
                     abonos.filterNot { (it as? Map<*, *>)?.get("anulado") == true }
                         .sumOf { (it as? Map<*, *>)?.let { m -> (m["monto"] as? Number)?.toDouble() ?: 0.0 } ?: 0.0 }
                 } else montoPagado
+                // ══ FASE DE LECTURAS (Firestore: TODAS las lecturas antes de cualquier
+                // escritura — si no, la transacción aborta y la anulación sería imposible) ══
+                var proveedorIdSaldo: String? = null
+                var saldoSnapAnulacion: com.google.firebase.firestore.DocumentSnapshot? = null
                 if (plataPagada > 0.01) {
                     val respuesta = respuestaPlata.trim().uppercase()
                     when (respuesta) {
@@ -754,18 +788,8 @@ class IngresoMercaderiaRepository(
                             if (proveedorId.isBlank()) {
                                 throw IllegalStateException("La factura no tiene proveedor vinculado; no se puede registrar el saldo a favor.")
                             }
-                            SaldoAFavorFirestore.registrarIngresoEnTransaccion(
-                                tx = tx,
-                                refSaldo = SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorId),
-                                monto = plataPagada,
-                                tipo = "SALDO_A_FAVOR_ANULACION",
-                                documento = numeroFactura,
-                                motivo = "Saldo a favor por anulación de la factura $numeroFactura",
-                                usuarioNombre = usuarioNombre.ifBlank { "Administración" },
-                                usuarioEmail = usuarioEmail,
-                                ahoraMs = ahoraMs,
-                                fechaLegible = fechaLegible
-                            )
+                            proveedorIdSaldo = proveedorId
+                            saldoSnapAnulacion = tx.get(SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorId))
                         }
                         "DEVOLUCION_RECIBIDA" -> {
                             if (metodoDevolucion.trim().isBlank()) {
@@ -780,6 +804,41 @@ class IngresoMercaderiaRepository(
                 val itemsRaw = facturaSnap.get("items") as? List<Map<String, Any>> ?: emptyList()
                 if (itemsRaw.isEmpty() && conDevolucion) throw IllegalStateException("La factura no tiene productos para devolver.")
 
+                // Foto fresca de CADA producto a devolver (se lee TODO antes de escribir).
+                val productoSnapsDev = HashMap<String, com.google.firebase.firestore.DocumentSnapshot>()
+                if (conDevolucion) {
+                    for (itemMap in itemsRaw) {
+                        val productoId = itemMap["productoId"] as? String ?: ""
+                        if (productoId.isBlank()) continue
+                        val cantidadTotal = (itemMap["cantidadTotal"] as? Number)?.toDouble() ?: 0.0
+                        if (cantidadTotal <= 0) continue
+                        if (productoSnapsDev.containsKey(productoId)) continue
+                        val snapProd = tx.get(tiendaRef.collection("inventario").document(productoId))
+                        if (!snapProd.exists()) throw IllegalStateException("El producto $productoId de la factura ya no existe en inventario.")
+                        productoSnapsDev[productoId] = snapProd
+                    }
+                }
+                // El pedido asociado también se lee en la zona de lecturas.
+                val pedidoRefAnulacion = if (pedidoId.isNotBlank()) tiendaRef.collection("pedidos_compra").document(pedidoId) else null
+                val pedidoSnapAnulacion = pedidoRefAnulacion?.let { tx.get(it) }
+
+                // ══ FASE DE ESCRITURAS ══
+                if (proveedorIdSaldo != null) {
+                    SaldoAFavorFirestore.registrarIngresoEnTransaccion(
+                        tx = tx,
+                        refSaldo = SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorIdSaldo!!),
+                        monto = plataPagada,
+                        tipo = "SALDO_A_FAVOR_ANULACION",
+                        documento = numeroFactura,
+                        motivo = "Saldo a favor por anulación de la factura $numeroFactura",
+                        usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                        usuarioEmail = usuarioEmail,
+                        ahoraMs = ahoraMs,
+                        fechaLegible = fechaLegible,
+                        saldoSnapshot = saldoSnapAnulacion
+                    )
+                }
+
                 // Si con devolución, validar y descontar stock por cada item
                 if (conDevolucion) {
                     for (itemMap in itemsRaw) {
@@ -789,8 +848,8 @@ class IngresoMercaderiaRepository(
                         val cantidadTotal = (itemMap["cantidadTotal"] as? Number)?.toDouble() ?: 0.0
                         if (cantidadTotal <= 0) continue
                         val productRef = tiendaRef.collection("inventario").document(productoId)
-                        val productSnap = tx.get(productRef)
-                        if (!productSnap.exists()) throw IllegalStateException("El producto $productoId de la factura ya no existe en inventario.")
+                        val productSnap = productoSnapsDev[productoId]
+                            ?: throw IllegalStateException("No se pudo leer el producto $productoId dentro de la anulación.")
                         @Suppress("UNCHECKED_CAST")
                         val currentLotes = (productSnap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
                         val res = FechaVencimientoHelper.resolverLote(currentLotes, loteNumero)
@@ -899,9 +958,10 @@ class IngresoMercaderiaRepository(
                 }
 
                 // Si tenía pedido, revertir solo si conDevolucion (si solo anulas deuda, pedido queda como recibido)
-                if (pedidoId.isNotBlank()) {
-                    val pedidoRef = tiendaRef.collection("pedidos_compra").document(pedidoId)
-                    val pedidoSnap = tx.get(pedidoRef)
+                // La foto del pedido se tomó en la fase de lecturas (jamás se lee tras escribir).
+                if (pedidoRefAnulacion != null && pedidoSnapAnulacion != null) {
+                    val pedidoRef = pedidoRefAnulacion
+                    val pedidoSnap = pedidoSnapAnulacion
                     if (pedidoSnap.exists()) {
                         val montoFactRaw = facturaSnap.getDouble("montoTotal") ?: facturaSnap.getDouble("montoAcumulado") ?: 0.0
                         val totalFact = if (montoFactRaw > 0) montoFactRaw else itemsRaw.sumOf { (it["costoTotal"] as? Number)?.toDouble() ?: (it["montoTotal"] as? Number)?.toDouble() ?: 0.0 }

@@ -32,6 +32,7 @@ import java.util.*
 fun DialogoProrrogarVencimiento(
     factura: FacturaCompra,
     estadoFactura: String? = null,
+    procesando: Boolean = false,
     onDismiss: () -> Unit,
     onConfirmarProrroga: (nuevaFecha: String) -> Unit
 ) {
@@ -44,18 +45,30 @@ fun DialogoProrrogarVencimiento(
     BackHandler(enabled = true) {
         when {
             isKeyboardVisible -> { keyboardController?.hide(); focusManager.clearFocus(force = true) }
+            procesando -> { /* guardando: no se cierra a medias */ }
             else -> onDismiss()
         }
     }
 
     fun hoyServidor(): Date = Date(com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs())
 
+    fun hoyCero(): Calendar = Calendar.getInstance().apply {
+        time = hoyServidor()
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }
+
     val esAnulada = estadoFactura.equals("ANULADA", ignoreCase = true)
     var fechaTexto by remember { mutableStateOf(factura.fechaVencimientoPago.ifBlank { sdf.format(hoyServidor()) }) }
     var errorFecha by remember { mutableStateOf<String?>(null) }
 
+    // Vencimiento vigente (referencia mínima de la prórroga): nunca se acepta una
+    // fecha igual o ANTERIOR al vencimiento actual ni anterior a hoy.
+    val vencimientoActual: Date? = try {
+        factura.fechaVencimientoPago.takeIf { it.isNotBlank() }?.let { sdf.parse(it) }
+    } catch (e: Exception) { null }
+
     fun sumarDias(dias: Int) {
-        if (esAnulada) return
+        if (esAnulada || procesando) return
         val baseDate = try {
             if (factura.fechaVencimientoPago.isNotBlank()) sdf.parse(factura.fechaVencimientoPago) ?: hoyServidor()
             else hoyServidor()
@@ -71,7 +84,7 @@ fun DialogoProrrogarVencimiento(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!procesando) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Box(
@@ -120,7 +133,7 @@ fun DialogoProrrogarVencimiento(
                         }
                     }
 
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = { if (!procesando) onDismiss() }, enabled = !procesando) {
                         Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = FDColors.TextTertiary)
                     }
                 }
@@ -196,6 +209,7 @@ fun DialogoProrrogarVencimiento(
                     },
                     label = { Text("Nueva Fecha (DD/MM/AAAA)", fontSize = s.textLabel.value.sp * 0.92f) },
                     singleLine = true,
+                    enabled = !procesando,
                     shape = RoundedCornerShape(s.radiusInput),
                     colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = FDColors.SurfaceElevated, unfocusedContainerColor = FDColors.SurfaceElevated, focusedBorderColor = FDColors.BorderFocus, unfocusedBorderColor = FDColors.Border),
                     modifier = Modifier.fillMaxWidth().height(s.inputMinH)
@@ -217,6 +231,7 @@ fun DialogoProrrogarVencimiento(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
+                        enabled = !procesando,
                         shape = RoundedCornerShape(s.radiusButton),
                         border = BorderStroke(s.borderWidth, FDColors.Border),
                         modifier = Modifier.height(s.btnMediumH)
@@ -226,12 +241,26 @@ fun DialogoProrrogarVencimiento(
                     Spacer(Modifier.width(s.gapSmall))
                     Button(
                         onClick = {
-                            if (esAnulada) return@Button
+                            if (esAnulada || procesando) return@Button
                             val fTrim = fechaTexto.trim()
                             try {
                                 val parsed = sdf.parse(fTrim)
                                 if (parsed == null) {
                                     errorFecha = "Formato no válido. Usa DD/MM/AAAA."
+                                    return@Button
+                                }
+                                // Una prórroga es postergar hacia ADELANTE: la nueva fecha
+                                // debe ser posterior al vencimiento vigente y nunca pasada.
+                                val nueva = Calendar.getInstance().apply { time = parsed; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+                                val minimo = vencimientoActual?.let {
+                                    Calendar.getInstance().apply { time = it; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+                                } ?: hoyCero()
+                                if (!nueva.after(minimo)) {
+                                    errorFecha = if (vencimientoActual != null) {
+                                        "La prórroga debe ser posterior al vencimiento actual (${factura.fechaVencimientoPago})."
+                                    } else {
+                                        "La prórroga debe ser una fecha futura (después de hoy)."
+                                    }
                                     return@Button
                                 }
                                 keyboardController?.hide(); focusManager.clearFocus()
@@ -240,6 +269,7 @@ fun DialogoProrrogarVencimiento(
                                 errorFecha = "Fecha no válida."
                             }
                         },
+                        enabled = !procesando,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = FDColors.Primary,
                             contentColor = FDColors.PrimaryText
@@ -247,7 +277,11 @@ fun DialogoProrrogarVencimiento(
                         shape = RoundedCornerShape(s.radiusButton),
                         modifier = Modifier.height(s.btnMediumH)
                     ) {
-                        if (esAnulada) {
+                        if (procesando) {
+                            CircularProgressIndicator(modifier = Modifier.size(s.iconSmall), color = FDColors.PrimaryText, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(s.xs))
+                            Text("GUARDANDO…", style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = FontWeight.Black))
+                        } else if (esAnulada) {
                             Text("FACTURA ANULADA", style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = FontWeight.Black))
                         } else {
                             Text("APLICAR PRÓRROGA", style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = FontWeight.Black))

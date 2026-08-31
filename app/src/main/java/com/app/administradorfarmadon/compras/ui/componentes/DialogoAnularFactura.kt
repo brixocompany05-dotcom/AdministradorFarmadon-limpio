@@ -301,7 +301,11 @@ fun DialogoAnularFactura(
                                             "El proveedor ya me lo devolvió" -> "DEVOLUCION_RECIBIDA"
                                             else -> "PERDIDA"
                                         }
+                                        // Al cambiar de decisión, lo de la opción anterior
+                                        // se limpia completo: jamás se guarda un dato
+                                        // "fantasma" que la pantalla ya no muestra.
                                         metodoDevolucion = null
+                                        referenciaDevolucion = ""
                                     },
                                     placeholder = "Decide qué pasa con el dinero…"
                                 )

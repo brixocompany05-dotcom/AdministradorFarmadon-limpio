@@ -93,6 +93,7 @@ data class ComprasUiState(
     val facturaParaAbonarId: String? = null,
     val mostrarDialogoProrroga: Boolean = false,
     val facturaParaProrrogaId: String? = null,
+    val procesandoProrroga: Boolean = false,
     // ── NOTA DE CRÉDITO / AJUSTE DE FACTURA (el papel se reduce con documento) ──
     val mostrarDialogoNotaCredito: Boolean = false,
     val facturaParaNotaCreditoId: String? = null,
@@ -105,7 +106,10 @@ data class ComprasUiState(
     val lineasAnulacion: List<LineaAnulacionVista> = emptyList(),
     val mensajeExito: String? = null,
     val mensajeError: String? = null,
-    val errorEscucha: String? = null
+    val errorEscucha: String? = null,
+    /** Una sola verdad de cierre: nombre del proveedor cuya orden se guardó con ÉXITO.
+     *  La pantalla lo consume y cierra el detalle SOLO entonces (jamás al fallar). */
+    val envioExitosoProveedor: String? = null
 ) {
     val totalProductosCatalogo: Int get() = todosLosProductos.size
     val totalProveedores: Int get() = proveedores.size

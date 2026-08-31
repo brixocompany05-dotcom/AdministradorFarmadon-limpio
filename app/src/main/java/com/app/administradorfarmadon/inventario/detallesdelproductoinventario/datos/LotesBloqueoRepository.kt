@@ -273,12 +273,17 @@ class LotesBloqueoRepository(
                     updatesProducto["lotePrioritarioPor"] = ""
                     updatesProducto["lotePrioritarioPorRol"] = ""
                 }
-                tx.update(productRef, updatesProducto)
-
+                // ══ FASE DE LECTURAS COMPLETA (Firestore: TODAS las lecturas antes de
+                // cualquier escritura; un get posterior abortaría toda la anulación y
+                // antes era tragado en silencio por un try/catch — datos a medias) ══
                 val facturaNumeroRaw = (loteData["factura"] as? String)?.trim() ?: ""
                 val proveedorNombreRaw = (loteData["proveedor"] as? String)?.trim() ?: ""
                 val esFacturaFormal =
                     facturaNumeroRaw.isNotBlank() && facturaNumeroRaw != "S/C (Sin Comprobante)" && proveedorNombreRaw.isNotBlank() && proveedorNombreRaw != "Almacén General"
+                var facturaSnap: com.google.firebase.firestore.DocumentSnapshot? = null
+                var effectiveRef: com.google.firebase.firestore.DocumentReference? = null
+                var pedidoRefFactura: com.google.firebase.firestore.DocumentReference? = null
+                var pedidoSnapFactura: com.google.firebase.firestore.DocumentSnapshot? = null
                 if (esFacturaFormal) {
                     val cleanNumero =
                         facturaNumeroRaw.uppercase().replace("/", "-").replace(" ", "_")
@@ -287,27 +292,35 @@ class LotesBloqueoRepository(
                     val compositeId = "${provKey}__${cleanNumero}"
                     val facturaRef = tiendaRef.collection("compras_facturas").document(compositeId)
                     val legacyRef = tiendaRef.collection("compras_facturas").document(cleanNumero)
-                    var facturaSnap = try {
-                        tx.get(facturaRef)
-                    } catch (e: Exception) {
-                        android.util.Log.w("LotesOps", "get facturaRef falló", e); null
-                    }
-                    var effectiveRef = facturaRef
-                    if (facturaSnap == null || !facturaSnap.exists()) {
-                        val legacySnap = try {
-                            tx.get(legacyRef)
-                        } catch (e: Exception) {
-                            android.util.Log.w("LotesOps", "get legacyRef falló", e); null
-                        }
-                        if (legacySnap != null && legacySnap.exists()) {
+                    // Si la lectura falla, la TRANSACCIÓN falla con la verdad (jamás se
+                    // salta la sincronización de la factura ni del pedido en silencio).
+                    var snapLeida = tx.get(facturaRef)
+                    var refEfectiva = facturaRef
+                    if (!snapLeida.exists()) {
+                        val legacySnap = tx.get(legacyRef)
+                        if (legacySnap.exists()) {
                             val legProv = legacySnap.getString("proveedorNombre") ?: ""
                             if (legProv.trim().equals(proveedorNombreRaw, ignoreCase = true)) {
-                                facturaSnap = legacySnap
-                                effectiveRef = legacyRef
+                                snapLeida = legacySnap
+                                refEfectiva = legacyRef
                             }
                         }
                     }
-                    if (facturaSnap != null && facturaSnap.exists()) {
+                    if (snapLeida.exists()) {
+                        facturaSnap = snapLeida
+                        effectiveRef = refEfectiva
+                        // El pedido asociado también se lee AHORA, en la zona de lecturas.
+                        val pedidoIdLectura = snapLeida.getString("pedidoId") ?: ""
+                        if (pedidoIdLectura.isNotBlank()) {
+                            pedidoRefFactura = tiendaRef.collection("pedidos_compra").document(pedidoIdLectura)
+                            pedidoSnapFactura = tx.get(pedidoRefFactura!!)
+                        }
+                    }
+                }
+
+                tx.update(productRef, updatesProducto)
+
+                if (facturaSnap != null && effectiveRef != null) {
                         val itemsRaw = facturaSnap.get("items") as? List<*>
                         val itemsMatch = itemsRaw?.filterIsInstance<Map<*, *>>()?.filter {
                             it["productoId"] == productId && (it["loteNumero"] as? String)?.trim()
@@ -346,11 +359,11 @@ class LotesBloqueoRepository(
 
                         // Compras debe decir la verdad: si la entrada anulada pertenecía a un pedido,
                         // se descuenta de lo recibido y se recalcula el estado del pedido.
-                        val pedidoIdFactura = facturaSnap.getString("pedidoId") ?: ""
-                        if (pedidoIdFactura.isNotBlank()) {
-                            val pedidoRef = tiendaRef.collection("pedidos_compra").document(pedidoIdFactura)
-                            val pedidoSnap = tx.get(pedidoRef)
-                            if (pedidoSnap.exists()) {
+                        // La foto del pedido se tomó en la fase de lecturas (jamás leer tras escribir).
+                        if (pedidoRefFactura != null) {
+                            val pedidoRef = pedidoRefFactura
+                            val pedidoSnap = pedidoSnapFactura
+                            if (pedidoSnap != null && pedidoSnap.exists()) {
                                 val estadoPedido = pedidoSnap.getString("estado") ?: "ENVIADO"
                                 if (estadoPedido in listOf("RECIBIDO", "ENTREGA_PARCIAL", "ENVIADO")) {
                                     @Suppress("UNCHECKED_CAST")
@@ -399,7 +412,6 @@ class LotesBloqueoRepository(
                                 }
                             }
                         }
-                    }
                 }
 
                 val movData = mapOf(

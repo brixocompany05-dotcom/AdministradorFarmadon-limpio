@@ -74,6 +74,14 @@ class ComprasViewModel(
     private var ultimoAbonoIntentoId: String = ""
     private var huellaUltimoAbono: String = ""
 
+    /** Candado síncrono de acciones de UNA orden (cancelar, cerrar ajuste, descartar):
+     * la clave "op:pedidoId[:productoId]" vive solo mientras la operación está en vuelo;
+     * un segundo toque de la MISMA acción se ignora hasta tener respuesta del servidor. */
+    private val accionesOrdenEnCurso = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    private fun intentarAccionOrden(clave: String): Boolean = accionesOrdenEnCurso.add(clave)
+    private fun liberarAccionOrden(clave: String) { accionesOrdenEnCurso.remove(clave) }
+
     private fun huellaAbono(
         facturaId: String,
         monto: Double,
@@ -371,7 +379,7 @@ class ComprasViewModel(
         viewModelScope.launch {
             val resultado = pedidoCompraRepository.guardarProductosCarrito(
                 proveedorNombre, cambios, farmaciaCapturada, sucursalCapturada,
-                usuarioId = usuarioNombre, usuarioNombre = usuarioNombre,
+                usuarioId = usuarioId, usuarioNombre = usuarioNombre,
                 esDelta = esDelta
             )
             cambios.keys.forEach { productoId ->
@@ -445,8 +453,10 @@ class ComprasViewModel(
             java.util.UUID.randomUUID().toString()
         }
 
+        // El candado se marca SÍNCRONO (antes del launch): dos toques en el mismo
+        // instante jamás inician dos envíos (el segundo ve el candado y se detiene).
+        _uiState.update { it.copy(enviandoPedido = true) }
         viewModelScope.launch {
-            _uiState.update { it.copy(enviandoPedido = true) }
 
             // Reserva atómica: distingue "otro usuario lo tomó primero" (éxito vacío)
             // de "falló la conexión" (failure con la causa real). Jamás se confunden.
@@ -540,6 +550,7 @@ class ComprasViewModel(
                     _uiState.update {
                         it.copy(
                             subTabPedidosDerecha = "REALIZADOS",
+                            envioExitosoProveedor = pedido.proveedorNombre,
                             mensajeExito = " ¡Orden para ${pedido.proveedorNombre} guardada y marcada como ENVIADA!$notaMultiusuario"
                         )
                     }
@@ -568,17 +579,22 @@ class ComprasViewModel(
     }
 
     fun cancelarPedidoEnviado(pedidoId: String) {
+        if (!intentarAccionOrden("cancelar:$pedidoId")) return
         val farmaciaCapturada = SessionManager.clienteIdGarantizado
         val sucursalCapturada = SessionManager.sucursalIdEfectiva
         viewModelScope.launch {
-            pedidoCompraRepository.cancelarPedido(pedidoId, farmaciaCapturada, sucursalCapturada).fold(
-                onSuccess = {
-                    _uiState.update { it.copy(mensajeExito = "Pedido cancelado correctamente.") }
-                },
-                onFailure = { e ->
-                    _uiState.update { it.copy(mensajeError = "Error al cancelar pedido: ${e.message}") }
-                }
-            )
+            try {
+                pedidoCompraRepository.cancelarPedido(pedidoId, farmaciaCapturada, sucursalCapturada).fold(
+                    onSuccess = {
+                        _uiState.update { it.copy(mensajeExito = "Pedido cancelado correctamente.") }
+                    },
+                    onFailure = { e ->
+                        _uiState.update { it.copy(mensajeError = "Error al cancelar pedido: ${e.message}") }
+                    }
+                )
+            } finally {
+                liberarAccionOrden("cancelar:$pedidoId")
+            }
         }
     }
 
@@ -710,32 +726,42 @@ class ComprasViewModel(
     }
 
     fun cerrarOrdenConAjuste(pedidoId: String, motivo: String = "Quiebre de stock en proveedor") {
+        if (!intentarAccionOrden("ajuste:$pedidoId")) return
         val farmaciaCapturada = SessionManager.clienteIdGarantizado
         val sucursalCapturada = SessionManager.sucursalIdEfectiva
         viewModelScope.launch {
-            pedidoCompraRepository.cerrarOrdenConAjuste(pedidoId, motivo, farmaciaCapturada, sucursalCapturada).fold(
-                onSuccess = {
-                    _uiState.update { it.copy(mensajeExito = "Orden cerrada con ajuste correctamente.") }
-                },
-                onFailure = { e ->
-                    _uiState.update { it.copy(mensajeError = "Error al cerrar orden: ${e.message}") }
-                }
-            )
+            try {
+                pedidoCompraRepository.cerrarOrdenConAjuste(pedidoId, motivo, farmaciaCapturada, sucursalCapturada).fold(
+                    onSuccess = {
+                        _uiState.update { it.copy(mensajeExito = "Orden cerrada con ajuste correctamente.") }
+                    },
+                    onFailure = { e ->
+                        _uiState.update { it.copy(mensajeError = "Error al cerrar orden: ${e.message}") }
+                    }
+                )
+            } finally {
+                liberarAccionOrden("ajuste:$pedidoId")
+            }
         }
     }
 
     fun descartarProductoDePedido(pedidoId: String, productoId: String) {
+        if (!intentarAccionOrden("descartar:$pedidoId:$productoId")) return
         val farmaciaCapturada = SessionManager.clienteIdGarantizado
         val sucursalCapturada = SessionManager.sucursalIdEfectiva
         viewModelScope.launch {
-            pedidoCompraRepository.descartarProductoDePedido(pedidoId, productoId, farmaciaCapturada, sucursalCapturada).fold(
-                onSuccess = {
-                    _uiState.update { it.copy(mensajeExito = "Producto descartado del pedido por quiebre de stock.") }
-                },
-                onFailure = { e ->
-                    _uiState.update { it.copy(mensajeError = "No se pudo descartar el producto: ${e.message}") }
-                }
-            )
+            try {
+                pedidoCompraRepository.descartarProductoDePedido(pedidoId, productoId, farmaciaCapturada, sucursalCapturada).fold(
+                    onSuccess = {
+                        _uiState.update { it.copy(mensajeExito = "Producto descartado del pedido por quiebre de stock.") }
+                    },
+                    onFailure = { e ->
+                        _uiState.update { it.copy(mensajeError = "No se pudo descartar el producto: ${e.message}") }
+                    }
+                )
+            } finally {
+                liberarAccionOrden("descartar:$pedidoId:$productoId")
+            }
         }
     }
 
@@ -1065,6 +1091,8 @@ class ComprasViewModel(
     }
 
     fun cerrarDialogoProrroga() {
+        // Si hay una escritura de prórroga en vuelo, el diálogo no se cierra a medias.
+        if (_uiState.value.procesandoProrroga) return
         _uiState.update {
             it.copy(
                 mostrarDialogoProrroga = false,
@@ -1224,14 +1252,18 @@ class ComprasViewModel(
     }
 
     fun prorrogarVencimientoFactura(facturaId: String, nuevaFechaVencimiento: String) {
+        // Candado síncrono: dos toques jamás lanzan dos escrituras de fecha.
+        if (_uiState.value.procesandoProrroga) return
         val farmaciaCapturada = SessionManager.clienteIdGarantizado
         val sucursalCapturada = SessionManager.sucursalIdEfectiva
+        _uiState.update { it.copy(procesandoProrroga = true, mensajeError = null) }
         viewModelScope.launch {
             val res = facturaRepository.prorrogarVencimiento(facturaId, nuevaFechaVencimiento, farmaciaCapturada, sucursalCapturada)
             res.fold(
                 onSuccess = {
                     _uiState.update {
                         it.copy(
+                            procesandoProrroga = false,
                             mostrarDialogoProrroga = false,
                             facturaParaProrrogaId = null,
                             mensajeExito = " Fecha de vencimiento prorrogada a $nuevaFechaVencimiento."
@@ -1240,7 +1272,10 @@ class ComprasViewModel(
                 },
                 onFailure = { e ->
                     _uiState.update {
-                        it.copy(mensajeError = "Error al prorrogar vencimiento: ${e.message}")
+                        it.copy(
+                            procesandoProrroga = false,
+                            mensajeError = "Error al prorrogar vencimiento: ${e.message}. La fecha anterior sigue intacta."
+                        )
                     }
                 }
             )
@@ -1403,6 +1438,11 @@ class ComprasViewModel(
                 }
             }
         }
+    }
+
+    /** La pantalla ya cerró el detalle del proveedor enviado: se consume el evento. */
+    fun consumirEnvioExitoso() {
+        _uiState.update { it.copy(envioExitosoProveedor = null) }
     }
 
     /** Cada mensaje se consume SOLO después de mostrarse: jamás se pierde uno en silencio. */

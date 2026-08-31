@@ -186,7 +186,7 @@ fun FDBotonPrimario(
                 text = texto,
                 style = TokensFarmadon.tipografia.etiqueta.copy(
                     fontWeight = FontWeight.Black,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     letterSpacing = 0.5.sp
                 )
             )
@@ -224,7 +224,7 @@ fun FDBotonSecundario(
             text = texto,
             style = TokensFarmadon.tipografia.etiqueta.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 letterSpacing = 0.5.sp
             ),
             color = colores.textoSecundario

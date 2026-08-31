@@ -91,14 +91,15 @@ class PagosMixtosEditorState(
         proximoId++
     }
 
-    /** Quita un método del reparto. */
+    /**
+     * Quita un método del reparto, INCLUSO si es el último: quedar sin métodos es un
+     * estado honesto ("elige al menos un método"), jamás una trampa silenciosa.
+     */
     fun quitarPorMetodo(metodo: String) {
-        if (filas.size <= 1) return
         filas.removeAll { it.metodo == metodo }
     }
 
     fun quitarFila(id: Int) {
-        if (filas.size <= 1) return
         filas.removeAll { it.id == id }
     }
 
@@ -124,14 +125,18 @@ class PagosMixtosEditorState(
     val cuadra: Boolean
         get() = filas.isNotEmpty() && sumaPorciones > 0.0 && !algunaPorcionExcede && !sumaExcedeTotal
 
-    /** Lista REAL lista para guardar: solo porciones con monto mayor a cero. */
+    /**
+     * Lista REAL lista para guardar: solo porciones con monto mayor a cero y EXACTAMENTE
+     * lo que la persona escribió (jamás un monto recortado en silencio; si se pasa del
+     * tope, [cuadra] bloquea el guardado con mensaje visible).
+     */
     val pagos: List<PagoDetalle>
         get() = filas.mapNotNull { fila ->
             val montoFila = fila.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0
             if (montoFila > 0.0) {
                 PagoDetalle(
                     metodoPago = fila.metodo,
-                    monto = if (montoFila > montoMaximoParaFila(fila.id)) montoMaximoParaFila(fila.id) else montoFila,
+                    monto = montoFila,
                     numeroOperacion = fila.operacion.trim().uppercase()
                 )
             } else null

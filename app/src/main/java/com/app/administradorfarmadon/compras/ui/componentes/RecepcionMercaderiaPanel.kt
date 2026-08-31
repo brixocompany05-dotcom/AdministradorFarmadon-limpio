@@ -118,7 +118,7 @@ fun RecepcionMercaderiaPanel(
                         HorizontalDivider(thickness = 1.dp, color = colores.cardBorde.copy(alpha = 0.4f))
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
                             itemsIndexed(estado.items, key = { _, item -> item.productoId }) { index, item ->
-                                val subtotal = (item.cantidadRecibir.toDoubleOrNull() ?: 0.0) * (item.costoUnitario.toDoubleOrNull() ?: 0.0)
+                                val subtotal = (item.cantidadRecibir.toDoubleOrNull() ?: 0.0) * (item.costoUnitario.replace(',', '.').toDoubleOrNull() ?: 0.0)
                                 val enfocado = indexFilaEnFoco == index
                                 val coincidencias = item.coincidenciasLote(indiceLotes)
                                 Surface(modifier = Modifier.fillMaxWidth().onGloballyPositioned { if (enfocado) yFilaSeleccionada = it.positionInRoot().y - rootY + (it.size.height / 2f) }.clickable { indexFilaEnFoco = index }, color = if (enfocado) colores.textoPrincipal.copy(alpha = 0.04f) else Color.Transparent) {
@@ -131,7 +131,7 @@ fun RecepcionMercaderiaPanel(
                                             CeldaIndustrialInput(item.cantidadRecibir, { item.cantidadRecibir = it.filter { c -> c.isDigit() } }, 0.7f, TextAlign.Center, KeyboardType.Number, enfocado = enfocado)
                                             CeldaIndustrialInput(item.loteNumero, { item.loteNumero = it.uppercase() }, 1.1f, pista = "LOTE", enfocado = enfocado)
                                             CeldaIndustrialInput(item.vencimiento, { item.vencimiento = it }, 0.9f, TextAlign.Center, pista = "MM/AA", enfocado = enfocado)
-                                            CeldaIndustrialInput(item.costoUnitario, { item.costoUnitario = it }, 1f, TextAlign.End, KeyboardType.Decimal, enfocado = enfocado)
+                                            CeldaIndustrialInput(item.costoUnitario, { item.costoUnitario = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, 1f, TextAlign.End, KeyboardType.Decimal, enfocado = enfocado)
                                             CeldaIndustrialInput(item.bonificacionGratis, { item.bonificacionGratis = it.filter { c -> c.isDigit() } }, 0.6f, TextAlign.Center, KeyboardType.Number, "0", enfocado = enfocado)
                                             Text(String.format(java.util.Locale.US, "%.2f", subtotal), style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace), color = colores.textoPrincipal, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
                                         }

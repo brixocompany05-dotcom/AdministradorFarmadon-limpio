@@ -63,6 +63,10 @@ fun PestanaReposicion(
     onDescartarAdicionExtra: () -> Unit = {},
     onVincularProducto: (PharmProduct, Proveedor) -> Unit = { _, _ -> },
     listaState: LazyListState = LazyListState(),
+    cargando: Boolean = false,
+    errorEscucha: String? = null,
+    envioExitosoProveedor: String? = null,
+    onConsumirEnvioExitoso: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val s = recordarMedidaAdaptativa()
@@ -108,43 +112,19 @@ fun PestanaReposicion(
         )
     }
 
+    // El detalle del proveedor se cierra SOLO cuando el envío terminó con ÉXITO
+    // (evento explícito del ViewModel). Si el envío falla, la persona queda en el
+    // detalle con su borrador restaurado para reintentar — jamás se le bota.
+    LaunchedEffect(envioExitosoProveedor) {
+        val prov = envioExitosoProveedor ?: return@LaunchedEffect
+        if (proveedorAbierto == prov) proveedorAbierto = null
+        onConsumirEnvioExitoso()
+    }
+
     Box(
         modifier = modifier.fillMaxSize()
     ) {
-        if (productosAgrupadosPorProveedor.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(s.padCardLarge),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    color = FDColors.Surface,
-                    shape = RoundedCornerShape(s.radiusCard),
-                    border = BorderStroke(s.borderWidth, FDColors.Border),
-                    modifier = Modifier.widthIn(max = 520.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(s.padCardLarge),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(s.gapMedium)
-                    ) {
-                        Text(
-                            text = "Catálogo de Productos Vacío",
-                            style = FDType.Heading2.copy(fontSize = 19.sp),
-                            color = FDColors.TextPrimary
-                        )
-                        Text(
-                            text = "No se encontraron productos registrados en el inventario. Al agregar productos y asignarles proveedor o laboratorio, se organizarán aquí.",
-                            style = FDType.Body.copy(fontSize = 13.5.sp),
-                            color = FDColors.TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-        } else {
-            BoxWithConstraints(
+        BoxWithConstraints(
                 modifier = Modifier.fillMaxSize()
             ) {
                 val totalWidth = maxWidth
@@ -245,8 +225,10 @@ fun PestanaReposicion(
                                     onLimpiarPedidoProveedor(nombreAbierto)
                                 },
                                 onRealizarPedido = { pedido ->
+                                    // El panel NO se cierra aquí: se cierra solo cuando
+                                    // el envío termina con éxito (carrito consumido). Si
+                                    // falla, la persona queda donde estaba para reintentar.
                                     onRealizarPedido(pedido)
-                                    proveedorAbierto = null
                                 },
                                 onVincular = onVincularProducto
                             )
@@ -260,25 +242,83 @@ fun PestanaReposicion(
                                 .weight(1.35f)
                                 .fillMaxHeight()
                         ) {
-                            ReposicionDirectorio(
-                                gruposFiltrados = gruposFiltrados,
-                                pedidosPorProveedor = pedidosPorProveedor,
-                                enCaminoPorProducto = enCaminoPorProducto,
-                                simboloMoneda = simboloMoneda,
-                                totalCriticosGlobal = totalCriticosGlobal,
-                                montoEnBorrador = montoEnBorrador,
-                                totalProdsGlobal = totalProdsGlobal,
-                                totalCriticosTabs = totalCriticosTabs,
-                                totalSinProveedor = totalSinProveedor,
-                                filtroRapido = filtroRapido,
-                                busquedaProducto = busquedaProducto,
-                                s = s,
-                                listaState = listaState,
-                                onCambiarFiltro = { filtroRapido = it },
-                                onCambiarBusqueda = { busquedaProducto = it },
-                                onAbrirProveedor = { proveedorAbierto = it },
-                                onReponerSugeridosProveedor = onReponerSugeridosProveedor
-                            )
+                            // Verdad del catálogo: cargando / error / vacío real / lista.
+                            // "Vacío" solo se declara cuando la carga terminó SIN error;
+                            // jamás se confunde con "aún no llega la data".
+                            if (productosAgrupadosPorProveedor.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().padding(s.padCardLarge),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    when {
+                                        cargando -> Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                                        ) {
+                                            CircularProgressIndicator(color = FDColors.Primary, modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
+                                            Text(
+                                                text = "Cargando catálogo de productos…",
+                                                style = FDType.Body.copy(fontSize = 13.5.sp),
+                                                color = FDColors.TextSecondary,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                        errorEscucha != null -> Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                                        ) {
+                                            Text(
+                                                text = "No se pudo cargar el catálogo",
+                                                style = FDType.Heading2.copy(fontSize = 17.sp),
+                                                color = FDColors.TextPrimary,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Text(
+                                                text = "Motivo real: $errorEscucha. Usa el botón REINTENTAR de arriba.",
+                                                style = FDType.Body.copy(fontSize = 13.sp),
+                                                color = FDColors.TextSecondary,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                        else -> Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                                        ) {
+                                            Text(
+                                                text = "Catálogo de Productos Vacío",
+                                                style = FDType.Heading2.copy(fontSize = 17.sp),
+                                                color = FDColors.TextPrimary
+                                            )
+                                            Text(
+                                                text = "No se encontraron productos registrados en el inventario. Al agregar productos y asignarles proveedor o laboratorio, se organizarán aquí.",
+                                                style = FDType.Body.copy(fontSize = 13.sp),
+                                                color = FDColors.TextSecondary,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                ReposicionDirectorio(
+                                    gruposFiltrados = gruposFiltrados,
+                                    pedidosPorProveedor = pedidosPorProveedor,
+                                    enCaminoPorProducto = enCaminoPorProducto,
+                                    simboloMoneda = simboloMoneda,
+                                    totalCriticosGlobal = totalCriticosGlobal,
+                                    montoEnBorrador = montoEnBorrador,
+                                    totalProdsGlobal = totalProdsGlobal,
+                                    totalCriticosTabs = totalCriticosTabs,
+                                    totalSinProveedor = totalSinProveedor,
+                                    filtroRapido = filtroRapido,
+                                    busquedaProducto = busquedaProducto,
+                                    s = s,
+                                    listaState = listaState,
+                                    onCambiarFiltro = { filtroRapido = it },
+                                    onCambiarBusqueda = { busquedaProducto = it },
+                                    onAbrirProveedor = { proveedorAbierto = it },
+                                    onReponerSugeridosProveedor = onReponerSugeridosProveedor
+                                )
+                            }
                         }
 
                         Box(
@@ -306,6 +346,5 @@ fun PestanaReposicion(
                     }
                 }
             }
-        }
     }
 }

@@ -73,8 +73,10 @@ fun DialogoNotaCredito(
     var errorDoc by remember { mutableStateOf<String?>(null) }
     var errorMotivo by remember { mutableStateOf<String?>(null) }
 
-    val montoNumerico = montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0
-    val montoValido = montoNumerico > 0.0 && montoNumerico <= (maximoAjustable + 0.01)
+    // Comparación en céntimos exactos: ni un céntimo más del papel se descuenta.
+    val montoNumerico = montoTexto.replace(',', '.').toDoubleOrNull()?.let { Math.round(it * 100.0) / 100.0 } ?: 0.0
+    val maximoAjustableRedondeado = Math.round(maximoAjustable * 100.0) / 100.0
+    val montoValido = montoNumerico > 0.0 && montoNumerico <= maximoAjustableRedondeado
     val documentoValido = numeroDocumento.trim().isNotBlank()
     val motivoValido = motivo.trim().length >= 5
     val puedeConfirmar = autorizadoPlata && !esAnulada && documentoValido && montoValido && motivoValido && !procesando
@@ -205,7 +207,7 @@ fun DialogoNotaCredito(
                                 errorDoc = null
                             },
                             label = { Text("N° DE NOTA DE CRÉDITO DEL PROVEEDOR *", fontSize = s.textLabel.value.sp * 0.92f) },
-                            placeholder = { Text("Ej: NC-014", fontSize = s.textBody.value.sp * 0.88f, color = FDColors.TextTertiary) },
+                            placeholder = { Text("Número impreso en el documento del proveedor", fontSize = s.textBody.value.sp * 0.88f, color = FDColors.TextTertiary) },
                             isError = errorDoc != null,
                             singleLine = true,
                             enabled = !procesando && autorizadoPlata,
@@ -229,10 +231,11 @@ fun DialogoNotaCredito(
                             value = montoTexto,
                             onValueChange = {
                                 montoTexto = it.filter { c -> c.isDigit() || c == '.' || c == ',' }
-                                val m = it.replace(',', '.').toDoubleOrNull() ?: 0.0
+                                val m = montoTexto.replace(',', '.').toDoubleOrNull()?.let { v -> Math.round(v * 100.0) / 100.0 } ?: 0.0
                                 errorMonto = when {
+                                    montoTexto.isBlank() -> null
                                     m <= 0.0 -> "Ingresa un monto mayor a 0."
-                                    m > (maximoAjustable + 0.01) -> "El monto supera el máximo ajustable de $simboloMoneda " + String.format(Locale.US, "%,.2f", maximoAjustable)
+                                    m > maximoAjustableRedondeado -> "El monto supera el máximo ajustable de $simboloMoneda " + String.format(Locale.US, "%,.2f", maximoAjustableRedondeado)
                                     else -> null
                                 }
                             },
@@ -264,7 +267,7 @@ fun DialogoNotaCredito(
                                 errorMotivo = null
                             },
                             label = { Text("MOTIVO (POR QUÉ EL PROVEEDOR NO ENTREGA) *", fontSize = s.textLabel.value.sp * 0.92f) },
-                            placeholder = { Text("Ej: Mercadería facturada que nunca llegó", fontSize = s.textBody.value.sp * 0.88f, color = FDColors.TextTertiary) },
+                            placeholder = { Text("Describe el motivo real del papel", fontSize = s.textBody.value.sp * 0.88f, color = FDColors.TextTertiary) },
                             isError = errorMotivo != null,
                             singleLine = true,
                             enabled = !procesando && autorizadoPlata,

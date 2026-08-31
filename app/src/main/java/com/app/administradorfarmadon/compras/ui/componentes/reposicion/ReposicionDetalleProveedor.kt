@@ -84,8 +84,6 @@ fun ReposicionDetalleProveedor(
     }
     val unidadesPedidas = itemsPedido.sumOf { it.second }
     val subtotal = itemsPedido.sumOf { it.third }
-    val textoConteo = if (busquedaLocal.isBlank()) "${productos.size} productos"
-    else "${productosVisibles.size} de ${productos.size} productos"
 
     Column(
         modifier = Modifier
@@ -198,12 +196,7 @@ fun ReposicionDetalleProveedor(
                             focusedTextColor = FDColors.TextPrimary,
                             unfocusedTextColor = FDColors.TextPrimary
                         ),
-                        modifier = Modifier.weight(1f).height(s.inputMinH)
-                    )
-                    Text(
-                        text = textoConteo,
-                        style = FDType.BodySmall.copy(fontSize = s.textLabel.value.sp),
-                        color = FDColors.TextSecondary
+                        modifier = Modifier.fillMaxWidth().height(s.inputMinH)
                     )
                 }
 
@@ -211,7 +204,7 @@ fun ReposicionDetalleProveedor(
 
                 if (productosVisibles.isEmpty()) {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -223,7 +216,7 @@ fun ReposicionDetalleProveedor(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.weight(1f).fillMaxWidth()
                     ) {
                         items(productosVisibles, key = { it.id }) { prod ->
                             FilaProductoDetalleProveedor(
@@ -241,6 +234,15 @@ fun ReposicionDetalleProveedor(
                     }
                 }
             }
+
+            // Separador vertical entre catálogo y pedido
+            VerticalDivider(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(vertical = s.gapSmall),
+                thickness = 1.dp,
+                color = FDColors.Border.copy(alpha = 0.5f)
+            )
 
             // Zona derecha: carrito (sus acciones viven aquí, no fuera)
             Column(

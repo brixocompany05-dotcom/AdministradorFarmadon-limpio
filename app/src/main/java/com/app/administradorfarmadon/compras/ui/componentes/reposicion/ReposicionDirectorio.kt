@@ -62,55 +62,7 @@ fun ReposicionDirectorio(
             .fillMaxSize()
             .padding(s.padCardLarge)
     ) {
-        // Cabecera: salud del inventario y métricas reales
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = "MONITOREO DE ABASTECIMIENTO",
-                    style = FDType.Label.copy(
-                        fontWeight = FontWeight.Black,
-                        fontSize = 10.sp,
-                        letterSpacing = 1.2.sp
-                    ),
-                    color = FDColors.TextTertiary
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Elige un proveedor para pedir sus productos",
-                    style = FDType.Heading2.copy(
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    color = FDColors.TextPrimary
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(s.gapLarge)) {
-                MetricItemReposicion(
-                    label = "QUIEBRES CRÍTICOS",
-                    value = "$totalCriticosGlobal ÍTEMS",
-                    color = if (totalCriticosGlobal > 0) FDColors.Error else FDColors.Success
-                )
-                VerticalDivider(
-                    modifier = Modifier.height(s.btnSmallH * 0.85f),
-                    color = FDColors.Border
-                )
-                MetricItemReposicion(
-                    label = "MONTO EN ARMADO",
-                    value = "$simboloMoneda ${String.format(Locale.US, "%,.2f", montoEnBorrador)}",
-                    color = FDColors.Primary
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(s.gapLarge))
-
-        Spacer(modifier = Modifier.height(s.gapMedium))
-
+        // Buscador arriba como único elemento de cabecera
         OutlinedTextField(
             value = busquedaProducto,
             onValueChange = onCambiarBusqueda,
@@ -129,7 +81,7 @@ fun ReposicionDirectorio(
             modifier = Modifier.fillMaxWidth().height(s.inputMinH)
         )
 
-        Spacer(modifier = Modifier.height(s.gapSmall))
+        Spacer(modifier = Modifier.height(s.gapMedium))
 
         // Underline tabs de inventario
         Row(

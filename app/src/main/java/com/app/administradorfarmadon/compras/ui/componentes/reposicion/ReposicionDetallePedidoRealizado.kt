@@ -52,36 +52,9 @@ fun ReposicionDetallePedidoRealizado(
     var itemsEditando by remember { mutableStateOf<List<ItemPedidoCompra>?>(null) }
     var confirmarEliminacion by remember { mutableStateOf(false) }
 
-    val puedeEditar = pedido.estado == "ENVIADO" &&
-            pedido.recepciones.isEmpty() &&
-            pedido.totalUnidadesRecibidas == 0
-
-    // Sale del modo edición solo cuando el servidor confirma los cambios guardados.
-    LaunchedEffect(pedido.items, procesandoEdicion) {
-        val editando = itemsEditando
-        if (!procesandoEdicion && modoEdicion && editando != null && pedido.items == editando) {
-            modoEdicion = false
-            itemsEditando = null
-        }
-    }
-
     val itemsVisibles = itemsEditando ?: pedido.items
     val hayCambios = itemsEditando != null && itemsEditando != pedido.items
     val puedeGuardar = hayCambios && itemsEditando.orEmpty().any { it.cantidad > 0 }
-    val estadoTexto = when (pedido.estado) {
-        "ENTREGA_PARCIAL" -> "ENTREGA PARCIAL"
-        "RECIBIDO" -> "RECIBIDO"
-        "COMPLETADA_AJUSTE" -> "CERRADO CON AJUSTE"
-        "CANCELADO" -> "CANCELADO"
-        else -> "REALIZADO"
-    }
-    val estadoColor = when (pedido.estado) {
-        "ENTREGA_PARCIAL" -> FDColors.Warning
-        "RECIBIDO" -> FDColors.Primary
-        "COMPLETADA_AJUSTE" -> FDColors.TextTertiary
-        "CANCELADO" -> FDColors.Error
-        else -> FDColors.Success
-    }
 
     // En modo edición, el botón atrás del sistema cancela la edición (vuelve a consulta).
     BackHandler(enabled = modoEdicion) {
@@ -93,13 +66,13 @@ fun ReposicionDetallePedidoRealizado(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(s.gapMedium)
     ) {
-        // Cabecera del detalle
+        // Cabecera profesional integrada
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(s.gapSmall)
+            horizontalArrangement = Arrangement.spacedBy(s.gapTiny)
         ) {
-            OutlinedButton(
+            IconButton(
                 onClick = {
                     if (modoEdicion) {
                         modoEdicion = false
@@ -108,10 +81,7 @@ fun ReposicionDetallePedidoRealizado(
                         onVolver()
                     }
                 },
-                shape = RoundedCornerShape(s.radiusButton),
-                border = BorderStroke(s.borderWidth, FDColors.Border),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.TextPrimary),
-                modifier = Modifier.height(s.btnMediumH)
+                modifier = Modifier.size(s.iconMedium)
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
@@ -119,96 +89,29 @@ fun ReposicionDetallePedidoRealizado(
                     tint = FDColors.TextPrimary,
                     modifier = Modifier.size(s.iconSmall)
                 )
-                Spacer(Modifier.width(s.xs))
-                Text(
-                    "VOLVER",
-                    style = FDType.Label.copy(
-                        fontSize = s.textLabel.value.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
             }
 
             Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = pedido.proveedorNombre,
-                    style = FDType.Heading1.copy(fontSize = s.textTitle.value.sp),
+                    text = pedido.proveedorNombre.uppercase(),
+                    style = FDType.Label.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.5.sp,
+                        letterSpacing = 0.5.sp
+                    ),
                     color = FDColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = listOfNotNull(
-                        pedido.numeroOrden.takeIf { it.isNotBlank() },
-                        pedido.fechaEmision.takeIf { it.isNotBlank() },
-                        pedido.usuarioEmisor.takeIf { it.isNotBlank() }
-                    ).joinToString("  ·  "),
-                    style = FDType.BodySmall.copy(fontSize = s.textLabel.value.sp),
-                    color = FDColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            if (puedeEditar && !modoEdicion) {
-                OutlinedButton(
-                    onClick = {
-                        itemsEditando = pedido.items.map { it.copy() }
-                        modoEdicion = true
-                    },
-                    shape = RoundedCornerShape(s.radiusButton),
-                    border = BorderStroke(s.borderWidth, FDColors.Primary.copy(alpha = 0.5f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Primary),
-                    modifier = Modifier.height(s.btnMediumH)
-                ) {
-                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(s.iconSmall))
-                    Spacer(Modifier.width(s.xs * 0.7f))
-                    Text(
-                        "EDITAR",
-                        style = FDType.Label.copy(
-                            fontSize = s.textLabel.value.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    )
-                }
-            }
-
-            if (puedeEditar && !modoEdicion) {
-                OutlinedButton(
-                    onClick = { confirmarEliminacion = true },
-                    shape = RoundedCornerShape(s.radiusButton),
-                    border = BorderStroke(s.borderWidth, FDColors.Error.copy(alpha = 0.45f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Error),
-                    modifier = Modifier.height(s.btnMediumH)
-                ) {
-                    Icon(Icons.Default.DeleteOutline, null, modifier = Modifier.size(s.iconSmall))
-                    Spacer(Modifier.width(s.xs * 0.7f))
-                    Text(
-                        "ELIMINAR",
-                        style = FDType.Label.copy(
-                            fontSize = s.textLabel.value.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    )
-                }
-            }
-
-            Surface(
-                color = estadoColor.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(s.radiusChip),
-                border = BorderStroke(1.dp, estadoColor.copy(alpha = 0.45f))
-            ) {
-                Text(
-                    text = estadoTexto,
-                    style = FDType.Label.copy(
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Black
+                    text = "DOC: ${pedido.numeroOrden.ifBlank { "SIN NRO" }}",
+                    style = FDType.Numeric.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     ),
-                    color = estadoColor,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    color = FDColors.TextTertiary
                 )
             }
         }
@@ -320,39 +223,38 @@ fun ReposicionDetallePedidoRealizado(
             }
         } else {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                if (pedido.montoFacturadoReal > 0) {
                     Text(
-                        text = "${itemsVisibles.size} PRODUCTOS · ${itemsVisibles.sumOf { it.cantidad }} UNIDADES",
+                        text = "FACTURADO: $simboloMoneda ${String.format(Locale.US, "%,.2f", pedido.montoFacturadoReal)}",
                         style = FDType.Label.copy(
-                            fontWeight = FontWeight.Black,
-                            fontSize = s.textLabel.value.sp,
-                            letterSpacing = 0.5.sp
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black
                         ),
-                        color = FDColors.TextSecondary
+                        color = FDColors.Primary
                     )
-                    if (pedido.montoFacturadoReal > 0) {
-                        Text(
-                            text = "FACTURADO REAL: $simboloMoneda ${String.format(Locale.US, "%,.2f", pedido.montoFacturadoReal)}",
-                            style = FDType.Label.copy(
-                                fontSize = s.textLabel.value.sp * 0.95f,
-                                fontWeight = FontWeight.Black
-                            ),
-                            color = FDColors.Primary
-                        )
-                    }
+                } else {
+                    Spacer(Modifier.weight(1f))
                 }
-                Text(
-                    text = "$simboloMoneda ${String.format(Locale.US, "%,.2f", pedido.totalInversion)}",
-                    style = FDType.Heading1.copy(
-                        fontWeight = FontWeight.Black,
-                        fontSize = s.textSubtitle.value.sp
-                    ),
-                    color = FDColors.TextPrimary
-                )
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        "TOTAL INVERSIÓN",
+                        style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp),
+                        color = FDColors.TextTertiary
+                    )
+                    Text(
+                        text = "$simboloMoneda ${String.format(Locale.US, "%,.2f", pedido.totalInversion)}",
+                        style = FDType.Numeric.copy(
+                            fontWeight = FontWeight.Black,
+                            fontSize = 18.sp
+                        ),
+                        color = FDColors.TextPrimary
+                    )
+                }
             }
         }
     }
@@ -565,53 +467,37 @@ private fun SeccionBitacora(
     Spacer(modifier = Modifier.height(s.gapSmall * 0.5f))
     if (bitacora.isEmpty()) {
         Text(
-            text = "Sin registros de bitácora para este pedido.",
+            text = "Sin registros de bitácora.",
             style = FDType.BodySmall.copy(fontSize = 11.sp),
             color = FDColors.TextTertiary
         )
     } else {
         bitacora.sortedByDescending { it.fechaMs }.forEach { entrada ->
-            Surface(
-                color = FDColors.TextPrimary.copy(alpha = 0.03f),
-                shape = RoundedCornerShape(s.radiusInput * 0.6f),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = if (entrada.tipo == "CREACION") "CREACIÓN" else "EDICIÓN",
-                            style = FDType.Label.copy(
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Black
-                            ),
-                            color = if (entrada.tipo == "CREACION") FDColors.Primary else FDColors.Warning
-                        )
-                        Text(
-                            text = entrada.fecha,
-                            style = FDType.Label.copy(fontSize = 9.5.sp),
-                            color = FDColors.TextTertiary
-                        )
-                    }
                     Text(
-                        text = "Quién: ${entrada.usuario.ifBlank { "Sistema" }}",
-                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                        color = FDColors.TextPrimary
-                    )
-                    Text(
-                        text = "Qué: ${entrada.detalle.ifBlank { "Sin detalle" }}",
-                        style = FDType.BodySmall.copy(fontSize = 10.5.sp),
-                        color = FDColors.TextSecondary
+                        text = (if (entrada.tipo == "CREACION") "CREACIÓN" else "EDICIÓN") + " · ${entrada.fecha}",
+                        style = FDType.Label.copy(
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp
+                        ),
+                        color = if (entrada.tipo == "CREACION") FDColors.Primary else FDColors.Warning
                     )
                 }
+                Text(
+                    text = entrada.detalle.ifBlank { "Sin detalle" },
+                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
+                    color = FDColors.TextSecondary
+                )
             }
-            Spacer(modifier = Modifier.height(s.gapTiny * 0.7f))
         }
     }
 }
@@ -635,53 +521,42 @@ private fun SeccionRecepciones(
     Spacer(modifier = Modifier.height(s.gapSmall * 0.5f))
     if (recepciones.isEmpty()) {
         Text(
-            text = "Este pedido aún no tiene entregas registradas.",
+            text = "Sin entregas registradas.",
             style = FDType.BodySmall.copy(fontSize = 11.sp),
             color = FDColors.TextTertiary
         )
     } else {
         recepciones.sortedByDescending { it.fechaMs }.forEach { rec ->
-            Surface(
-                color = FDColors.TextPrimary.copy(alpha = 0.03f),
-                shape = RoundedCornerShape(s.radiusInput * 0.6f),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "FACTURA ${rec.numeroFactura.ifBlank { "S/C" }}",
-                            style = FDType.Label.copy(
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Black
-                            ),
-                            color = FDColors.Primary
-                        )
-                        Text(
-                            text = rec.fechaLegible,
-                            style = FDType.Label.copy(fontSize = 9.5.sp),
-                            color = FDColors.TextTertiary
-                        )
-                    }
                     Text(
-                        text = "Monto: $simboloMoneda ${String.format(Locale.US, "%,.2f", rec.montoFactura)} · ${rec.items.sumOf { it.cantidadTotal }} unidades",
-                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                        color = FDColors.TextPrimary
-                    )
-                    Text(
-                        text = "Recibió: ${rec.usuarioNombre.ifBlank { "Sistema" }} · ${rec.condicionPago}",
-                        style = FDType.BodySmall.copy(fontSize = 10.5.sp),
-                        color = FDColors.TextSecondary
+                        text = "RECEPCIÓN · ${rec.fechaLegible}",
+                        style = FDType.Label.copy(
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp
+                        ),
+                        color = FDColors.Primary
                     )
                 }
+                Text(
+                    text = "Factura: ${rec.numeroFactura.ifBlank { "S/C" }} · $simboloMoneda ${String.format(Locale.US, "%,.2f", rec.montoFactura)}",
+                    style = FDType.BodySmall.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                    color = FDColors.TextPrimary
+                )
+                Text(
+                    text = "Recibió: ${rec.usuarioNombre.ifBlank { "Sistema" }}",
+                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
+                    color = FDColors.TextSecondary
+                )
             }
-            Spacer(modifier = Modifier.height(s.gapTiny * 0.7f))
         }
     }
 }

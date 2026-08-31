@@ -78,7 +78,7 @@ fun ComprasScreen(
     state.facturaParaProrrogaId?.let { id ->
         val facturaViva = state.facturas.find { it.id == id }
         if (facturaViva != null) {
-            DialogoProrrogarVencimiento(factura = facturaViva, estadoFactura = facturaViva.estadoPago, onDismiss = { viewModel.cerrarDialogoProrroga() }, onConfirmarProrroga = { nf -> viewModel.prorrogarVencimientoFactura(facturaViva.id, nf) })
+            DialogoProrrogarVencimiento(factura = facturaViva, estadoFactura = facturaViva.estadoPago, procesando = state.procesandoProrroga, onDismiss = { viewModel.cerrarDialogoProrroga() }, onConfirmarProrroga = { nf -> viewModel.prorrogarVencimientoFactura(facturaViva.id, nf) })
         } else {
             LaunchedEffect(id) { viewModel.cerrarDialogoProrroga() }
         }
@@ -106,21 +106,13 @@ fun ComprasScreen(
             modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
         ) { paddingValues ->
             Column(Modifier.fillMaxSize().padding(paddingValues)) {
-                // Header quiet —” una verdad
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = s.padScreenH, vertical = s.padCard),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(s.xs * 0.35f), modifier = Modifier.weight(1f)) {
-                        Text("Compras y proveedores", style = FDType.Heading2.copy(fontSize = s.textSubtitle.value.sp, fontWeight = FontWeight.Bold, fontFamily = InterPremium), color = FDColors.TextPrimary)
-                        Text("Reposición inteligente · directorio · cuentas por pagar", style = FDType.Caption.copy(fontSize = s.textLabel.value.sp, fontFamily = InterPremium), color = FDColors.TextSecondary)
-                    }
-                }
+                Spacer(Modifier.height(s.gapMedium))
 
-                // Tabs underline —” modernos, sin cajas
+                // Tabs tipo navegador —” amplias y con fondo (browser style)
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = s.padScreenH),
-                    horizontalArrangement = Arrangement.spacedBy(s.gapLarge), verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(s.gapTiny),
+                    verticalAlignment = Alignment.Bottom
                 ) {
                     TabQuiet(label = "Reposición", count = state.productosAgrupadosPorProveedor.keys.size, selected = state.tabSeleccionada == "REPOSICION", onClick = { viewModel.seleccionarTab("REPOSICION") }, s = s)
                     TabQuiet(label = "Proveedores", count = state.totalProveedores, selected = state.tabSeleccionada == "PROVEEDORES", onClick = { viewModel.seleccionarTab("PROVEEDORES") }, s = s)
@@ -171,7 +163,11 @@ fun ComprasScreen(
                             onConfirmarAdicionExtra = { viewModel.confirmarAdicionExtra() },
                             onDescartarAdicionExtra = { viewModel.descartarAdicionExtra() },
                             onVincularProducto = { prod, prov -> viewModel.vincularProductoAProveedor(prod.id, prov) },
-                            listaState = viewModel.listaReposicion
+                            listaState = viewModel.listaReposicion,
+                            cargando = state.cargando,
+                            errorEscucha = state.errorEscucha,
+                            envioExitosoProveedor = state.envioExitosoProveedor,
+                            onConsumirEnvioExitoso = { viewModel.consumirEnvioExitoso() }
                         )
                         "PROVEEDORES" -> {
                             val provSel = state.proveedorSeleccionado
@@ -190,7 +186,9 @@ fun ComprasScreen(
                                 onEliminarProveedor = { prov -> viewModel.eliminarProveedor(prov, cantFact) { _, _ -> } },
                                 onCobrarSaldoAFavor = { monto, doc, onComplete -> viewModel.cobrarSaldoAFavor(state.proveedorSeleccionado?.id ?: "", monto, doc, onComplete) },
                                 onDeclararSaldoPerdido = { monto, motivo, onComplete -> viewModel.declararSaldoPerdido(state.proveedorSeleccionado?.id ?: "", monto, motivo, onComplete) },
-                                listaState = viewModel.listaProveedores
+                                listaState = viewModel.listaProveedores,
+                                cargando = state.cargando,
+                                errorEscucha = state.errorEscucha
                             )
                         }
                         "CUENTAS" -> PestanaCuentasPorPagar(
@@ -258,17 +256,43 @@ fun ComprasScreen(
 
 @Composable
 private fun TabQuiet(label: String, count: Int, selected: Boolean, onClick: () -> Unit, s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa) {
-    Column(
-        Modifier.clickable(onClick = onClick).padding(vertical = s.sm),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Surface(
+        color = if (selected) FDColors.SurfaceElevated else Color.Transparent,
+        shape = RoundedCornerShape(topStart = s.radiusInput, topEnd = s.radiusInput),
+        modifier = Modifier.clickable(onClick = onClick)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.xs * 0.7f)) {
-            Text(label.uppercase(), style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = if (selected) FontWeight.Black else FontWeight.SemiBold, letterSpacing = 0.5.sp, fontFamily = InterPremium), color = if (selected) FDColors.Primary else FDColors.TextTertiary)
+        Row(
+            modifier = Modifier.padding(horizontal = s.gapXLarge, vertical = s.gapMedium),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(s.gapSmall)
+        ) {
+            Text(
+                text = label.uppercase(),
+                style = FDType.Label.copy(
+                    fontSize = 12.5.sp,
+                    fontWeight = if (selected) FontWeight.Black else FontWeight.SemiBold,
+                    letterSpacing = 1.sp,
+                    fontFamily = InterPremium
+                ),
+                color = if (selected) FDColors.Primary else FDColors.TextTertiary
+            )
             if (count > 0) {
-                Text("[ $count ]", style = FDType.Caption.copy(fontSize = s.textLabel.value.sp * 0.85f, fontWeight = FontWeight.Bold, fontFamily = InterPremium), color = if (selected) FDColors.Primary else FDColors.TextTertiary)
+                Surface(
+                    color = if (selected) FDColors.Primary.copy(alpha = 0.12f) else FDColors.TextPrimary.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = "$count",
+                        style = FDType.Caption.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = InterPremium
+                        ),
+                        color = if (selected) FDColors.Primary else FDColors.TextTertiary,
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(s.xs * 0.7f))
-        Box(Modifier.height(s.separatorH * 1.6f).width(if (selected) s.gapXLarge else 0.dp).background(if (selected) FDColors.Primary else Color.Transparent, RoundedCornerShape(100.dp)))
     }
 }

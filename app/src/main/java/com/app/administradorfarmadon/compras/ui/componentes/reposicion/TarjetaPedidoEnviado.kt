@@ -82,8 +82,8 @@ fun TarjetaPedidoEnviado(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+            modifier = Modifier.padding(s.padCard),
+            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -104,21 +104,6 @@ fun TarjetaPedidoEnviado(
                                 ": ${pedido.fechaEmision} | ${pedido.items.size} ÍTEMS",
                         style = FDType.Label.copy(fontSize = 9.sp),
                         color = FDColors.TextTertiary
-                    )
-                }
-
-                Surface(
-                    color = FDColors.Primary.copy(alpha = 0.08f),
-                    shape = FDShapes.XSmall
-                ) {
-                    Text(
-                        text = if (pedido.estado == "ENTREGA_PARCIAL") "ENTREGA PARCIAL" else "ESPERANDO ENTREGA",
-                        style = FDType.Label.copy(
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Black
-                        ),
-                        color = FDColors.Primary,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -325,7 +310,7 @@ fun TarjetaPedidoEnviado(
                 icono = Icons.Default.Inventory,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(s.btnSmallH)
+                    .height(s.btnSmallH * 0.85f)
             )
 
             // UNA sola salida según la verdad de esta orden (jamás dos juntas):
@@ -338,12 +323,12 @@ fun TarjetaPedidoEnviado(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Warning),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(s.btnSmallH * 0.95f)
+                        .height(s.btnSmallH * 0.8f)
                 ) {
                     Text(
                         "CANCELAR ORDEN",
                         style = FDType.Label.copy(
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     )
@@ -354,7 +339,7 @@ fun TarjetaPedidoEnviado(
                     onClick = { confirmarAjuste = true },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(s.btnSmallH * 0.95f)
+                        .height(s.btnSmallH * 0.8f)
                 )
             }
         }
