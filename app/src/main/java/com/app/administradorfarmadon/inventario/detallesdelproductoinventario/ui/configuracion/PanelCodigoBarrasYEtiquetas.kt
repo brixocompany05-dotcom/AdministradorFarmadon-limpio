@@ -47,7 +47,8 @@ fun PanelCodigoBarrasYEtiquetas(
     onGenerarCodigoUnico: suspend () -> String = { "" },
     onVerificarDuplicadoCodigo: suspend (String) -> String? = { null },
     onMarcarEtiquetaImpresa: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isGuardando: Boolean = false
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()

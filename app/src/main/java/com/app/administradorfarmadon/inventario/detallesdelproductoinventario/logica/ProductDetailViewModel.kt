@@ -141,44 +141,60 @@ class ProductDetailViewModel(
         }
     }
 
+    private var bloqueoLoteEnCurso = false
+
     fun cambiarBloqueoLote(productId: String, lote: LoteProducto, ponerEnCuarentena: Boolean, cantidadAfectada: Double = 0.0, motivo: String, onComplete: (Result<Unit>) -> Unit) {
+        if (bloqueoLoteEnCurso) return
+        bloqueoLoteEnCurso = true
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
             FirebaseAuth.getInstance().currentUser?.uid ?: ""
         }
         val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
 
         viewModelScope.launch {
-            val result = lotesRepo.cambiarBloqueoLote(
-                clienteId = clienteId,
-                productId = productId,
-                lote = lote,
-                ponerEnCuarentena = ponerEnCuarentena,
-                cantidadAfectada = cantidadAfectada,
-                motivo = motivo,
-                usuarioEmail = userEmail
-            )
-            onComplete(result)
+            try {
+                val result = lotesRepo.cambiarBloqueoLote(
+                    clienteId = clienteId,
+                    productId = productId,
+                    lote = lote,
+                    ponerEnCuarentena = ponerEnCuarentena,
+                    cantidadAfectada = cantidadAfectada,
+                    motivo = motivo,
+                    usuarioEmail = userEmail
+                )
+                onComplete(result)
+            } finally {
+                bloqueoLoteEnCurso = false
+            }
         }
     }
 
+    private var definirPrioritarioEnCurso = false
     fun definirLotePrioritario(productId: String, loteId: String?, onComplete: (Result<Unit>) -> Unit) {
+        if (definirPrioritarioEnCurso) return
+        definirPrioritarioEnCurso = true
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
             FirebaseAuth.getInstance().currentUser?.uid ?: ""
         }
         val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
         val userRol = SessionManager.rol.ifBlank { "Administrador" }
         viewModelScope.launch {
-            val result = lotesRepo.definirLotePrioritario(
-                clienteId = clienteId,
-                productId = productId,
-                loteId = loteId,
-                usuarioRol = userRol,
-                usuarioEmail = userEmail
-            )
-            onComplete(result)
+            try {
+                val result = lotesRepo.definirLotePrioritario(
+                    clienteId = clienteId,
+                    productId = productId,
+                    loteId = loteId,
+                    usuarioRol = userRol,
+                    usuarioEmail = userEmail
+                )
+                onComplete(result)
+            } finally {
+                definirPrioritarioEnCurso = false
+            }
         }
     }
 
+    private var devolucionEnCurso = false
     fun registrarDevolucionProveedor(
         productId: String,
         lote: LoteProducto,
@@ -189,6 +205,8 @@ class ProductDetailViewModel(
         modalidadCompensacion: String,
         onComplete: (Result<Unit>) -> Unit
     ) {
+        if (devolucionEnCurso) return
+        devolucionEnCurso = true
         val op = idemPara(
             "D|$productId|${lote.numero}|$cantidadDevuelta|$guiaRetiro|$notaCredito|$motivo|$modalidadCompensacion",
             devolucionPendiente
@@ -200,23 +218,28 @@ class ProductDetailViewModel(
         val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
 
         viewModelScope.launch {
-            val result = lotesRepo.registrarDevolucionProveedor(
-                clienteId = clienteId,
-                productId = productId,
-                lote = lote,
-                cantidadDevuelta = cantidadDevuelta,
-                guiaRetiro = guiaRetiro,
-                notaCredito = notaCredito,
-                motivo = motivo,
-                modalidadCompensacion = modalidadCompensacion,
-                usuarioEmail = userEmail,
-                idempotenciaId = op.idem
-            )
-            if (result.isSuccess) devolucionPendiente = null
-            onComplete(result)
+            try {
+                val result = lotesRepo.registrarDevolucionProveedor(
+                    clienteId = clienteId,
+                    productId = productId,
+                    lote = lote,
+                    cantidadDevuelta = cantidadDevuelta,
+                    guiaRetiro = guiaRetiro,
+                    notaCredito = notaCredito,
+                    motivo = motivo,
+                    modalidadCompensacion = modalidadCompensacion,
+                    usuarioEmail = userEmail,
+                    idempotenciaId = op.idem
+                )
+                if (result.isSuccess) devolucionPendiente = null
+                onComplete(result)
+            } finally {
+                devolucionEnCurso = false
+            }
         }
     }
 
+    private var canjeEnCurso = false
     fun registrarCanjeProducto(
         productId: String,
         loteOrigen: LoteProducto,
@@ -227,6 +250,8 @@ class ProductDetailViewModel(
         motivo: String,
         onComplete: (Result<Unit>) -> Unit
     ) {
+        if (canjeEnCurso) return
+        canjeEnCurso = true
         val op = idemPara(
             "C|$productId|${loteOrigen.numero}|$cantidadCanjeada|$nuevoLoteNumero|$nuevoVencimiento|$guiaCanje|$motivo",
             canjePendiente
@@ -238,41 +263,53 @@ class ProductDetailViewModel(
         val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
 
         viewModelScope.launch {
-            val result = lotesRepo.registrarCanjeProducto(
-                clienteId = clienteId,
-                productId = productId,
-                loteOrigen = loteOrigen,
-                cantidadCanjeada = cantidadCanjeada,
-                nuevoLoteNumero = nuevoLoteNumero,
-                nuevoVencimiento = nuevoVencimiento,
-                guiaCanje = guiaCanje,
-                motivo = motivo,
-                usuarioEmail = userEmail,
-                idempotenciaId = op.idem
-            )
-            if (result.isSuccess) canjePendiente = null
-            onComplete(result)
+            try {
+                val result = lotesRepo.registrarCanjeProducto(
+                    clienteId = clienteId,
+                    productId = productId,
+                    loteOrigen = loteOrigen,
+                    cantidadCanjeada = cantidadCanjeada,
+                    nuevoLoteNumero = nuevoLoteNumero,
+                    nuevoVencimiento = nuevoVencimiento,
+                    guiaCanje = guiaCanje,
+                    motivo = motivo,
+                    usuarioEmail = userEmail,
+                    idempotenciaId = op.idem
+                )
+                if (result.isSuccess) canjePendiente = null
+                onComplete(result)
+            } finally {
+                canjeEnCurso = false
+            }
         }
     }
 
+    private var anularEnCurso = false
     fun anularIngreso(productId: String, lote: LoteProducto, motivo: String, onComplete: (Result<Unit>) -> Unit) {
+        if (anularEnCurso) return
+        anularEnCurso = true
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
             FirebaseAuth.getInstance().currentUser?.uid ?: ""
         }
         val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
 
         viewModelScope.launch {
-            val result = lotesRepo.anularIngresoLote(
-                clienteId = clienteId,
-                productId = productId,
-                lote = lote,
-                motivo = motivo,
-                usuarioEmail = userEmail
-            )
-            onComplete(result)
+            try {
+                val result = lotesRepo.anularIngresoLote(
+                    clienteId = clienteId,
+                    productId = productId,
+                    lote = lote,
+                    motivo = motivo,
+                    usuarioEmail = userEmail
+                )
+                onComplete(result)
+            } finally {
+                anularEnCurso = false
+            }
         }
     }
 
+    private var guardandoPreciosEnCurso = false
     fun guardarPresentacionesYPrecios(
         productId: String,
         unidadBase: String,
@@ -280,21 +317,27 @@ class ProductDetailViewModel(
         presentacionesOriginales: List<PresentacionProducto> = emptyList(),
         onComplete: (Result<Unit>) -> Unit
     ) {
+        if (guardandoPreciosEnCurso) return
+        guardandoPreciosEnCurso = true
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
             FirebaseAuth.getInstance().currentUser?.uid ?: ""
         }
         val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
 
         viewModelScope.launch {
-            val result = preciosRepo.guardarPresentacionesYPrecios(
-                clienteId = clienteId,
-                productId = productId,
-                unidadBase = unidadBase,
-                presentaciones = presentaciones,
-                usuarioEmail = userEmail,
-                presentacionesOriginales = presentacionesOriginales
-            )
-            onComplete(result)
+            try {
+                val result = preciosRepo.guardarPresentacionesYPrecios(
+                    clienteId = clienteId,
+                    productId = productId,
+                    unidadBase = unidadBase,
+                    presentaciones = presentaciones,
+                    usuarioEmail = userEmail,
+                    presentacionesOriginales = presentacionesOriginales
+                )
+                onComplete(result)
+            } finally {
+                guardandoPreciosEnCurso = false
+            }
         }
     }
 
@@ -329,6 +372,7 @@ class ProductDetailViewModel(
         return lecturaRepo.buscarDuplicadoCodigoBarras(clienteId, codigo, currentProductId)
     }
 
+    private var guardandoConfigEnCurso = false
     fun guardarConfiguracionYLogistica(
         productId: String,
         ubicacion: String,
@@ -340,6 +384,8 @@ class ProductDetailViewModel(
         fefoAutomatico: Boolean = true,
         onComplete: (Result<Unit>) -> Unit
     ) {
+        if (guardandoConfigEnCurso) return
+        guardandoConfigEnCurso = true
         val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
             FirebaseAuth.getInstance().currentUser?.uid ?: ""
         }
@@ -354,46 +400,57 @@ class ProductDetailViewModel(
         }
 
         viewModelScope.launch {
-            val result = preciosRepo.guardarConfiguracionYLogistica(
-                clienteId = clienteId,
-                productId = productId,
-                ubicacion = ubicacion,
-                stockMinimo = stockMinimo,
-                activo = activo,
-                diasAlertaVencimiento = diasAlertaVencimiento,
-                usuarioEmail = userEmail,
-                nuevoCodigo = nuevoCodigo,
-                ubicacionSecundaria = ubicacionSecundaria,
-                fefoAutomatico = fefoAutomatico
-            )
-            if (result.isSuccess) {
-                cargarCatalogoUbicaciones()
+            try {
+                val result = preciosRepo.guardarConfiguracionYLogistica(
+                    clienteId = clienteId,
+                    productId = productId,
+                    ubicacion = ubicacion,
+                    stockMinimo = stockMinimo,
+                    activo = activo,
+                    diasAlertaVencimiento = diasAlertaVencimiento,
+                    usuarioEmail = userEmail,
+                    nuevoCodigo = nuevoCodigo,
+                    ubicacionSecundaria = ubicacionSecundaria,
+                    fefoAutomatico = fefoAutomatico
+                )
+                if (result.isSuccess) {
+                    cargarCatalogoUbicaciones()
+                }
+                onComplete(result)
+            } finally {
+                guardandoConfigEnCurso = false
             }
-            onComplete(result)
         }
     }
 
+    private var eliminandoEnCurso = false
     fun eliminarProductoDefinitivo(
         productId: String,
         motivo: String,
         onComplete: (Result<Unit>) -> Unit
     ) {
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        if (eliminandoEnCurso) return
         if (motivo.trim().length < 10) {
             onComplete(Result.failure(IllegalArgumentException("El motivo debe tener al menos 10 caracteres.")))
             return
         }
+        eliminandoEnCurso = true
+        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
+            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        }
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
         viewModelScope.launch {
-            val result = preciosRepo.eliminarProductoDefinitivo(
-                clienteId = clienteId,
-                productId = productId,
-                motivo = motivo,
-                usuarioEmail = userEmail
-            )
-            onComplete(result)
+            try {
+                val result = preciosRepo.eliminarProductoDefinitivo(
+                    clienteId = clienteId,
+                    productId = productId,
+                    motivo = motivo,
+                    usuarioEmail = userEmail
+                )
+                onComplete(result)
+            } finally {
+                eliminandoEnCurso = false
+            }
         }
     }
 

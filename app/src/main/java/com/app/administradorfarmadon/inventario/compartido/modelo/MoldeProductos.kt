@@ -1,6 +1,5 @@
 package com.app.administradorfarmadon.inventario.compartido.modelo
 
-import com.google.firebase.database.DataSnapshot
 
 /**
  * MoldeProductos —” Fachada UNIFICADA con fuente única.

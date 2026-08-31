@@ -1,7 +1,5 @@
 package com.app.administradorfarmadon.inventario.compartido.modelo
 
-import com.google.firebase.database.IgnoreExtraProperties
-
 /**
  * Movimiento del saldo a favor con un proveedor (dinero que el proveedor nos debe,
  * nacido de anulaciones con pagos). Historial append-only: jamás se edita ni se borra.
@@ -20,7 +18,6 @@ data class MovimientoSaldoProveedor(
     val usuarioEmail: String = ""
 )
 
-@IgnoreExtraProperties
 data class Proveedor(
     val id: String = "",
     val nombre: String = "",

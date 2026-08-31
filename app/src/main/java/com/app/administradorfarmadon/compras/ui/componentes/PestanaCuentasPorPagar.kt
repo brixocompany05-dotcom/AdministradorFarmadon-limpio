@@ -281,302 +281,148 @@ fun PestanaCuentasPorPagar(
 
     val facturaActiva = facturaSeleccionada ?: facturasMostradas.firstOrNull()
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = s.padScreenH, vertical = s.padScreenV),
-        horizontalArrangement = Arrangement.spacedBy(s.gapMedium)
+        verticalArrangement = Arrangement.spacedBy(s.gapMedium)
     ) {
         // ══════════════════════════════════════════════════════════════════════════
-        // PANEL IZQUIERDO: LIBRETO CONTABLE DE FACTURAS (40%)
+        // CABECERA ESTRATÉGICA (KPIS AIREADOS + FILTROS)
         // ══════════════════════════════════════════════════════════════════════════
-        Column(
+        Row(
             modifier = Modifier
-                .weight(0.7f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                .fillMaxWidth()
+                .padding(horizontal = s.xs, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // ── BLOQUE SUPERIOR: FILTROS Y MÉTRICAS (Agrupados) ──
-            Surface(
-                color = FDColors.Surface,
-                shape = FDShapes.Medium,
-                border = BorderStroke(s.borderWidth, FDColors.Border),
-                modifier = Modifier.fillMaxWidth()
+            // GRUPO 1: CONTEXTO (SELECTOR) + KPIs DE DINERO
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(48.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(s.padCard),
-                    verticalArrangement = Arrangement.spacedBy(s.gapMedium)
-                ) {
-                    // FILA 1: BUSCADOR ÚNICO
-                    OutlinedTextField(
-                        value = busquedaComprobante,
-                        onValueChange = { busquedaComprobante = it },
-                        placeholder = { Text("Buscar factura o droguería...", fontSize = 13.sp, color = FDColors.InputPlaceholder) },
-                        leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(s.radiusInput),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = FDColors.InputBackground,
-                            unfocusedContainerColor = FDColors.InputBackground,
-                            focusedBorderColor = FDColors.Primary,
-                            unfocusedBorderColor = FDColors.Border,
-                            focusedTextColor = FDColors.TextPrimary,
-                            unfocusedTextColor = FDColors.TextPrimary
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(s.inputMinH)
-                    )
-
-                    // FILA 2: SELECTOR DE PERÍODO (Línea independiente)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                // Selector de Periodo Minimalista
+                var mostrarMenuPeriodo by remember { mutableStateOf(false) }
+                Box {
+                    Surface(
+                        onClick = { mostrarMenuPeriodo = true },
+                        color = Color.Transparent,
+                        modifier = Modifier.height(s.btnMediumH)
                     ) {
-                        Text(
-                            "FILTRAR POR PERÍODO",
-                            style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp),
-                            color = FDColors.TextTertiary
-                        )
-                        var mostrarMenuPeriodo by remember { mutableStateOf(false) }
-                        Box {
-                            Surface(
-                                onClick = { mostrarMenuPeriodo = true },
-                                color = FDColors.SurfaceElevated,
-                                shape = FDShapes.XSmall,
-                                border = BorderStroke(1.dp, FDColors.Border),
-                                modifier = Modifier.height(s.btnSmallH * 0.9f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(Icons.Default.CalendarMonth, null, tint = FDColors.Primary, modifier = Modifier.size(14.dp))
-                                    Text(
-                                        text = periodoSeleccionado.label.uppercase(),
-                                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
-                                        color = FDColors.TextPrimary
-                                    )
-                                    Icon(Icons.Default.ArrowDropDown, null, tint = FDColors.TextTertiary, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                            DropdownMenu(
-                                expanded = mostrarMenuPeriodo,
-                                onDismissRequest = { mostrarMenuPeriodo = false },
-                                modifier = Modifier.background(FDColors.SurfaceElevated)
-                            ) {
-                                PeriodoContableFactura.values().forEach { per ->
-                                    val isSel = per == periodoSeleccionado
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(per.label, style = FDType.Body.copy(fontSize = 12.5.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal), color = if (isSel) FDColors.Primary else FDColors.TextPrimary)
-                                        },
-                                        onClick = { periodoSeleccionado = per; mostrarMenuPeriodo = false }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // FILA 3: PESTAÑAS DE ESTADO PROFESIONALES
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(s.gapTiny)
-                    ) {
-                        val countPendientes = facturasVivasPeriodo.count { !it.esTotalmentePagada }
-                        val countVencidas = facturasVivasPeriodo.count {
-                            val v = calcularVencimientoHumano(it)
-                            !it.esTotalmentePagada && v.esVencido
-                        }
-                        val countPagadas = facturasVivasPeriodo.count { it.esTotalmentePagada }
-
-                        listOf(
-                            Triple("TODAS", "TODAS", facturasDelPeriodo.size),
-                            Triple("PENDIENTES", "PEND.", countPendientes),
-                            Triple("VENCIDAS", "VENC.", countVencidas),
-                            Triple("PAGADAS", "PAG.", countPagadas)
-                        ).forEach { (idFiltro, label, count) ->
-                            val isSel = filtroEstado == idFiltro
-                            Surface(
-                                color = if (isSel) FDColors.Primary.copy(alpha = 0.08f) else Color.Transparent,
-                                shape = FDShapes.Small,
-                                border = BorderStroke(1.dp, if (isSel) FDColors.Primary.copy(alpha = 0.5f) else FDColors.Border.copy(alpha = 0.3f)),
-                                modifier = Modifier.weight(1f).clickable { onCambiarFiltroEstado(idFiltro) }
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(label, style = FDType.Label.copy(fontSize = 8.5.sp, fontWeight = if (isSel) FontWeight.Black else FontWeight.Bold), color = if (isSel) FDColors.Primary else FDColors.TextTertiary)
-                                    Text("$count", style = FDType.Numeric.copy(fontSize = 12.sp, fontWeight = FontWeight.Black), color = if (isSel) FDColors.Primary else FDColors.TextSecondary)
-                                }
-                            }
-                        }
-                    }
-
-                    // ── FILA 3: TOTALES CONTABLES DEL PERÍODO ──
-                    val montoPendientePeriodo = facturasVivasPeriodo
-                        .filter { !it.esTotalmentePagada }
-                        .sumOf { it.saldoPendienteReal }
-                    val montoPagadoPeriodo = facturasVivasPeriodo
-                        .sumOf { it.totalAbonadoReal }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            color = FDColors.SurfaceElevated,
-                            shape = FDShapes.XSmall,
-                            border = BorderStroke(s.borderWidth * 0.6f, FDColors.Border),
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Deuda:",
-                                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
-                                    color = FDColors.TextTertiary
-                                )
-                                Text(
-                                    text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", montoPendientePeriodo),
-                                    style = FDType.Label.copy(
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = FDColors.TextPrimary
-                                )
-                            }
-                        }
-
-                        Surface(
-                            color = FDColors.SurfaceElevated,
-                            shape = FDShapes.XSmall,
-                            border = BorderStroke(s.borderWidth * 0.6f, FDColors.Border),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Pagado:",
-                                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
-                                    color = FDColors.TextTertiary
-                                )
-                                Text(
-                                    text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", montoPagadoPeriodo),
-                                    style = FDType.Label.copy(
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = FDColors.TextPrimary
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── LISTADO DE FACTURAS: CADA UNA COMO UN TICKET INDEPENDIENTE (LIBRETO) ──
-            if (facturasMostradas.isEmpty()) {
-                Surface(
-                    color = FDColors.Surface,
-                    shape = FDShapes.Medium,
-                    border = BorderStroke(s.borderWidth, FDColors.Border),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize().padding(s.padCard),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)
-                        ) {
-                            Icon(Icons.Default.FilterListOff, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconMedium))
+                            Icon(Icons.Default.CalendarMonth, null, tint = FDColors.Primary, modifier = Modifier.size(20.dp))
                             Text(
-                                text = if (busquedaComprobante.isNotBlank()) "Sin resultados" else "Sin facturas",
-                                style = FDType.Heading3.copy(fontSize = 13.5.sp),
+                                text = periodoSeleccionado.label,
+                                style = FDType.Heading3.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
                                 color = FDColors.TextPrimary
+                            )
+                            Icon(Icons.Default.ArrowDropDown, null, tint = FDColors.TextTertiary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = mostrarMenuPeriodo,
+                        onDismissRequest = { mostrarMenuPeriodo = false },
+                        modifier = Modifier.background(FDColors.SurfaceElevated)
+                    ) {
+                        PeriodoContableFactura.values().forEach { per ->
+                            val isSel = per == periodoSeleccionado
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = per.label,
+                                        style = FDType.Body.copy(
+                                            fontSize = 12.5.sp,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                        ),
+                                        color = if (isSel) FDColors.Primary else FDColors.TextPrimary
+                                    )
+                                },
+                                onClick = {
+                                    periodoSeleccionado = per
+                                    mostrarMenuPeriodo = false
+                                }
                             )
                         }
                     }
                 }
-            } else {
-                LazyColumn(
-                    state = listaState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+
+                // KPIs Financieros
+                val montoPendienteTotal = facturasVivasPeriodo.sumOf { it.saldoPendienteReal }
+                val montoPagadoTotal = facturasVivasPeriodo.sumOf { it.totalAbonadoReal }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
+                    MetricaAireada(
+                        "DEUDA PENDIENTE",
+                        "$simboloMoneda " + String.format(Locale.US, "%,.2f", montoPendienteTotal),
+                        color = if (montoPendienteTotal > 0.01) FDColors.Warning else FDColors.TextPrimary
+                    )
+                    MetricaAireada(
+                        "TOTAL PAGADO",
+                        "$simboloMoneda " + String.format(Locale.US, "%,.2f", montoPagadoTotal),
+                        color = FDColors.TextPrimary
+                    )
+                }
+            }
+
+            // GRUPO 2: FILTRO DE ACCIÓN (SEGMENTADO)
+            val countPendientes = facturasVivasPeriodo.count { !it.esTotalmentePagada }
+            val countVencidas = facturasVivasPeriodo.count {
+                val v = calcularVencimientoHumano(it)
+                !it.esTotalmentePagada && v.esVencido
+            }
+            val countPagadas = facturasVivasPeriodo.count { it.esTotalmentePagada }
+
+            val opcionesFiltro = listOf(
+                Triple("TODAS", "Todas", facturasDelPeriodo.size),
+                Triple("PENDIENTES", "Pend.", countPendientes),
+                Triple("VENCIDAS", "Venc.", countVencidas),
+                Triple("PAGADAS", "Pag.", countPagadas)
+            )
+
+            Surface(
+                color = FDColors.InputBackground.copy(alpha = 0.4f),
+                shape = CircleShape,
+                modifier = Modifier.width(360.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(facturasMostradas, key = { it.id }) { fact ->
-                        val isSelected = fact.id == (facturaActiva?.id ?: "")
-                        val esAnulada = fact.esAnulada
-
-                        Surface(
-                            color = if (isSelected) FDColors.SurfaceElevated else FDColors.Surface,
-                            shape = FDShapes.Small,
-                            border = BorderStroke(
-                                if (isSelected) 1.5.dp else s.borderWidth,
-                                if (isSelected) FDColors.Primary else FDColors.Border
-                            ),
+                    opcionesFiltro.forEach { (idFiltro, label, count) ->
+                        val isSel = filtroEstado == idFiltro
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSeleccionarFactura(fact.id) }
+                                .weight(1f)
+                                .height(32.dp)
+                                .clip(CircleShape)
+                                .background(if (isSel) FDColors.SurfaceElevated else Color.Transparent)
+                                .clickable { onCambiarFiltroEstado(idFiltro) },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 14.dp),
-                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                // Fila 1: Documento
                                 Text(
-                                    text = "FACTURA: ${fact.numeroFactura.ifBlank { "SIN NÚMERO" }}",
-                                    style = FDType.Numeric.copy(
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 1.sp
-                                    ),
-                                    color = if (esAnulada) FDColors.Error else FDColors.TextTertiary
-                                )
-
-                                // Fila 2: Proveedor
-                                Text(
-                                    text = fact.proveedorNombre.uppercase(),
+                                    text = label,
                                     style = FDType.Label.copy(
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 12.sp,
-                                        letterSpacing = 0.5.sp
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
                                     ),
-                                    color = if (esAnulada) FDColors.Error.copy(alpha = 0.7f) else FDColors.TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    color = if (isSel) FDColors.TextPrimary else FDColors.TextTertiary,
+                                    maxLines = 1
                                 )
-
-                                // Fila 3: Total
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
+                                if (count > 0) {
                                     Text(
-                                        text = if (esAnulada) "ESTADO: ANULADA" else "TOTAL DOCUMENTO",
-                                        style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
-                                        color = if (esAnulada) FDColors.Error else FDColors.TextTertiary
-                                    )
-                                    Text(
-                                        text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", fact.totalPapel),
-                                        style = FDType.Numeric.copy(
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Black
-                                        ),
-                                        color = if (esAnulada) FDColors.Error else FDColors.TextPrimary
+                                        text = "$count",
+                                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
+                                        color = if (isSel) FDColors.Primary else FDColors.TextTertiary.copy(alpha = 0.6f)
                                     )
                                 }
                             }
@@ -585,6 +431,121 @@ fun PestanaCuentasPorPagar(
                 }
             }
         }
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(s.gapMedium)
+        ) {
+            // ══════════════════════════════════════════════════════════════════════════
+            // PANEL IZQUIERDO: LISTADO ESTILO DOCUMENTO (40%)
+            // ══════════════════════════════════════════════════════════════════════════
+            Surface(
+                color = FDColors.Surface,
+                shape = FDShapes.Medium,
+                border = BorderStroke(s.borderWidth, FDColors.Border),
+                modifier = Modifier
+                    .weight(0.7f)
+                    .fillMaxHeight()
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // ── BUSCADOR ──
+                    OutlinedTextField(
+                        value = busquedaComprobante,
+                        onValueChange = { busquedaComprobante = it },
+                        placeholder = { Text("Buscar factura o droguería...", fontSize = 12.sp, color = FDColors.InputPlaceholder) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall)) },
+                        singleLine = true,
+                        shape = FDShapes.Small,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = FDColors.InputBackground,
+                            unfocusedContainerColor = FDColors.InputBackground,
+                            focusedBorderColor = FDColors.BorderFocus,
+                            unfocusedBorderColor = FDColors.InputBorder,
+                            focusedTextColor = FDColors.InputText,
+                            unfocusedTextColor = FDColors.InputText
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(s.padCard * 0.75f)
+                            .height(s.inputMinH)
+                    )
+
+                    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = 0.5.dp)
+
+                    // Lista de Facturas
+                    if (facturasMostradas.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().padding(s.padCard),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                            ) {
+                                Icon(Icons.Default.FilterListOff, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconMedium))
+                                Text("Sin resultados", style = FDType.Body.copy(fontWeight = FontWeight.Bold), color = FDColors.TextPrimary)
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listaState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(facturasMostradas, key = { it.id }) { fact ->
+                                val isSelected = fact.id == (facturaActiva?.id ?: "")
+                                val esAnulada = fact.esAnulada
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(if (isSelected) FDColors.Primary.copy(alpha = 0.08f) else Color.Transparent)
+                                        .clickable { onSeleccionarFactura(fact.id) }
+                                        .padding(horizontal = 16.dp, vertical = 14.dp)
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = fact.numeroFactura.ifBlank { "SIN N°" },
+                                                style = FDType.Label.copy(fontWeight = FontWeight.Black, fontSize = 12.sp),
+                                                color = if (esAnulada) FDColors.Error else if (isSelected) FDColors.Primary else FDColors.TextPrimary
+                                            )
+                                            Text(
+                                                text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", fact.totalEfectivo),
+                                                style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Black),
+                                                color = if (esAnulada) FDColors.Error else FDColors.TextPrimary
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = fact.proveedorNombre.uppercase(),
+                                                style = FDType.BodySmall.copy(fontSize = 12.sp),
+                                                color = if (esAnulada) FDColors.Error.copy(alpha = 0.6f) else FDColors.TextSecondary,
+                                                maxLines = 1,
+                                                modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                            )
+                                            Text(
+                                                text = fact.fechaRegistro,
+                                                style = FDType.Caption,
+                                                color = FDColors.TextTertiary
+                                            )
+                                        }
+                                    }
+                                }
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = FDColors.Border.copy(alpha = 0.3f), thickness = 0.5.dp)
+                            }
+                        }
+                    }
+                }
+            }
 
             // PANEL DERECHO: DETALLE, HISTORIAL DE ABONOS Y LIQUIDACIÓN
             Surface(
@@ -639,6 +600,7 @@ fun PestanaCuentasPorPagar(
             }
         }
     }
+}
 
 @Composable
 private fun DetalleFacturaLiquidacion(
@@ -997,6 +959,26 @@ private fun ItemAbonoRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MetricaAireada(
+    etiqueta: String,
+    valor: String,
+    color: Color
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(
+            text = etiqueta,
+            style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
+            color = FDColors.TextTertiary.copy(alpha = 0.7f)
+        )
+        Text(
+            text = valor,
+            style = FDType.Numeric.copy(fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp),
+            color = color
+        )
     }
 }
 

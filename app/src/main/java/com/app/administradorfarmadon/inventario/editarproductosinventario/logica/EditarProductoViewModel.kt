@@ -256,6 +256,8 @@ class EditarProductoViewModel(
 
     fun guardarCambios() {
         val s = _uiState.value
+        if (s.estadoGuardado == EstadoGuardadoEdicion.GUARDANDO) return
+        if (s.isLoading) return
         if (s.nombre.trim().isBlank()) {
             _uiState.update {
                 it.copy(

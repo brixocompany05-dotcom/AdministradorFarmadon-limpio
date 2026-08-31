@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -28,7 +29,8 @@ import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 @Composable
 fun PanelConsumoFefo(
     fefoAutomatico: Boolean,
-    onFefoChange: (Boolean) -> Unit
+    onFefoChange: (Boolean) -> Unit,
+    isGuardando: Boolean = false
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(
@@ -70,14 +72,20 @@ fun PanelConsumoFefo(
                         color = FDColors.TextSecondary
                     )
                 }
-                Switch(
-                    checked = fefoAutomatico,
-                    onCheckedChange = onFefoChange,
-                    colors = SwitchDefaults.colors(
-                        checkedTrackColor = FDColors.Primary,
-                        checkedThumbColor = FDColors.PrimaryText
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (isGuardando) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = FDColors.Primary)
+                    }
+                    Switch(
+                        checked = fefoAutomatico,
+                        onCheckedChange = onFefoChange,
+                        enabled = !isGuardando,
+                        colors = SwitchDefaults.colors(
+                            checkedTrackColor = FDColors.Primary,
+                            checkedThumbColor = FDColors.PrimaryText
+                        )
                     )
-                )
+                }
             }
         }
 

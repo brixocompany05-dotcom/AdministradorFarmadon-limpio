@@ -4,6 +4,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -25,7 +26,8 @@ import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 fun PanelEstadoOperativo(
     isActivo: Boolean,
     onActivoChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isGuardando: Boolean = false
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
 
@@ -64,14 +66,20 @@ fun PanelEstadoOperativo(
                         )
                     )
                 }
-                Switch(
-                    checked = isActivo,
-                    onCheckedChange = onActivoChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = FDColors.Primary,
-                        checkedTrackColor = FDColors.Primary.copy(alpha = 0.3f)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (isGuardando) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = FDColors.Primary)
+                    }
+                    Switch(
+                        checked = isActivo,
+                        onCheckedChange = onActivoChange,
+                        enabled = !isGuardando,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = FDColors.Primary,
+                            checkedTrackColor = FDColors.Primary.copy(alpha = 0.3f)
+                        )
                     )
-                )
+                }
             }
         }
     }

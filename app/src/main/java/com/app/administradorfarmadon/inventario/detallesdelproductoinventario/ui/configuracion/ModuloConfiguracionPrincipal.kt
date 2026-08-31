@@ -190,13 +190,15 @@ fun ModuloConfiguracionPrincipal(
                         .imePadding(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    val guardando = estadoAuto == EstadoAutoGuardado.GUARDANDO
                     when (seccion) {
                         SeccionConfiguracion.UBICACION -> PanelUbicacionAlmacen(
                             ubicacionSeleccionada = ubicacionState,
                             ubicacionSecundaria = ubicacionSecundariaState,
                             onUbicacionChange = { persistir(nuevaUbicacion = it) },
                             onUbicacionSecundariaChange = { persistir(nuevaUbicacionSecundaria = it) },
-                            ubicacionesDisponibles = ubicacionesDisponibles
+                            ubicacionesDisponibles = ubicacionesDisponibles,
+                            isGuardando = guardando
                         )
                         SeccionConfiguracion.STOCK_MINIMO -> {
                             val total = product.stockDisponibleUnidades
@@ -205,20 +207,23 @@ fun ModuloConfiguracionPrincipal(
                                 stockTotalActual = total,
                                 unidadBase = unidadMenu,
                                 onStockMinimoChange = { persistir(nuevoStockMinimo = it.coerceAtLeast(0.0)) },
-                                producto = product
+                                producto = product,
+                                isGuardando = guardando
                             )
                         }
                         SeccionConfiguracion.ALERTA_VENCIMIENTO -> PanelAlertaVencimiento(
                             diasVencimientoActual = diasState,
                             lotes = product.lotes,
-                            onDiasVencimientoChange = { persistir(nuevosDias = it) }
+                            onDiasVencimientoChange = { persistir(nuevosDias = it) },
+                            isGuardando = guardando
                         )
                         SeccionConfiguracion.CONSUMO_FEFO -> PanelConsumoFefo(
                             fefoAutomatico = fefoState,
-                            onFefoChange = { persistir(nuevoFefo = it) }
+                            onFefoChange = { persistir(nuevoFefo = it) },
+                            isGuardando = guardando
                         )
                         SeccionConfiguracion.ESTADO_OPERATIVO -> {
-                            PanelEstadoOperativo(isActivo = activoState, onActivoChange = { persistir(nuevoActivo = it) })
+                            PanelEstadoOperativo(isActivo = activoState, onActivoChange = { persistir(nuevoActivo = it) }, isGuardando = guardando)
                             if (seccion == SeccionConfiguracion.ESTADO_OPERATIVO) {
                                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.30f), thickness = 0.5.dp)
                                 PanelEliminarProducto(
@@ -238,7 +243,8 @@ fun ModuloConfiguracionPrincipal(
                             onCodigoChange = { persistir(nuevoCodigo = it) },
                             onGenerarCodigoUnico = onGenerarCodigoUnico,
                             onVerificarDuplicadoCodigo = onVerificarDuplicadoCodigo,
-                            onMarcarEtiquetaImpresa = onMarcarEtiquetaImpresa
+                            onMarcarEtiquetaImpresa = onMarcarEtiquetaImpresa,
+                            isGuardando = guardando
                         )
                     }
                 }

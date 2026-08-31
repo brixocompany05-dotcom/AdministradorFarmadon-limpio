@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.AssignmentReturn
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Star
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -59,8 +60,21 @@ internal fun ContenidoFicha(
     colorVencimiento: Color,
     estaEnCuarentena: Boolean,
     esRefrigerado: Boolean,
-    esControlado: Boolean
+    esControlado: Boolean,
+    isProcesandoPrioridadExterno: Boolean = false
 ) {
+    var isProcesandoPrioridadLocal by remember { mutableStateOf(false) }
+    val isProcesandoPrioridad = isProcesandoPrioridadExterno || isProcesandoPrioridadLocal
+    // Se resetea al cambiar de lote FEFO (éxito) o tras timeout si falla — evita spinner pegado
+    LaunchedEffect(fefoAutomatico, esEsteElLotePrioritario, product.lotePrioritarioId) {
+        isProcesandoPrioridadLocal = false
+    }
+    LaunchedEffect(isProcesandoPrioridadLocal) {
+        if (isProcesandoPrioridadLocal) {
+            delay(3500)
+            isProcesandoPrioridadLocal = false
+        }
+    }
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -231,18 +245,38 @@ internal fun ContenidoFicha(
                     }
                 } else {
                     AccionLoteButtonPremium(
-                        texto = "ELEGIR ESTE LOTE DE CONSUMO",
+                        texto = if (isProcesandoPrioridad) "GUARDANDO..." else "ELEGIR ESTE LOTE DE CONSUMO",
                         icono = Icons.Outlined.Star,
                         tinteIcono = FDColors.TextSecondary,
-                        onClick = { onDefinirPrioridad(true) },
-                        enabled = isPrivileged,
+                        onClick = {
+                            if (!isProcesandoPrioridad) {
+                                isProcesandoPrioridadLocal = true
+                                onDefinirPrioridad(true)
+                            }
+                        },
+                        enabled = isPrivileged && !isProcesandoPrioridad,
+                        isProcesando = isProcesandoPrioridad,
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
             if (!fefoAutomatico && esEsteElLotePrioritario && isPrivileged) {
-                TextButton(onClick = { onDefinirPrioridad(false) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Restaurar orden automático (FEFO)", style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold), color = FDColors.Warning)
+                val restaurarProcesando = isProcesandoPrioridad
+                if (restaurarProcesando) {
+                    Row(modifier = Modifier.fillMaxWidth().height(44.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = FDColors.Warning)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("RESTAURANDO...", style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, color = FDColors.Warning))
+                    }
+                } else {
+                    TextButton(onClick = {
+                        if (!isProcesandoPrioridad) {
+                            isProcesandoPrioridadLocal = true
+                            onDefinirPrioridad(false)
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Restaurar orden automático (FEFO)", style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold), color = FDColors.Warning)
+                    }
                 }
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -825,16 +859,21 @@ internal fun PremiumDossierRow(label: String, value: String, isMonospace: Boolea
 }
 
 @Composable
-internal fun AccionLoteButtonPremium(texto: String, icono: ImageVector, tinteIcono: Color, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+internal fun AccionLoteButtonPremium(texto: String, icono: ImageVector, tinteIcono: Color, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, isProcesando: Boolean = false) {
     OutlinedButton(
-        onClick = onClick, enabled = enabled, shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(0.5.dp, FDColors.BorderStrong.copy(alpha = if (enabled) 0.9f else 0.4f)),
+        onClick = onClick, enabled = enabled && !isProcesando, shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(0.5.dp, FDColors.BorderStrong.copy(alpha = if (enabled && !isProcesando) 0.9f else 0.4f)),
         colors = ButtonDefaults.outlinedButtonColors(containerColor = FDColors.Surface, contentColor = FDColors.TextPrimary, disabledContainerColor = FDColors.Surface.copy(alpha = 0.6f), disabledContentColor = FDColors.TextTertiary),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp), modifier = modifier.height(44.dp)
     ) {
-        Icon(icono, null, tint = tinteIcono.copy(alpha = if (enabled) 1f else 0.5f), modifier = Modifier.size(17.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(texto, style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp, color = if (enabled) FDColors.TextPrimary else FDColors.TextTertiary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (isProcesando) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = tinteIcono)
+            Spacer(Modifier.width(7.dp))
+        } else {
+            Icon(icono, null, tint = tinteIcono.copy(alpha = if (enabled) 1f else 0.5f), modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(7.dp))
+        }
+        Text(texto, style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp, color = if (enabled && !isProcesando) FDColors.TextPrimary else FDColors.TextTertiary), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

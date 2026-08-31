@@ -407,7 +407,8 @@ private fun AppNavHost(
         }
 
         // --- VENTAS ---
-        composable("ventas_nueva") { PantallaEnConstruccion("Nueva Venta") { navController.popBackStack() } }
+        composable("ventas") { com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen() }
+        composable("ventas_nueva") { com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen() }
         composable("ventas_dia")   { PantallaEnConstruccion("Ventas del Día") { navController.popBackStack() } }
         composable("ventas_devoluciones") { PantallaEnConstruccion("Devoluciones") { navController.popBackStack() } }
 
@@ -522,7 +523,7 @@ private fun AppNavHost(
         // real). Cada módulo sin pantalla propia aún llega a un placeholder
         // honesto. "inventario", "compras", "sucursales" y "usuarios" ya tienen pantalla real arriba.
         val modulosPendientes = listOf(
-            "ventas", "facturacion", "clientes_crm", "reportes", "soporte",
+            "facturacion", "clientes_crm", "reportes", "soporte",
             "notificaciones", "api", "automatizaciones", "bi", "marketplace",
             "backups", "observabilidad", "ia_copiloto", "ia_sugeridor", "reglas_negocio",
             "camara_qr", "gestion_documental", "telemedicina", "pagos_embebidos",

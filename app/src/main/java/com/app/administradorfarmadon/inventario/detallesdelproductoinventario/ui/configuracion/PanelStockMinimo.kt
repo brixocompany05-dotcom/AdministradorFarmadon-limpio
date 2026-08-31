@@ -11,6 +11,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,7 +52,8 @@ fun PanelStockMinimo(
     unidadBase: String,
     onStockMinimoChange: (Double) -> Unit,
     modifier: Modifier = Modifier,
-    producto: MoldeProductos? = null
+    producto: MoldeProductos? = null,
+    isGuardando: Boolean = false
 ) {
     // Unidad coherente = contenedor con el que se cuenta y vende (Caja/Frasco/Bloque), nunca genérico
     val unidadSingular = unidadBase.trim().ifBlank { "Unidad" }
@@ -223,10 +225,15 @@ fun PanelStockMinimo(
 
         // Chips de selección rápida de 1 toque (Auto-guardado directo)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "ATAJOS ($unidadPlural):",
-                style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = FDColors.TextSecondary)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "ATAJOS ($unidadPlural):",
+                    style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = FDColors.TextSecondary)
+                )
+                if (isGuardando) {
+                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = FDColors.Primary)
+                }
+            }
 
             Row(
                 modifier = Modifier

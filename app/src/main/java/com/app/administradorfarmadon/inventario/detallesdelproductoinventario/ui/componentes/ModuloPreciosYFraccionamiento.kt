@@ -654,10 +654,19 @@ fun ModuloPreciosYFraccionamiento(
                                 contentColor = FDColors.PrimaryText
                             )
                         ) {
-                            Text(
-                                text = "GUARDAR POLÍTICA DE PRECIOS",
-                                style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            )
+                            if (estadoGuardado == EstadoGuardadoPrecios.GUARDANDO) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = FDColors.PrimaryText)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "GUARDANDO...",
+                                    style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                )
+                            } else {
+                                Text(
+                                    text = "GUARDAR POLÍTICA DE PRECIOS",
+                                    style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                )
+                            }
                         }
                     }
                 }

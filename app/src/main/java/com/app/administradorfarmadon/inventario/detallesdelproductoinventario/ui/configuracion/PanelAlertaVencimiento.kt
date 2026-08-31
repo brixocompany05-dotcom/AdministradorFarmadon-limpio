@@ -11,6 +11,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,7 +45,8 @@ fun PanelAlertaVencimiento(
     diasVencimientoActual: Int,
     lotes: Map<String, LoteProducto>,
     onDiasVencimientoChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isGuardando: Boolean = false
 ) {
     var inputTexto by remember(diasVencimientoActual) {
         mutableStateOf(diasVencimientoActual.toString())
@@ -169,14 +171,19 @@ fun PanelAlertaVencimiento(
 
         // Chips de selección rápida con scroll horizontal
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                text = "AVISAR CON ANTICIPACIÓN ANTES DE VENCER:",
-                style = FDType.Label.copy(
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = FDColors.TextSecondary
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "AVISAR CON ANTICIPACIÓN ANTES DE VENCER:",
+                    style = FDType.Label.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = FDColors.TextSecondary
+                    )
                 )
-            )
+                if (isGuardando) {
+                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = FDColors.Primary)
+                }
+            }
 
             Row(
                 modifier = Modifier

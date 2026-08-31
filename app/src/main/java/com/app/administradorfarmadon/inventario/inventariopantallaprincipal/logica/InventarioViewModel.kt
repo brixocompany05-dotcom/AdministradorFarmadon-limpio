@@ -77,6 +77,7 @@ class InventarioViewModel(
     private var ultimoDoc: DocumentSnapshot? = null
     private var finListaAlcanzado = false
     private var jobPagina: Job? = null
+    private val jobsPaginaExtra = mutableListOf<Job>()
     private var jobCargarMas: Job? = null
     private var debounceMasJob: Job? = null
 
@@ -407,6 +408,11 @@ class InventarioViewModel(
         val sucursalEsperada = sucursalId
         finListaAlcanzado = false
         ultimoDoc = null
+        // Cerrar radios previos: paginación acumulativa limpia todos los listeners anteriores
+        jobsPaginaExtra.forEach { it.cancel() }
+        jobsPaginaExtra.clear()
+        jobCargarMas?.cancel()
+        jobCargarMas = null
         _uiState.update {
             it.copy(
                 isLoading = true,
@@ -537,8 +543,8 @@ class InventarioViewModel(
         val currentGen = cargaSucursalGeneration
         val sucursalEsperada = sucursalId
         _uiState.update { it.copy(isLoadingMore = true, isNextPageLoading = true) }
-        jobCargarMas?.cancel()
-        jobCargarMas = repository.observarInventarioPaginado(
+        // Acumulativo: no cancelar job anterior, cada página mantiene su radio vivo (verdad vigente sin recarga total)
+        val nuevoJob = repository.observarInventarioPaginado(
             farmaciaId,
             sucursalId,
             limit = 50,
@@ -562,6 +568,9 @@ class InventarioViewModel(
                     )
                 }
             }.flowOn(Dispatchers.Default).launchIn(viewModelScope)
+        jobsPaginaExtra.add(nuevoJob)
+        // Mantener referencia legacy para compatibilidad (último job)
+        jobCargarMas = nuevoJob
     }
 
     private fun onPagina(
@@ -806,6 +815,16 @@ class InventarioViewModel(
     }
 
     fun reloadProductById(productId: String) {}
+    override fun onCleared() {
+        super.onCleared()
+        jobsPaginaExtra.forEach { it.cancel() }
+        jobsPaginaExtra.clear()
+        jobPagina?.cancel()
+        jobCargarMas?.cancel()
+        jobBusqueda?.cancel()
+        debounceMasJob?.cancel()
+    }
+
     fun resetAndReload() {
         cargarPaginaInicial()
     }

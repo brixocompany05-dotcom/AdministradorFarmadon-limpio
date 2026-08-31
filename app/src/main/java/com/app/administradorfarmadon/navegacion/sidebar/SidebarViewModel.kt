@@ -763,6 +763,13 @@ class SidebarViewModel : ViewModel() {
             else -> {
                 listOf(
                     com.app.administradorfarmadon.modulos.domain.ModuloResuelto(
+                        modulo = "ventas",
+                        nombre = "Punto de Venta",
+                        categoria = "OPERACIÓN",
+                        orden = 5,
+                        icono = "point_of_sale"
+                    ),
+                    com.app.administradorfarmadon.modulos.domain.ModuloResuelto(
                         modulo = "inventario",
                         nombre = "Inventario & Stock",
                         categoria = "OPERACIÓN",

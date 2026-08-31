@@ -61,17 +61,30 @@ class PreciosEtiquetasRepository(
         // por la UI, el repositorio RECHAZA cualquier dato falso antes de tocar Firestore.
         // La venta a pérdida es advertencia en la UI (autorizable), pero aquí es bloqueante:
         // el repositorio no puede inferir la autorización del usuario, así que no graba pérdida.
-        val costoBaseParaValidar = presentaciones.firstOrNull()?.let { _ -> 0.0 } ?: 0.0
-        val validacion = PreciosYFraccionamientoValidator.validar(
+        // FIX Hallazgo2: leer costo REAL del producto en Firestore (precioCompra / stock) en vez de 0.0.
+        // Se lee fuera de tx para feedback rápido; dentro de tx se re-lee y re-valida como verdad final.
+        val preSnap = try {
+            FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva).collection("inventario").document(productId).get().await()
+        } catch (_: Exception) { null }
+        val costoBasePre = preSnap?.let {
+            it.getDouble("precioCompra") ?: (it.get("precioCompra") as? Number)?.toDouble() ?: 0.0
+        } ?: 0.0
+        val stockBasePre = preSnap?.let {
+            it.getDouble("stock") ?: it.getDouble("stockTotal") ?: 0.0
+        } ?: 0.0
+        val limiteContenidoPre = preSnap?.getString("contenido")?.toIntOrNull() ?: 0
+        val permiteFraccionarPre = preSnap?.getBoolean("permiteFraccionar") ?: true
+        val validacionPre = PreciosYFraccionamientoValidator.validar(
             presentaciones = presentaciones,
-            costoBaseUnitario = costoBaseParaValidar,
-            permiteFraccionar = true,
-            limiteContenidoMaestro = 0
+            costoBaseUnitario = costoBasePre,
+            limiteContenidoMaestro = limiteContenidoPre,
+            permiteFraccionar = permiteFraccionarPre
         )
-        if (!validacion.esValidoParaGuardar) {
-            val primerError = validacion.erroresPorId.values.firstOrNull()?.firstOrNull()
+        if (!validacionPre.esValidoParaGuardar) {
+            val primerError = validacionPre.erroresPorId.values.firstOrNull()?.firstOrNull()
             return Result.failure(IllegalArgumentException(primerError?.mensaje ?: "La política de precios tiene datos inválidos."))
         }
+        // Si solo hay advertencias (venta a pérdida), se permite guardar pero se deja trazo en log — verdad, no mentira.
 
         return try {
             val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
@@ -106,6 +119,21 @@ class PreciosEtiquetasRepository(
             db.runTransaction { tx ->
                 val snapshot = tx.get(productRef)
                 if (!snapshot.exists()) throw Exception("El producto no existe.")
+
+                // Re-validación con costo REAL dentro del candado (verdad final, no 0.0)
+                val costoTx = (snapshot.getDouble("precioCompra") ?: (snapshot.get("precioCompra") as? Number)?.toDouble() ?: 0.0)
+                val limiteTx = (snapshot.getString("contenido")?.toIntOrNull() ?: 0)
+                val permiteFraccionarTx = snapshot.getBoolean("permiteFraccionar") ?: true
+                val validacionTx = PreciosYFraccionamientoValidator.validar(
+                    presentaciones = presentaciones,
+                    costoBaseUnitario = costoTx,
+                    limiteContenidoMaestro = limiteTx,
+                    permiteFraccionar = permiteFraccionarTx
+                )
+                if (!validacionTx.esValidoParaGuardar) {
+                    val primerErrorTx = validacionTx.erroresPorId.values.firstOrNull()?.firstOrNull()
+                    throw IllegalArgumentException(primerErrorTx?.mensaje ?: "La política de precios tiene datos inválidos (costo real).")
+                }
 
                 // Candado antí-pisada: si alguien cambió precios mientras editabas, avisa sin mentir
                 if (presentacionesOriginales.isNotEmpty()) {
