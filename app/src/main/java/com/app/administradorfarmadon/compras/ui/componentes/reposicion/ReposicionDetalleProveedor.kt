@@ -348,7 +348,7 @@ fun ReposicionDetalleProveedor(
                             color = FDColors.TextSecondary
                         )
                         Text(
-                            text = "$simboloMoneda ${String.format(Locale.US, "%,.2f", subtotal)}",
+                            text = "$simboloMoneda ${String.format(Locale.US, "%.2f", subtotal)}",
                             style = FDType.Heading1.copy(
                                 fontWeight = FontWeight.Black,
                                 fontSize = s.textSubtitle.value.sp

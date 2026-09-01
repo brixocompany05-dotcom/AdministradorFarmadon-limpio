@@ -142,7 +142,7 @@ fun PagosMixtosEditor(
                         )
                         Text(
                             "Puede pagar hasta $simboloMoneda " + String.format(
-                                java.util.Locale.US, "%,.2f", estado.montoMaximoParaFila(fila.id)
+                                java.util.Locale.US, "%.2f", estado.montoMaximoParaFila(fila.id)
                             ),
                             style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
                                 fontSize = s.textLabel.value.sp * 0.82f,
@@ -245,7 +245,7 @@ fun PagosMixtosEditor(
                     if (excede) {
                         Text(
                             "Ojo: este método solo puede pagar hasta $simboloMoneda " + String.format(
-                                java.util.Locale.US, "%,.2f", estado.montoMaximoParaFila(fila.id)
+                                java.util.Locale.US, "%.2f", estado.montoMaximoParaFila(fila.id)
                             ),
                             style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
                                 fontSize = s.textBody.value.sp * 0.9f,

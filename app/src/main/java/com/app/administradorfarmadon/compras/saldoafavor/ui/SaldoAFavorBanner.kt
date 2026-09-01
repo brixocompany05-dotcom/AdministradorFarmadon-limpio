@@ -47,7 +47,7 @@ fun SaldoAFavorBanner(
                 Icon(Icons.Outlined.AccountBalanceWallet, null, tint = FDColors.Primary, modifier = Modifier.size(20.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        "Este proveedor tiene $simboloMoneda ${String.format(Locale.US, "%,.2f", liquidacion.disponible)} a favor",
+                        "Este proveedor tiene $simboloMoneda ${String.format(Locale.US, "%.2f", liquidacion.disponible)} a favor",
                         style = FDType.Body.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Bold),
                         color = FDColors.Primary
                     )
@@ -69,12 +69,12 @@ fun SaldoAFavorBanner(
 
             if (usar) {
                 HorizontalDivider(color = FDColors.Primary.copy(alpha = 0.2f), thickness = 0.5.dp)
-                FilaBanner("Total factura", "$simboloMoneda ${String.format(Locale.US, "%,.2f", liquidacion.totalFactura)}", FDColors.TextPrimary)
-                FilaBanner("− Saldo a favor aplicado", "− $simboloMoneda ${String.format(Locale.US, "%,.2f", liquidacion.aplicado)}", FDColors.Success)
+                FilaBanner("Total factura", "$simboloMoneda ${String.format(Locale.US, "%.2f", liquidacion.totalFactura)}", FDColors.TextPrimary)
+                FilaBanner("− Saldo a favor aplicado", "− $simboloMoneda ${String.format(Locale.US, "%.2f", liquidacion.aplicado)}", FDColors.Success)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("TOTAL A PAGAR", style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
                     Text(
-                        "$simboloMoneda ${String.format(Locale.US, "%,.2f", liquidacion.netoAPagar)}",
+                        "$simboloMoneda ${String.format(Locale.US, "%.2f", liquidacion.netoAPagar)}",
                         style = FDType.Numeric.copy(fontSize = 16.sp, fontWeight = FontWeight.Black),
                         color = FDColors.Primary
                     )

@@ -32,49 +32,6 @@ class FacturaCompraRepository(
         return SessionManager.clienteIdGarantizado
     }
 
-    suspend fun buscarFacturaPorNumero(numeroFactura: String): FacturaCompra? {
-        val clienteId = getClienteId()
-        val numLimpio = numeroFactura.trim().uppercase()
-        if (clienteId.isBlank() || numLimpio.isBlank()) return null
-
-        return try {
-            val col = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva)
-
-            val q = col.whereEqualTo("numeroFactura", numLimpio).limit(1).get().await()
-            if (!q.isEmpty) {
-                mapearFactura(q.documents[0])
-            } else {
-                val docIdLegado = numLimpio.replace("/", "-").replace(" ", "_")
-                val snap = col.document(docIdLegado).get().await()
-                if (snap.exists()) mapearFactura(snap) else null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error buscando factura $numLimpio: ${e.message}", e)
-            null
-        }
-    }
-
-    suspend fun buscarFacturaPorNumeroYProveedor(numeroFactura: String, proveedorId: String): FacturaCompra? {
-        val clienteId = getClienteId()
-        val numLimpio = numeroFactura.trim().uppercase()
-        if (clienteId.isBlank() || numLimpio.isBlank()) return null
-        return try {
-            val col = FarmadonPaths.comprasFacturas(db, clienteId, SessionManager.sucursalIdEfectiva)
-            if (proveedorId.isNotBlank()) {
-                val cleanNumero = numLimpio.replace("/", "-").replace(" ", "_")
-                val compositeId = "${proveedorId}__${cleanNumero}"
-                val snap = col.document(compositeId).get().await()
-                if (snap.exists()) return mapearFactura(snap)
-            }
-            val q = col.whereEqualTo("numeroFactura", numLimpio).whereEqualTo("proveedorId", proveedorId).limit(1).get().await()
-            // Con proveedor seleccionado, una ausencia es ausencia para ese proveedor.
-            // Nunca se cae a una factura del mismo número perteneciente a otra droguería.
-            if (!q.isEmpty) mapearFactura(q.documents[0]) else null
-        } catch (e: Exception) {
-            null
-        }
-    }
-
     fun observarFacturasRecientes(onErrorEscucha: ((String) -> Unit)? = null): Flow<List<FacturaCompra>> = callbackFlow {
         val clienteId = getClienteId()
         if (clienteId.isBlank()) {

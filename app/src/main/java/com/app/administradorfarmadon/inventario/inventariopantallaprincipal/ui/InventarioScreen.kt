@@ -541,7 +541,7 @@ fun InventarioScreen(
                         }
 
                         val formattedValue = try {
-                            "S/ " + String.format(java.util.Locale.US, "%,.2f", totalInventoryValue)
+                            "S/ " + String.format(java.util.Locale.US, "%.2f", totalInventoryValue)
                         } catch (e: Exception) {
                             "S/ $totalInventoryValue"
                         }

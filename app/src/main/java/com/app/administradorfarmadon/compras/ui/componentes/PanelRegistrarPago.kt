@@ -145,7 +145,7 @@ fun PanelRegistrarPago(
                     ) {
                         Icon(Icons.Default.Payments, null, tint = colores.textoPrincipal, modifier = Modifier.size(s.iconTiny))
                         Text(
-                            "SALDO: $simboloMoneda " + String.format(Locale.US, "%,.2f", saldoPendiente),
+                            "SALDO: $simboloMoneda " + String.format(Locale.US, "%.2f", saldoPendiente),
                             style = TokensFarmadon.tipografia.etiqueta.copy(
                                 fontSize = s.textLabel.value.sp,
                                 fontWeight = FontWeight.Black,
@@ -234,12 +234,12 @@ fun PanelRegistrarPago(
                                 color = colores.textoTerciario
                             )
 
-                            FilaResumen("Saldo de la factura", "$simboloMoneda " + String.format(Locale.US, "%,.2f", saldoPendiente), s, colores)
+                            FilaResumen("Saldo de la factura", "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoPendiente), s, colores)
 
                             val pagado = estadoEditor.sumaPorciones
                             FilaResumen(
                                 "Pagado ahora",
-                                "$simboloMoneda " + String.format(Locale.US, "%,.2f", pagado),
+                                "$simboloMoneda " + String.format(Locale.US, "%.2f", pagado),
                                 s,
                                 colores,
                                 color = colores.estadoExito
@@ -248,7 +248,7 @@ fun PanelRegistrarPago(
                             val queda = (saldoPendiente - pagado).coerceAtLeast(0.0)
                             FilaResumen(
                                 "Queda por pagar",
-                                "$simboloMoneda " + String.format(Locale.US, "%,.2f", queda),
+                                "$simboloMoneda " + String.format(Locale.US, "%.2f", queda),
                                 s,
                                 colores,
                                 color = if (queda <= 0.01 && pagado > 0.0) colores.estadoExito else colores.estadoAlerta
@@ -312,7 +312,7 @@ fun PanelRegistrarPago(
                                                 }
                                             }
                                             Text(
-                                                "$simboloMoneda " + String.format(Locale.US, "%,.2f", pago.monto),
+                                                "$simboloMoneda " + String.format(Locale.US, "%.2f", pago.monto),
                                                 style = TokensFarmadon.tipografia.titulo3.copy(
                                                     fontSize = s.textBody.value.sp,
                                                     fontWeight = FontWeight.Black,

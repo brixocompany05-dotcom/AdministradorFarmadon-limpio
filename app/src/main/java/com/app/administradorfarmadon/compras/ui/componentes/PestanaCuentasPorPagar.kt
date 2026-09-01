@@ -82,7 +82,10 @@ private fun parsearFechaFlexible(fechaStr: String): Date? {
 
 private fun perteneceAPeriodo(factura: FacturaCompra, periodo: PeriodoContableFactura): Boolean {
     if (periodo == PeriodoContableFactura.TODO_HISTORIAL) return true
-    val fechaFact = parsearFechaFlexible(factura.fechaRegistro) ?: return true
+    // Fecha ilegible = verdad desconocida: jamás se infla un período contable contándola
+    // en todos (esto mintía en "Este Mes", "Mes Pasado" y "3 Meses" a la vez). La factura
+    // sigue visible completa en TODO_HISTORIAL.
+    val fechaFact = parsearFechaFlexible(factura.fechaRegistro) ?: return false
 
     val calFact = Calendar.getInstance().apply { time = fechaFact }
     val hoy = Calendar.getInstance()
@@ -358,12 +361,12 @@ fun PestanaCuentasPorPagar(
                 Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
                     MetricaAireada(
                         "DEUDA PENDIENTE",
-                        "$simboloMoneda " + String.format(Locale.US, "%,.2f", montoPendienteTotal),
+                        "$simboloMoneda " + String.format(Locale.US, "%.2f", montoPendienteTotal),
                         color = if (montoPendienteTotal > 0.01) FDColors.Warning else FDColors.TextPrimary
                     )
                     MetricaAireada(
                         "TOTAL PAGADO",
-                        "$simboloMoneda " + String.format(Locale.US, "%,.2f", montoPagadoTotal),
+                        "$simboloMoneda " + String.format(Locale.US, "%.2f", montoPagadoTotal),
                         color = FDColors.TextPrimary
                     )
                 }
@@ -515,7 +518,7 @@ fun PestanaCuentasPorPagar(
                                                 color = if (esAnulada) FDColors.Error else if (isSelected) FDColors.Primary else FDColors.TextPrimary
                                             )
                                             Text(
-                                                text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", fact.totalEfectivo),
+                                                text = "$simboloMoneda " + String.format(Locale.US, "%.2f", fact.totalEfectivo),
                                                 style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Black),
                                                 color = if (esAnulada) FDColors.Error else FDColors.TextPrimary
                                             )
@@ -925,7 +928,7 @@ private fun ItemAbonoRow(
             }
 
                     Text(
-                        text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", abono.monto),
+                        text = "$simboloMoneda " + String.format(Locale.US, "%.2f", abono.monto),
                         style = FDType.Numeric.copy(fontSize = 13.5.sp, fontWeight = FontWeight.Black),
                         color = if (abono.anulado) FDColors.Error else FDColors.TextPrimary
                     )

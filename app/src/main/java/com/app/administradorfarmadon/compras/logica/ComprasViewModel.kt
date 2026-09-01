@@ -75,6 +75,12 @@ class ComprasViewModel(
     private var ultimoServidorCarrito: Map<String, Map<String, Int>> = emptyMap()
     private var ultimoAbonoIntentoId: String = ""
     private var huellaUltimoAbono: String = ""
+    // Candado + huella del egreso de saldo a favor (cobro/pérdida): dos toques rápidos
+    // jamás registran dos egresos, y el reintento tras un fallo ambiguo reutiliza el
+    // mismo id de idempotencia (el servidor rechaza el duplicado con la verdad real).
+    private var procesandoSaldoAFavor: Boolean = false
+    private var ultimoEgresoSaldoIntentoId: String = ""
+    private var huellaUltimoEgresoSaldo: String = ""
 
     /** Candado síncrono de acciones de UNA orden (cancelar, cerrar ajuste, descartar):
      * la clave "op:pedidoId[:productoId]" vive solo mientras la operación está en vuelo;
@@ -666,6 +672,9 @@ class ComprasViewModel(
         itemsRecepcion: List<com.app.administradorfarmadon.compras.datos.ItemRecepcionEntrega>,
         cerrarConAjuste: Boolean = false
     ) {
+        // Candado síncrono: dos toques en CONFIRMAR jamás inician dos recepciones.
+        if (_uiState.value.procesandoRecepcion) return
+
         // Captura de sede al momento del toque (R1): toda la recepción (stock,
         // kardex, factura, pedido) se asienta en la sede donde se abrió la orden.
         val farmaciaCapturada = SessionManager.clienteIdGarantizado
@@ -674,13 +683,16 @@ class ComprasViewModel(
             _uiState.update { it.copy(procesandoRecepcion = true, mensajeError = null) }
 
             // Sello idempotente del ACTO de entrega: reintentar con los mismos datos
-            // jamás duplica (mismo sello); cambiar cantidad, lote, vencimiento o costo
-            // genera un acto nuevo (nueva entrega parcial). Sobrevive a cerrar y reabrir.
-            val selloEntrega = "$pedidoId|$numeroFactura|${
+            // jamás duplica (mismo sello); cambiar cantidades, lotes, vencimientos,
+            // costos o el DINERO (total, pagado, saldo a favor, pagos mixtos) genera
+            // un acto nuevo — una corrección de pago jamás se descarta en silencio.
+            val selloEntrega = "$pedidoId|$numeroFactura|$montoFactura|$montoPagado|$saldoAFavorUsado|" +
+                pagosRecepcion.joinToString(";") { pago ->
+                    "${pago.metodoPago}:${pago.monto}:${pago.numeroOperacion}"
+                } + "|" +
                 itemsRecepcion.joinToString(";") { it ->
                     "${it.productoId}:${it.cantidadTotal}:${it.loteNumero.trim().uppercase()}:${it.vencimiento.trim()}:${it.costoUnitarioReal}"
                 }
-            }"
             val idIntento = java.util.UUID.nameUUIDFromBytes(selloEntrega.toByteArray()).toString()
 
             // Verdad de auditoría: el KARDEX guarda correo real en usuarioEmail y
@@ -919,27 +931,64 @@ class ComprasViewModel(
     }
 
     fun cobrarSaldoAFavor(proveedorId: String, monto: Double, documento: String, onComplete: (Result<Unit>) -> Unit) {
-        viewModelScope.launch {
-            val res = SaldoAFavorOperacionesRepository().registrarEgresoSaldo(
-                proveedorId = proveedorId,
-                monto = monto,
-                tipo = SaldoAFavorOperacionesRepository.TIPO_COBRADO,
-                documento = documento,
-                motivo = "Cobro en efectivo del saldo a favor"
-            )
-            onComplete(res)
-        }
+        registrarEgresoSaldoAFavor(
+            proveedorId = proveedorId,
+            monto = monto,
+            tipo = SaldoAFavorOperacionesRepository.TIPO_COBRADO,
+            documento = documento,
+            motivo = "Cobro en efectivo del saldo a favor",
+            onComplete = onComplete
+        )
     }
 
     fun declararSaldoPerdido(proveedorId: String, monto: Double, motivo: String, onComplete: (Result<Unit>) -> Unit) {
+        registrarEgresoSaldoAFavor(
+            proveedorId = proveedorId,
+            monto = monto,
+            tipo = SaldoAFavorOperacionesRepository.TIPO_PERDIDO,
+            documento = "",
+            motivo = motivo,
+            onComplete = onComplete
+        )
+    }
+
+    /**
+     * Único camino de egreso de saldo a favor (cobro o pérdida). Candado síncrono
+     * ANTES del launch (dos toques jamás inician dos transacciones) + huella de
+     * idempotencia: si el resultado se pierde y la persona reintenta con los mismos
+     * datos, el servidor reconoce el egreso ya registrado y no lo duplica.
+     */
+    private fun registrarEgresoSaldoAFavor(
+        proveedorId: String,
+        monto: Double,
+        tipo: String,
+        documento: String,
+        motivo: String,
+        onComplete: (Result<Unit>) -> Unit
+    ) {
+        if (procesandoSaldoAFavor) return
+
+        val huella = "$proveedorId|$tipo|$monto|$documento|$motivo"
+        val idIntento = if (ultimoEgresoSaldoIntentoId.isNotBlank() && huellaUltimoEgresoSaldo == huella) {
+            ultimoEgresoSaldoIntentoId
+        } else {
+            java.util.UUID.randomUUID().toString().also {
+                ultimoEgresoSaldoIntentoId = it
+                huellaUltimoEgresoSaldo = huella
+            }
+        }
+
+        procesandoSaldoAFavor = true
         viewModelScope.launch {
             val res = SaldoAFavorOperacionesRepository().registrarEgresoSaldo(
                 proveedorId = proveedorId,
                 monto = monto,
-                tipo = SaldoAFavorOperacionesRepository.TIPO_PERDIDO,
-                documento = "",
-                motivo = motivo
+                tipo = tipo,
+                documento = documento,
+                motivo = motivo,
+                idempotenciaId = idIntento
             )
+            procesandoSaldoAFavor = false
             onComplete(res)
         }
     }

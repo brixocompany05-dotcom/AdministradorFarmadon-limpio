@@ -310,7 +310,7 @@ fun ReposicionDetallePedidoRealizado(
             ) {
                 if (pedido.montoFacturadoReal > 0) {
                     Text(
-                        text = "FACTURADO: $simboloMoneda ${String.format(Locale.US, "%,.2f", pedido.montoFacturadoReal)}",
+                        text = "FACTURADO: $simboloMoneda ${String.format(Locale.US, "%.2f", pedido.montoFacturadoReal)}",
                         style = FDType.Label.copy(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black
@@ -328,7 +328,7 @@ fun ReposicionDetallePedidoRealizado(
                         color = FDColors.TextTertiary
                     )
                     Text(
-                        text = "$simboloMoneda ${String.format(Locale.US, "%,.2f", pedido.totalInversion)}",
+                        text = "$simboloMoneda ${String.format(Locale.US, "%.2f", pedido.totalInversion)}",
                         style = FDType.Numeric.copy(
                             fontWeight = FontWeight.Black,
                             fontSize = 18.sp
@@ -667,7 +667,7 @@ private fun SeccionRecepciones(
                     )
                 }
                 Text(
-                    text = "Factura: ${rec.numeroFactura.ifBlank { "S/C" }} · $simboloMoneda ${String.format(Locale.US, "%,.2f", rec.montoFactura)}",
+                    text = "Factura: ${rec.numeroFactura.ifBlank { "S/C" }} · $simboloMoneda ${String.format(Locale.US, "%.2f", rec.montoFactura)}",
                     style = FDType.BodySmall.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
                     color = FDColors.TextPrimary
                 )

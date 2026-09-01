@@ -122,21 +122,26 @@ object SaldoAFavorFirestore {
         usuarioNombre: String,
         usuarioEmail: String,
         ahoraMs: Long,
-        fechaLegible: String
+        fechaLegible: String,
+        idempotenciaId: String = ""
     ) {
         val snap = tx.get(refSaldo)
         val saldoActual = snap.getDouble("saldoAFavor") ?: 0.0
+        @Suppress("UNCHECKED_CAST")
+        val historial = (snap.get("historialSaldoAFavor") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+        // Idempotencia: un reintento con el mismo id de intento (mismo acto) sale sin
+        // escribir nada. La plata jamás se descuenta dos veces por un doble toque o
+        // un reintento tras una respuesta perdida.
+        if (idempotenciaId.isNotBlank() && historial.any { it["id"] == "salida-$idempotenciaId" }) return
         if (monto > saldoActual + 0.01) {
             throw IllegalStateException(
                 "El proveedor solo tiene " + String.format(Locale.US, "%.2f", saldoActual) +
                     " a favor; no puedes registrar " + String.format(Locale.US, "%.2f", monto) + "."
             )
         }
-        @Suppress("UNCHECKED_CAST")
-        val historial = (snap.get("historialSaldoAFavor") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
         historial.add(
             mapOf(
-                "id" to "salida-" + java.util.UUID.randomUUID().toString(),
+                "id" to "salida-" + idempotenciaId.ifBlank { java.util.UUID.randomUUID().toString() },
                 "tipo" to tipo,
                 "monto" to monto,
                 "documento" to documento.trim().uppercase(),

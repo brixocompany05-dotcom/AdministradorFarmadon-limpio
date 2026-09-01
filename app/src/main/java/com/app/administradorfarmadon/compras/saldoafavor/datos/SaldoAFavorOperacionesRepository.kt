@@ -29,7 +29,8 @@ class SaldoAFavorOperacionesRepository(
         monto: Double,
         tipo: String,
         documento: String,
-        motivo: String
+        motivo: String,
+        idempotenciaId: String = ""
     ): Result<Unit> {
         val farmaciaId = SessionManager.clienteIdGarantizado
         val sucursalId = SessionManager.sucursalIdEfectiva
@@ -60,7 +61,8 @@ class SaldoAFavorOperacionesRepository(
                     usuarioNombre = SessionManager.nombreUsuario.ifBlank { "Administración" },
                     usuarioEmail = SessionManager.email,
                     ahoraMs = ahoraMs,
-                    fechaLegible = fechaLegible
+                    fechaLegible = fechaLegible,
+                    idempotenciaId = idempotenciaId
                 )
                 null
             }.await()

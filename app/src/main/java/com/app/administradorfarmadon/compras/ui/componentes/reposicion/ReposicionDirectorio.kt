@@ -298,7 +298,7 @@ private fun FilaProveedorDirectorio(
                             border = BorderStroke(0.8.dp, FDColors.Primary.copy(alpha = 0.35f))
                         ) {
                             Text(
-                                text = "$simboloMoneda ${String.format(Locale.US, "%,.2f", subtotalProv)} · $productosEnPedido prod.",
+                                text = "$simboloMoneda ${String.format(Locale.US, "%.2f", subtotalProv)} · $productosEnPedido prod.",
                                 style = FDType.Label.copy(
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Black

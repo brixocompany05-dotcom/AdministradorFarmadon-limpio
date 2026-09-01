@@ -191,14 +191,14 @@ fun DialogoNotaCredito(
                                 modifier = Modifier.padding(s.padCard),
                                 verticalArrangement = Arrangement.spacedBy(s.xs * 0.7f)
                             ) {
-                                FilaNotaCredito("Total del papel", "$simboloMoneda " + String.format(Locale.US, "%,.2f", totalPapel))
+                                FilaNotaCredito("Total del papel", "$simboloMoneda " + String.format(Locale.US, "%.2f", totalPapel))
                                 if (totalAjustes > 0.01) {
-                                    FilaNotaCredito("Notas ya registradas", "− $simboloMoneda " + String.format(Locale.US, "%,.2f", totalAjustes), color = FDColors.Warning)
+                                    FilaNotaCredito("Notas ya registradas", "− $simboloMoneda " + String.format(Locale.US, "%.2f", totalAjustes), color = FDColors.Warning)
                                 }
-                                FilaNotaCredito("Abonado", "$simboloMoneda " + String.format(Locale.US, "%,.2f", totalAbonado), color = FDColors.Success)
-                                FilaNotaCredito("Saldo pendiente", "$simboloMoneda " + String.format(Locale.US, "%,.2f", saldoPendiente), color = if (saldoPendiente > 0.01) FDColors.Error else FDColors.Success)
+                                FilaNotaCredito("Abonado", "$simboloMoneda " + String.format(Locale.US, "%.2f", totalAbonado), color = FDColors.Success)
+                                FilaNotaCredito("Saldo pendiente", "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoPendiente), color = if (saldoPendiente > 0.01) FDColors.Error else FDColors.Success)
                                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = s.separatorH)
-                                FilaNotaCredito("Máximo ajustable", "$simboloMoneda " + String.format(Locale.US, "%,.2f", maximoAjustable), color = FDColors.Primary)
+                                FilaNotaCredito("Máximo ajustable", "$simboloMoneda " + String.format(Locale.US, "%.2f", maximoAjustable), color = FDColors.Primary)
                             }
                         }
 
@@ -238,7 +238,7 @@ fun DialogoNotaCredito(
                                 errorMonto = when {
                                     montoTexto.isBlank() -> null
                                     m <= 0.0 -> "Ingresa un monto mayor a 0."
-                                    m > maximoAjustableRedondeado -> "El monto supera el máximo ajustable de $simboloMoneda " + String.format(Locale.US, "%,.2f", maximoAjustableRedondeado)
+                                    m > maximoAjustableRedondeado -> "El monto supera el máximo ajustable de $simboloMoneda " + String.format(Locale.US, "%.2f", maximoAjustableRedondeado)
                                     else -> null
                                 }
                             },
@@ -325,8 +325,8 @@ fun DialogoNotaCredito(
                                         color = FDColors.TextTertiary
                                     )
                                     Text(
-                                        "Total del papel ${String.format(Locale.US, "%,.2f", totalPapel)} → total ajustado ${String.format(Locale.US, "%,.2f", totalDespues)}. " +
-                                            if (quedaraSaldada) "La factura quedará SALDADA." else "Quedará un saldo de ${String.format(Locale.US, "%,.2f", saldoDespues)}.",
+                                        "Total del papel ${String.format(Locale.US, "%.2f", totalPapel)} → total ajustado ${String.format(Locale.US, "%.2f", totalDespues)}. " +
+                                            if (quedaraSaldada) "La factura quedará SALDADA." else "Quedará un saldo de ${String.format(Locale.US, "%.2f", saldoDespues)}.",
                                         style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
                                         color = FDColors.TextPrimary
                                     )

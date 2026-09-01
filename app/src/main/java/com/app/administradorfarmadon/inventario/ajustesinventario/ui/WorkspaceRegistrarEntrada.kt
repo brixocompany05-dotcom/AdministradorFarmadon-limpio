@@ -202,6 +202,8 @@ fun WorkspaceRegistrarEntrada(
                             ajusteInventarioViewModel = ajusteInventarioViewModel,
                             loteInicial = loteSeleccionado,
                             exito = estado.exito,
+                            procesando = estado.procesando,
+                            mensajeError = estado.mensajeError,
                             onReintentar = { ajusteInventarioViewModel.reintentar() },
                             s = s
                         )
@@ -227,6 +229,8 @@ fun WorkspaceRegistrarEntrada(
                             ajusteInventarioViewModel = ajusteInventarioViewModel,
                             loteInicial = loteSeleccionado,
                             exito = estado.exito,
+                            procesando = estado.procesando,
+                            mensajeError = estado.mensajeError,
                             onReintentar = { ajusteInventarioViewModel.reintentar() },
                             onIrADevolucion = { lote ->
                                 loteSeleccionado = lote ?: loteSeleccionado ?: lotesConStock.firstOrNull()
@@ -482,6 +486,8 @@ private fun ContenidoEntradaPremium(
     ajusteInventarioViewModel: AjusteInventarioViewModel,
     loteInicial: LoteProducto?,
     exito: Boolean,
+    procesando: Boolean,
+    mensajeError: String?,
     onReintentar: () -> Unit,
     s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 ) {
@@ -493,6 +499,8 @@ private fun ContenidoEntradaPremium(
             direccionInicial = "ENTRADA",
             loteEntradaInicial = loteInicial,
             exito = exito,
+            procesando = procesando,
+            mensajeError = mensajeError,
             onReintentar = onReintentar,
             onDismiss = { /* In-place workspace */ },
             onRegistrarEntrada = { lote, venc, cant, tipo, motivo ->
@@ -511,6 +519,8 @@ private fun ContenidoSalidaPremium(
     ajusteInventarioViewModel: AjusteInventarioViewModel,
     loteInicial: LoteProducto?,
     exito: Boolean,
+    procesando: Boolean,
+    mensajeError: String?,
     onReintentar: () -> Unit,
     onIrADevolucion: (LoteProducto?) -> Unit,
     s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
@@ -523,6 +533,8 @@ private fun ContenidoSalidaPremium(
             direccionInicial = "SALIDA",
             loteSalidaInicial = loteInicial,
             exito = exito,
+            procesando = procesando,
+            mensajeError = mensajeError,
             onReintentar = onReintentar,
             onDismiss = { /* In-place workspace */ },
             onRegistrarEntrada = { lote, venc, cant, tipo, motivo ->

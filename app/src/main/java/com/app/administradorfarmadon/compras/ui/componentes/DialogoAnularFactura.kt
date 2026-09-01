@@ -252,7 +252,7 @@ fun DialogoAnularFactura(
                                 FilaInfo("Fecha emisión", factura.fechaRegistro)
                                 FilaInfo("Tipo", if (factura.esContado) "Contado" else "Crédito")
                                 if (plataPagada > 0.01) {
-                                    FilaInfo("Pagado", "$simboloMoneda ${String.format(Locale.US, "%,.2f", plataPagada)}", esDestacado = true)
+                                    FilaInfo("Pagado", "$simboloMoneda ${String.format(Locale.US, "%.2f", plataPagada)}", esDestacado = true)
                                 }
                             }
                         }
@@ -277,7 +277,7 @@ fun DialogoAnularFactura(
                         if (hayDineroEnJuego) {
                             val montoEnJuego = plataPagada
                             Text(
-                                "¿QUÉ PASA CON $simboloMoneda ${String.format(Locale.US, "%,.2f", montoEnJuego)}?",
+                                "¿QUÉ PASA CON $simboloMoneda ${String.format(Locale.US, "%.2f", montoEnJuego)}?",
                                 style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.9f, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
                                 color = FDColors.TextTertiary
                             )
@@ -362,7 +362,7 @@ fun DialogoAnularFactura(
                                     ) {
                                         Icon(Icons.Default.Lock, null, tint = FDColors.Warning, modifier = Modifier.size(s.iconSmall))
                                         Text(
-                                            "Solo el dueño o administración puede decidir qué pasa con $simboloMoneda ${String.format(Locale.US, "%,.2f", montoEnJuego)}.",
+                                            "Solo el dueño o administración puede decidir qué pasa con $simboloMoneda ${String.format(Locale.US, "%.2f", montoEnJuego)}.",
                                             style = FDType.BodySmall.copy(fontSize = s.textBody.value.sp * 0.92f),
                                             color = FDColors.TextPrimary
                                         )
@@ -399,7 +399,7 @@ fun DialogoAnularFactura(
                         ResumenFila(
                             Icons.Default.Payments, "EL PAGO",
                             when {
-                                plataPagada > 0.01 -> "$simboloMoneda ${String.format(Locale.US, "%,.2f", plataPagada)} ya abonados quedan como ${textoRespuestaPlata(respuestaPlata).ifBlank { "falta decidir" }}"
+                                plataPagada > 0.01 -> "$simboloMoneda ${String.format(Locale.US, "%.2f", plataPagada)} ya abonados quedan como ${textoRespuestaPlata(respuestaPlata).ifBlank { "falta decidir" }}"
                                 factura.esContado -> "Contado, pero todavía no hay un pago registrado"
                                 else -> "Crédito sin abonos — nada que decidir"
                             },

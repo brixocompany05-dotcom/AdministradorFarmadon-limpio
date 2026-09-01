@@ -419,6 +419,7 @@ fun PestanaProveedores(
                                         ),
                                         color = FDColors.TextPrimary
                                     )
+                                    var errorContacto by remember(proveedorSeleccionado.id) { mutableStateOf<String?>(null) }
                                     Spacer(Modifier.height(2.dp))
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -451,10 +452,21 @@ fun PestanaProveedores(
                                                         try {
                                                             val uri = Uri.parse("https://wa.me/${proveedorSeleccionado.telefono.replace(" ", "").replace("+", "").replace("-", "")}")
                                                             context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                                                        } catch (e: Exception) {}
+                                                            errorContacto = null
+                                                        } catch (e: Exception) {
+                                                            // Fallo real visible: la persona necesita la verdad y el siguiente paso.
+                                                            errorContacto = "No se pudo abrir WhatsApp (${e.message ?: "sin detalle del sistema"}). Llama al ${proveedorSeleccionado.telefono}."
+                                                        }
                                                     }
                                             )
                                         }
+                                    }
+                                    errorContacto?.let { err ->
+                                        Text(
+                                            text = err,
+                                            style = FDType.BodySmall.copy(fontSize = 10.5.sp),
+                                            color = FDColors.Error
+                                        )
                                     }
                                 }
                             }
@@ -519,7 +531,7 @@ fun PestanaProveedores(
                                             Icon(Icons.Default.AccountBalanceWallet, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconTiny * 1.0f))
                                             Text("DEUDA:", style = FDType.Label.copy(fontSize = 9.sp), color = FDColors.TextTertiary)
                                             Text(
-                                                text = if (deudaPendiente > 0) "$simboloMoneda " + String.format(Locale.US, "%,.2f", deudaPendiente) else "AL DÍA",
+                                                text = if (deudaPendiente > 0) "$simboloMoneda " + String.format(Locale.US, "%.2f", deudaPendiente) else "AL DÍA",
                                                 style = FDType.Body.copy(fontWeight = FontWeight.Black, fontSize = 12.sp),
                                                 color = if (deudaPendiente > 0) FDColors.Error else FDColors.Success
                                             )
@@ -529,7 +541,7 @@ fun PestanaProveedores(
                                             Icon(Icons.Default.LocalShipping, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconTiny * 1.0f))
                                             Text("MÍNIMO DESPACHO:", style = FDType.Label.copy(fontSize = 9.sp), color = FDColors.TextTertiary)
                                             Text(
-                                                text = if (proveedorSeleccionado.montoMinimoPedido > 0) "$simboloMoneda " + String.format(Locale.US, "%,.2f", proveedorSeleccionado.montoMinimoPedido) else "LIBRE",
+                                                text = if (proveedorSeleccionado.montoMinimoPedido > 0) "$simboloMoneda " + String.format(Locale.US, "%.2f", proveedorSeleccionado.montoMinimoPedido) else "LIBRE",
                                                 style = FDType.Body.copy(fontWeight = FontWeight.Black, fontSize = 12.sp),
                                                 color = FDColors.TextPrimary
                                             )
@@ -630,7 +642,7 @@ fun PestanaProveedores(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "$simboloMoneda " + String.format(Locale.US, "%,.2f", saldoAFavor),
+                                                    text = "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoAFavor),
                                                     style = FDType.Numeric.copy(fontSize = 18.sp, fontWeight = FontWeight.Black),
                                                     color = if (saldoAFavor > 0.01) FDColors.Success else FDColors.TextTertiary
                                                 )
@@ -643,12 +655,12 @@ fun PestanaProveedores(
                                                 ) {
                                                     FDBotonSecundario(
                                                         texto = "COBRAR SALDO",
-                                                        onClick = { modoSaldo = if (modoSaldo == "COBRAR") null else "COBRAR"; detalleSaldo = ""; montoSaldo = "" },
+                                                        onClick = { modoSaldo = if (modoSaldo == "COBRAR") null else "COBRAR"; detalleSaldo = ""; montoSaldo = ""; mensajeSaldo = null },
                                                         modifier = Modifier.weight(1f)
                                                     )
                                                     FDBotonSecundario(
                                                         texto = "DECLARAR PERDIDO",
-                                                        onClick = { modoSaldo = if (modoSaldo == "PERDIDO") null else "PERDIDO"; detalleSaldo = ""; montoSaldo = "" },
+                                                        onClick = { modoSaldo = if (modoSaldo == "PERDIDO") null else "PERDIDO"; detalleSaldo = ""; montoSaldo = ""; mensajeSaldo = null },
                                                         modifier = Modifier.weight(1f)
                                                     )
                                                 }
@@ -713,7 +725,7 @@ fun PestanaProveedores(
                                                                 val detalle = detalleSaldo.trim()
                                                                 when {
                                                                     monto <= 0.0 -> { mensajeSaldo = "Escribe un monto mayor a cero."; mensajeSaldoEsError = true }
-                                                                    monto > saldoAFavor + 0.01 -> { mensajeSaldo = "El monto no puede superar el saldo a favor de $simboloMoneda ${String.format(Locale.US, "%,.2f", saldoAFavor)}."; mensajeSaldoEsError = true }
+                                                                    monto > saldoAFavor + 0.01 -> { mensajeSaldo = "El monto no puede superar el saldo a favor de $simboloMoneda ${String.format(Locale.US, "%.2f", saldoAFavor)}."; mensajeSaldoEsError = true }
                                                                     modoSaldo == "COBRAR" && detalle.length < 3 -> { mensajeSaldo = "Indica el documento o comprobante del cobro."; mensajeSaldoEsError = true }
                                                                     modoSaldo == "PERDIDO" && detalle.length < 5 -> { mensajeSaldo = "El motivo de la pérdida debe tener al menos 5 letras."; mensajeSaldoEsError = true }
                                                                     else -> {
@@ -723,9 +735,11 @@ fun PestanaProveedores(
                                                                             onCobrarSaldoAFavor(monto, detalle) { res ->
                                                                                 procesandoSaldo = false
                                                                                 if (res.isSuccess) {
+                                                                                    // El panel QUEDA ABIERTO con el éxito visible: cerrarlo
+                                                                                    // escondía la confirmación de un movimiento de dinero.
                                                                                     mensajeSaldo = "Cobro registrado. El saldo a favor bajó."
                                                                                     mensajeSaldoEsError = false
-                                                                                    modoSaldo = null; montoSaldo = ""; detalleSaldo = ""
+                                                                                    montoSaldo = ""; detalleSaldo = ""
                                                                                 } else {
                                                                                     mensajeSaldo = "No se pudo registrar el cobro: ${res.exceptionOrNull()?.message ?: "sin detalle del servidor"}"
                                                                                     mensajeSaldoEsError = true
@@ -735,9 +749,10 @@ fun PestanaProveedores(
                                                                             onDeclararSaldoPerdido(monto, detalle) { res ->
                                                                                 procesandoSaldo = false
                                                                                 if (res.isSuccess) {
+                                                                                    // El panel QUEDA ABIERTO con el éxito visible (R3).
                                                                                     mensajeSaldo = "Pérdida declarada y registrada con justificación."
                                                                                     mensajeSaldoEsError = false
-                                                                                    modoSaldo = null; montoSaldo = ""; detalleSaldo = ""
+                                                                                    montoSaldo = ""; detalleSaldo = ""
                                                                                 } else {
                                                                                     mensajeSaldo = "No se pudo declarar la pérdida: ${res.exceptionOrNull()?.message ?: "sin detalle del servidor"}"
                                                                                     mensajeSaldoEsError = true
@@ -813,7 +828,7 @@ fun PestanaProveedores(
                                                                             modifier = Modifier.weight(1f).padding(end = 6.dp)
                                                                         )
                                                                         Text(
-                                                                            text = (if (esIngreso) "+" else "-") + "$simboloMoneda " + String.format(Locale.US, "%,.2f", kotlin.math.abs(mov.monto)),
+                                                                            text = (if (esIngreso) "+" else "-") + "$simboloMoneda " + String.format(Locale.US, "%.2f", kotlin.math.abs(mov.monto)),
                                                                             style = FDType.Numeric.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Black),
                                                                             color = FDColors.TextPrimary
                                                                         )

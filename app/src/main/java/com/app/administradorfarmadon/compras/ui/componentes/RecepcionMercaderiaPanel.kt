@@ -283,13 +283,13 @@ fun RecepcionMercaderiaPanel(
                                     FilaResumenIndustrial("Recibido antes", estado.unidadesRecibidasAntes.toString())
                                     FilaResumenIndustrial("Esta entrega", estado.unidadesEstaEntrega.toString())
                                     FilaResumenIndustrial("Faltará después", estado.unidadesPendientesDespues.toString())
-                                    FilaResumenIndustrial("Costo de mercadería hoy", "$simboloMoneda " + String.format(Locale.US, "%,.2f", estado.totalCostoCalculado))
+                                    FilaResumenIndustrial("Costo de mercadería hoy", "$simboloMoneda " + String.format(Locale.US, "%.2f", estado.totalCostoCalculado))
                                     HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = 0.5.dp)
                                     Text("TOTAL DEL DOCUMENTO", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
-                                    Text("$simboloMoneda " + String.format(Locale.US, "%,.2f", estado.totalFacturaFinal), style = FDType.NumericLg.copy(fontSize = 32.sp, fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
-                                    FilaResumenIndustrial("Pagado antes", "$simboloMoneda " + String.format(Locale.US, "%,.2f", estado.montoPagadoAntes))
-                                    Text("Pagado ahora: $simboloMoneda " + String.format(Locale.US, "%,.2f", estado.montoPagadoFinal.coerceAtLeast(0.0)), style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold), color = FDColors.TextSecondary)
-                                    FilaResumenIndustrial("Saldo después", "$simboloMoneda " + String.format(Locale.US, "%,.2f", (estado.totalFacturaFinal - estado.montoPagadoAntes - estado.montoPagadoFinal.coerceAtLeast(0.0) - estado.saldoAFavorAplicado).coerceAtLeast(0.0)))
+                                    Text("$simboloMoneda " + String.format(Locale.US, "%.2f", estado.totalFacturaFinal), style = FDType.NumericLg.copy(fontSize = 32.sp, fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
+                                    FilaResumenIndustrial("Pagado antes", "$simboloMoneda " + String.format(Locale.US, "%.2f", estado.montoPagadoAntes))
+                                    Text("Pagado ahora: $simboloMoneda " + String.format(Locale.US, "%.2f", estado.montoPagadoFinal.coerceAtLeast(0.0)), style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold), color = FDColors.TextSecondary)
+                                    FilaResumenIndustrial("Saldo después", "$simboloMoneda " + String.format(Locale.US, "%.2f", (estado.totalFacturaFinal - estado.montoPagadoAntes - estado.montoPagadoFinal.coerceAtLeast(0.0) - estado.saldoAFavorAplicado).coerceAtLeast(0.0)))
                                     Surface(
                                         color = if (estado.unidadesPendientesDespues > 0) FDColors.WarningSubtle else FDColors.SuccessSubtle,
                                         shape = RoundedCornerShape(8.dp),
@@ -366,7 +366,10 @@ fun RecepcionMercaderiaPanel(
                                         confirmButton = {
                                             TextButton(onClick = {
                                                 datePickerState.selectedDateMillis?.let { ms ->
+                                                    // El DatePicker entrega medianoche en UTC: formatear en hora
+                                                    // local (UTC-5 Perú) restaba UN DÍA al vencimiento elegido.
                                                     val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                                                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
                                                     estado.onFechaVencimientoPagoManualChanged(sdf.format(Date(ms)))
                                                 }
                                                 mostrarDatePicker = false
