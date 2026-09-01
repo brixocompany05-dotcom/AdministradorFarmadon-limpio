@@ -37,6 +37,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.app.administradorfarmadon.autenticacion.navegacion.AuthNavGraph
@@ -125,6 +126,10 @@ class PantallaPrincipal : AppCompatActivity() {
 
                 // Sincronizar tema con la barra del sistema y el SidebarTheme
                 SidebarTheme.isDark = esTemaOscuro
+
+                // Bloqueo GLOBAL de teclado (regla "Bloquear Teclado" / Modo Escáner Externo):
+                // se aplica a la ventana principal y a cada diálogo con campos, sin excepciones.
+                AplicarBloqueoTecladoVentana()
 
                 LaunchedEffect(esTemaOscuro) {
                     val color = if (esTemaOscuro) Color.BLACK else Color.rgb(242, 242, 247)

@@ -46,7 +46,7 @@ fun ProductRow(
         else -> SaaSPrimary
     }
 
-    val firstCategory = product.category.substringBefore(',').trim().ifBlank { "General" }
+    val firstCategory = product.category.substringBefore(',').trim().ifBlank { "Sin categoría" }
     val labVal = product.laboratory
     val subtexto = when {
         product.presentation.isNotBlank() && labVal.isNotBlank() && labVal != "Genérico" ->

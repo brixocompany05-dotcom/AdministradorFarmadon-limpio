@@ -437,7 +437,7 @@ class LotesBloqueoRepository(
                         "loteNumero" to lote.numero,
                         "cantidadAnulada" to totalLote,
                         "motivo" to motivo,
-                        "eliminadoPorUid" to com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                        "eliminadoPorUid" to (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""),
                         "usuarioEmail" to usuarioEmail,
                         "fecha" to FieldValue.serverTimestamp()
                     )

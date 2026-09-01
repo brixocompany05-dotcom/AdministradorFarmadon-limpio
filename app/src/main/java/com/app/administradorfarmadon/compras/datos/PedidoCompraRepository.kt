@@ -498,7 +498,7 @@ class PedidoCompraRepository(
                 @Suppress("UNCHECKED_CAST")
                 val recepciones = (snap.get("recepciones") as? List<*>) ?: emptyList<Any>()
                 if (estado != "ENVIADO" || recibido > 0 || recepciones.isNotEmpty()) {
-                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede editar aquí. Usa la pestaña RECIBIR.")
+                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede editar aquí. Consúltalo en la pestaña RECIBIDOS.")
                 }
 
                 val itemsMap = items.map { item ->
@@ -577,7 +577,7 @@ class PedidoCompraRepository(
                 @Suppress("UNCHECKED_CAST")
                 val recepciones = (snap.get("recepciones") as? List<*>) ?: emptyList<Any>()
                 if (estado != "ENVIADO" || recibido > 0 || recepciones.isNotEmpty()) {
-                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede eliminar. Usa la pestaña RECIBIR.")
+                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede eliminar. Consúltalo en la pestaña RECIBIDOS.")
                 }
                 tx.delete(docRef)
             }.await()
@@ -815,7 +815,7 @@ class PedidoCompraRepository(
                     val bloq = (m["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
                     val vista = LoteExistenteVista(
                         productoId = productoId,
-                        productoNombre = snap.getString("name") ?: "",
+                        productoNombre = snap.getString("nombre") ?: "",
                         numero = numero,
                         cantidad = disp + bloq,
                         vencimiento = (m["vencimiento"] as? String) ?: ""

@@ -187,7 +187,7 @@ private fun EstadoIdlePanel(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${state.categoriaNombre.ifBlank { "General" }} · ${if (esMedicamento) "Lab" else "Marca"}: ${state.laboratorio.ifBlank { "N/A" }}",
+                    text = "${state.categoriaNombre.ifBlank { "Sin categoría" }} · ${if (esMedicamento) "Lab" else "Marca"}: ${state.laboratorio.ifBlank { "Sin laboratorio" }}",
                     style = FDType.Caption.copy(fontSize = 12.sp, color = FDColors.TextSecondary)
                 )
             }

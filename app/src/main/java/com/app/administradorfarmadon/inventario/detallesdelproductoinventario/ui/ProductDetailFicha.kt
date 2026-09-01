@@ -268,9 +268,9 @@ internal fun ModuloFichaTecnicaSanitaria(p: MoldeProductos) {
             )
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                FichaFieldEnterprise("PRINCIPIO ACTIVO", p.principioActivo.ifBlank { "N/A" }, Modifier.weight(1f))
-                FichaFieldEnterprise("LABORATORIO", p.proveedorBaseNombre.ifBlank { "GENÉRICO" }, Modifier.weight(1f))
-                FichaFieldEnterprise("UBICACIÓN", p.ubicacion.ifBlank { "SIN ASIGNAR" }, Modifier.weight(1f))
+                FichaFieldEnterprise("PRINCIPIO ACTIVO", p.principioActivo.ifBlank { "Sin principio activo" }, Modifier.weight(1f))
+                FichaFieldEnterprise("LABORATORIO", p.proveedorBaseNombre.ifBlank { "Sin laboratorio" }, Modifier.weight(1f))
+                FichaFieldEnterprise("UBICACIÓN", p.ubicacion.ifBlank { "Sin asignar" }, Modifier.weight(1f))
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {

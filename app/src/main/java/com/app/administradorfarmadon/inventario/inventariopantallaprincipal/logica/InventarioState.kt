@@ -102,6 +102,8 @@ data class InventarioUIStateLegacy(
     
     // Rediseño 2026
     val activeProductsCount: Int = 0,
+    val metricasCompletas: Boolean = false,
+    val metricasError: String? = null,
     // Paginacion visible DEPRECADA —” mantenida solo por compatibilidad, UI no muestra "Pagina X de Y"
     val currentPage: Int = 1,
     val itemsPerPage: Int = 10,

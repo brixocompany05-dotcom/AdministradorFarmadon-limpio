@@ -171,7 +171,7 @@ fun ProductDetailContent(
                         }
                     }
                     Text(
-                        text = "${p.categoriaPrincipal.ifBlank { "General" }}  ·  Lab: ${p.laboratorio.ifBlank { "N/A" }}  ·  $textoUbicacion",
+                        text = "${p.categoriaPrincipal.ifBlank { "Sin categoría" }}  ·  Lab: ${p.laboratorio.ifBlank { "Sin laboratorio" }}  ·  $textoUbicacion",
                         style = FDType.Caption.copy(fontSize = 11.sp, color = FDColors.TextSecondary),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

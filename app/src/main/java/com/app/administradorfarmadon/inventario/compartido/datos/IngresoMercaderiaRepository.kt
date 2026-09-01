@@ -45,7 +45,7 @@ class IngresoMercaderiaRepository(
         "fechaLegible" to fechaLegible,
         "fechaMs" to ahoraMs,
         "monto" to monto,
-        "metodoPago" to (pagos.firstOrNull()?.metodoPago ?: metodoPago.ifBlank { "Efectivo" }),
+        "metodoPago" to (pagos.firstOrNull()?.metodoPago ?: metodoPago),
         "numeroOperacion" to (pagos.firstOrNull()?.numeroOperacion ?: ""),
         "pagos" to pagos.map { p ->
             mapOf(
@@ -54,7 +54,7 @@ class IngresoMercaderiaRepository(
                 "numeroOperacion" to p.numeroOperacion
             )
         },
-        "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } },
+        "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
         "usuarioEmail" to usuarioEmail,
         "notas" to if (pagos.isEmpty() && metodoPago.isBlank()) "Pago registrado junto con la recepción"
                 else "Pago registrado junto con la recepción: " + pagos.joinToString(" + ") { p ->
@@ -172,7 +172,7 @@ class IngresoMercaderiaRepository(
                         if (recepcionesPrevias.any { it["id"] == idempotenciaId }) return@runTransaction
                     }
                     proveedorIdTx = pedidoSnap.getString("proveedorId") ?: ""
-                    proveedorNombreTx = pedidoSnap.getString("proveedorNombre") ?: "Proveedor"
+                    proveedorNombreTx = pedidoSnap.getString("proveedorNombre") ?: ""
                     proveedorRucTx = pedidoSnap.getString("proveedorRuc") ?: ""
                 } else {
                     // Directo suelto — proveedor viene de los params de factura
@@ -334,6 +334,11 @@ class IngresoMercaderiaRepository(
                     if (cantBloqueadaExistente > 0) loteFinalData["cantidadBloqueada"] = cantBloqueadaExistente
                     if (!motivoBloqueoExistente.isNullOrBlank()) loteFinalData["motivoBloqueo"] = motivoBloqueoExistente
                     if (!estadoSanitarioExistente.isNullOrBlank()) loteFinalData["estadoSanitario"] = estadoSanitarioExistente
+                    // Preservar la trazabilidad sanitaria y el nacimiento real del lote:
+                    // si un lote ya vendió, esa verdad no puede perderse al recibir más unidades.
+                    (loteActualData?.get("ventasRegistradas") as? Number)?.let { loteFinalData["ventasRegistradas"] = it.toDouble() }
+                    loteActualData?.get("fechaIngreso")?.let { loteFinalData["fechaIngreso"] = it }
+                    loteActualData?.get("createdAt")?.let { loteFinalData["createdAt"] = it }
                     if (loteActualData == null) loteFinalData["fechaIngreso"] = FieldValue.serverTimestamp()
                     currentLotes[keyLoteDestino] = loteFinalData
                     val nuevoStockDisponible = currentLotes.values.sumOf { (it as? Map<*, *>)?.get("cantidad") as? Double ?: (it as? Map<*, *>)?.get("cantidad")?.let { n -> (n as? Number)?.toDouble() } ?: 0.0 }
@@ -456,7 +461,7 @@ class IngresoMercaderiaRepository(
                             val pagosFinales = if (pagosRecepcion.isNotEmpty()) pagosRecepcion
                                 else if (montoPagadoEnRecepcion > 0.0) listOf(
                                     com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
-                                        metodoPago = metodoPago.ifBlank { "Efectivo" },
+                                        metodoPago = metodoPago,
                                         monto = montoPagadoEnRecepcion
                                     )
                                 ) else emptyList()
@@ -482,7 +487,7 @@ class IngresoMercaderiaRepository(
                                     monto = saldoUsado,
                                     facturaNumero = numFacturaLimpio,
                                     motivo = "Saldo a favor aplicado en recepción de $numFacturaLimpio",
-                                    usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                    usuarioNombre = usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                                     usuarioEmail = usuarioEmail,
                                     ahoraMs = ahoraMs,
                                     fechaLegible = fechaLegible
@@ -501,7 +506,7 @@ class IngresoMercaderiaRepository(
                                     facturaId = effectiveFacturaId,
                                     facturaNumero = numFacturaLimpio,
                                     motivo = "Saldo a favor aplicado en recepción de $numFacturaLimpio",
-                                    usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                    usuarioNombre = usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                                     usuarioEmail = usuarioEmail,
                                     ahoraMs = ahoraMs,
                                     fechaLegible = fechaLegible,
@@ -531,7 +536,7 @@ class IngresoMercaderiaRepository(
                         val pagosFinales = if (pagosRecepcion.isNotEmpty()) pagosRecepcion
                             else if (montoPagadoEnRecepcion > 0.0) listOf(
                                 com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
-                                    metodoPago = metodoPago.ifBlank { "Efectivo" },
+                                    metodoPago = metodoPago,
                                     monto = montoPagadoEnRecepcion
                                 )
                             ) else emptyList()
@@ -575,7 +580,7 @@ class IngresoMercaderiaRepository(
                                 monto = saldoUsado,
                                 facturaNumero = numFacturaLimpio,
                                 motivo = "Saldo a favor aplicado en la recepción",
-                                usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                usuarioNombre = usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                                 usuarioEmail = usuarioEmail,
                                 ahoraMs = ahoraMs,
                                 fechaLegible = fechaLegible
@@ -594,7 +599,7 @@ class IngresoMercaderiaRepository(
                                 facturaId = effectiveFacturaId,
                                 facturaNumero = numFacturaLimpio,
                                 motivo = "Saldo a favor aplicado en la recepción",
-                                usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                                usuarioNombre = usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                                 usuarioEmail = usuarioEmail,
                                 ahoraMs = ahoraMs,
                                 fechaLegible = fechaLegible,
@@ -640,7 +645,7 @@ class IngresoMercaderiaRepository(
                         "id" to idempotenciaId.ifBlank { UUID.randomUUID().toString() },
                         "fechaLegible" to fechaLegible,
                         "fechaMs" to ahoraMs,
-                        "usuarioNombre" to (usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } }),
+                        "usuarioNombre" to (usuarioNombre.ifBlank { SessionManager.nombreUsuario }),
                         "usuarioEmail" to usuarioEmail,
                         "numeroFactura" to numFacturaLimpio,
                         "condicionPago" to condicionPago,
@@ -831,7 +836,7 @@ class IngresoMercaderiaRepository(
                         tipo = "SALDO_A_FAVOR_ANULACION",
                         documento = numeroFactura,
                         motivo = "Saldo a favor por anulación de la factura $numeroFactura",
-                        usuarioNombre = usuarioNombre.ifBlank { "Administración" },
+                        usuarioNombre = usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                         usuarioEmail = usuarioEmail,
                         ahoraMs = ahoraMs,
                         fechaLegible = fechaLegible,
@@ -988,7 +993,7 @@ class IngresoMercaderiaRepository(
                                 "id" to UUID.randomUUID().toString(),
                                 "fechaLegible" to fechaLegible,
                                 "fechaMs" to ahoraMs,
-                                "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
+                                "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                                 "usuarioEmail" to usuarioEmail,
                                 "numeroFactura" to numeroFactura,
                                 "tipo" to "ANULACION",
@@ -1008,7 +1013,7 @@ class IngresoMercaderiaRepository(
                                 "id" to UUID.randomUUID().toString(),
                                 "fechaLegible" to fechaLegible,
                                 "fechaMs" to ahoraMs,
-                                "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
+                                "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                                 "usuarioEmail" to usuarioEmail,
                                 "numeroFactura" to numeroFactura,
                                 "tipo" to "ANULACION_SIN_DEVOLUCION",
@@ -1040,7 +1045,7 @@ class IngresoMercaderiaRepository(
                         "referenciaDevolucion" to referenciaDevolucion.trim(),
                         "fechaLegible" to fechaLegible,
                         "fechaMs" to ahoraMs,
-                        "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
+                        "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                         "usuarioEmail" to usuarioEmail
                     )
                 }

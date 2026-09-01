@@ -161,7 +161,7 @@ class FacturaCompraRepository(
                     ItemFacturaCompra(
                         productoId = itemMap["productoId"] as? String ?: (itemMap["id"] as? String ?: ""),
                         productoNombre = pNombre,
-                        empaque = itemMap["empaque"] as? String ?: (itemMap["presentacion"] as? String ?: "Caja"),
+                        empaque = itemMap["empaque"] as? String ?: (itemMap["presentacion"] as? String ?: ""),
                         loteNumero = itemMap["loteNumero"] as? String ?: (itemMap["lote"] as? String ?: ""),
                         vencimiento = itemMap["vencimiento"] as? String ?: (itemMap["fechaVencimiento"] as? String ?: ""),
                         cantidadTotal = cantTot,
@@ -344,7 +344,7 @@ class FacturaCompraRepository(
                         "numeroOperacion" to p.numeroOperacion
                     )
                 },
-                "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
+                "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                 "usuarioEmail" to usuarioEmail,
                 "notas" to notas.trim(),
                 "anulado" to false,
@@ -443,7 +443,7 @@ class FacturaCompraRepository(
                 "motivo" to motivo.trim(),
                 "fechaLegible" to fechaLegible,
                 "fechaMs" to ahoraMs,
-                "usuarioNombre" to usuarioNombre.ifBlank { "Administración" },
+                "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
                 "usuarioEmail" to usuarioEmail
             )
 

@@ -91,20 +91,35 @@ class PreciosEtiquetasRepository(
             val productRef = tiendaRef.collection("inventario").document(productId)
             val movimientoRef = tiendaRef.collection("movimientos").document(UUID.randomUUID().toString())
 
-            val presentacionesData = presentaciones.map { pres ->
+            val presentacionesData = mutableListOf<Map<String, Any>>()
+            val codigosBatch = mutableSetOf<String>()
+            for (pres in presentaciones) {
                 val precioRedondeado = Math.round(pres.precioventa * 100.0) / 100.0
                 // R3/cerebro 02: normalizar la unidad al cánon de CatalogoEmpaques antes de guardar,
                 // igual que Crear/Editar. Así PerfilUnidades siempre reconoce la unidad y el
                 // descuento de stock es exacto aunque la UI envíe "Litros" en vez de "L".
                 val unidadNormalizada = CatalogoEmpaques.normalizarUnidad(pres.unidadMedida).ifBlank { pres.unidadMedida.trim() }
-                mapOf(
-                    "presentacionId" to pres.presentacionId.ifBlank { UUID.randomUUID().toString() },
-                    "nombre" to pres.nombre.trim(),
-                    "empaque" to pres.empaque.trim(),
-                    "cantidad" to pres.cantidad.coerceAtLeast(1),
-                    "unidadMedida" to unidadNormalizada,
-                    "codigoBarras" to pres.codigoBarras.trim(),
-                    "precioventa" to precioRedondeado
+                var codigoBarrasLimpio = CodigoBarraHelper.limpiar(pres.codigoBarras)
+                if (codigoBarrasLimpio.isBlank()) {
+                    // La presentación nace con código interno único, jamás vacío y jamás repetido.
+                    codigoBarrasLimpio = CodigoBarraHelper.generarCodigoPresentacionUnico(db, clienteId)
+                    while (codigosBatch.contains(codigoBarrasLimpio)) {
+                        codigoBarrasLimpio = CodigoBarraHelper.generarCodigoPresentacionUnico(db, clienteId)
+                    }
+                }
+                if (!codigosBatch.add(codigoBarrasLimpio)) {
+                    throw IllegalArgumentException("Dos presentaciones comparten el mismo código '$codigoBarrasLimpio'. Cada presentación debe tener su propio código.")
+                }
+                presentacionesData.add(
+                    mapOf(
+                        "presentacionId" to pres.presentacionId.ifBlank { UUID.randomUUID().toString() },
+                        "nombre" to pres.nombre.trim(),
+                        "empaque" to pres.empaque.trim(),
+                        "cantidad" to pres.cantidad.coerceAtLeast(1),
+                        "unidadMedida" to unidadNormalizada,
+                        "codigoBarras" to codigoBarrasLimpio,
+                        "precioventa" to precioRedondeado
+                    )
                 )
             }
 
@@ -154,6 +169,17 @@ class PreciosEtiquetasRepository(
                 }
 
                 val presentacionesPrevias = snapshot.get("presentaciones") as? List<Map<String, Any>> ?: emptyList()
+                val codigosNuevos = presentacionesData.mapNotNull { it["codigoBarras"] as? String }
+                    .filter { it.isNotBlank() }.toSet()
+                val codigosPrevios = presentacionesPrevias.mapNotNull { it["codigoBarras"] as? String }
+                    .filter { it.isNotBlank() }.toSet()
+                // Fase de lecturas completa antes de escribir: verificar que ningún código
+                // de presentación pise a otro producto o a otra presentación.
+                for (codigo in codigosNuevos) {
+                    CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codigo, productId)
+                }
+                val codigosEliminar = codigosPrevios - codigosNuevos
+
                 val cambiosDetectados = mutableListOf<Map<String, Any>>()
                 val descripcionesCambios = mutableListOf<String>()
                 val currencyFormatter = NumberFormat.getCurrencyInstance(Locale.getDefault()).apply { maximumFractionDigits = 0 }
@@ -197,6 +223,16 @@ class PreciosEtiquetasRepository(
                 }
 
                 tx.update(productRef, updateMap)
+
+                // Índices atómicos de códigos de presentación: eliminar los que ya no viven
+                // en este producto y crear los nuevos. Misma transacción, jamás huérfanos.
+                val nombreProducto = snapshot.getString("nombre") ?: ""
+                codigosEliminar.forEach { codigo ->
+                    CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codigo)
+                }
+                codigosNuevos.forEach { codigo ->
+                    CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codigo, productId, nombreProducto)
+                }
 
                 val movData = mapOf(
                     "id" to movimientoRef.id,
@@ -563,6 +599,14 @@ class PreciosEtiquetasRepository(
                 val codigosSec = (snap.get("codigosSecundarios") as? List<*>)?.mapNotNull { it?.toString()?.let { c -> CodigoBarraHelper.limpiar(c) } } ?: emptyList()
                 if (codigo.isNotBlank()) CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codigo)
                 codigosSec.forEach { c -> if (c.isNotBlank()) CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, c) }
+                // Limpia también los códigos propios de cada presentación para que ningún
+                // código quede huérfano ni pueda apuntar luego a un producto borrado.
+                val codigosPresentaciones = (snap.get("presentaciones") as? List<*>)?.mapNotNull { item ->
+                    (item as? Map<*, *>)?.get("codigoBarras") as? String
+                }?.mapNotNull { c -> CodigoBarraHelper.limpiar(c).takeIf { it.isNotBlank() } } ?: emptyList()
+                codigosPresentaciones.forEach { c ->
+                    if (c != codigo) CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, c)
+                }
 
                 val nombreSnap = snap.getString("nombre") ?: ""
                 val empaqueSnap = snap.getString("empaque") ?: ""

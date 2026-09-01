@@ -106,22 +106,22 @@ class EditarProductoRepository(
                 return Result.failure(IllegalArgumentException("El nombre del producto no puede estar vacío."))
             }
 
-            val catFinal = categoriaNombre.trim().ifBlank { "N/A" }
-            val empFinal = empaque.trim().ifBlank { "N/A" }
+            val catFinal = categoriaNombre.trim()
+            val empFinal = empaque.trim()
             val uniTempE = contenidoUnidad.ifBlank {
                 val (_, u) = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.separarContenidoYUnidad(medidaConcentracion)
                 u
             }
-            if (empFinal.isNotBlank() && uniTempE.isNotBlank() && empFinal != "N/A" && uniTempE != "N/A") {
+            if (empFinal.isNotBlank() && uniTempE.isNotBlank()) {
                 val fam2 = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.detectarFamiliaFisica(empFinal, uniTempE)
                 if (!fam2.empaquesCompatibles.any { it.equals(empFinal, ignoreCase = true) } || !fam2.unidadesCompatibles.any { it.equals(uniTempE, ignoreCase = true) }) {
                     return Result.failure(IllegalArgumentException("Envase '$empFinal' no combina con unidad '$uniTempE'. Usa: ${fam2.empaquesCompatibles.take(3).joinToString(", ")} para $uniTempE."))
                 }
             }
-            if (permiteFraccionar && empFinal != "N/A" && uniTempE != "N/A" && empFinal.lowercase() in listOf("caja", "blíster", "blister", "sobre") && uniTempE.lowercase() in listOf("tab", "cáp", "cap", "sob")) {
+            if (permiteFraccionar && empFinal.isNotBlank() && uniTempE.isNotBlank() && empFinal.lowercase() in listOf("caja", "blíster", "blister", "sobre") && uniTempE.lowercase() in listOf("tab", "cáp", "cap", "sob")) {
                 return Result.failure(IllegalArgumentException("Caja/Blíster sellado no puede ser fraccionable. Cambia a Bolsa/Granel si necesitas vender por unidad."))
             }
-            val labFinal = laboratorio.trim().ifBlank { "N/A" }
+            val labFinal = laboratorio.trim()
             val (cantFromConcentracion, unitFromConcentracion) = CatalogoEmpaques.separarContenidoYUnidad(medidaConcentracion)
             val cantVal = contenido.ifBlank { cantFromConcentracion }
             val unidadVal = contenidoUnidad.ifBlank { unitFromConcentracion }
@@ -132,7 +132,7 @@ class EditarProductoRepository(
             if (categoriaNombre.trim().isBlank()) {
                 return Result.failure(IllegalArgumentException("Elige la categoría del producto (es obligatoria)."))
             }
-            if (empFinal.isBlank() || empFinal == "N/A") {
+            if (empFinal.isBlank()) {
                 return Result.failure(IllegalArgumentException("Elige el envase (empaque) del producto."))
             }
             if (cantVal.isBlank()) {
@@ -172,8 +172,8 @@ class EditarProductoRepository(
                 }
             }
 
-            val actorUid = auth.currentUser?.uid ?: "anon"
-            val actorEmail = auth.currentUser?.email ?: "usuario@farmacia"
+            val actorUid = auth.currentUser?.uid.orEmpty()
+            val actorEmail = auth.currentUser?.email.orEmpty()
 
             db.runTransaction { tx ->
                 val snapshot = tx.get(docRef)
@@ -206,6 +206,18 @@ class EditarProductoRepository(
                 val clasificacionControlFinal = if (esGeneral) "VENTA_LIBRE" else if (requiereRecetaFinal) "CONTROLADO" else "VENTA_LIBRE"
                 val temperaturaAlmacenamientoFinal = if (esRefrigeradoFinal) "REFRIGERACION" else "AMBIENTE"
 
+                // Etiqueta buscadora coherente (misma que al nacer)
+                val nombreBuscadoEdit = nombre.trim().lowercase()
+                val contenidoBuscadoEdit = cantVal.trim().lowercase()
+                val unidadBuscadaEdit = unidadVal.trim().lowercase()
+                val busquedaIndiceEdit = listOf(
+                    nombreBuscadoEdit,
+                    "$contenidoBuscadoEdit$unidadBuscadaEdit",
+                    "$contenidoBuscadoEdit $unidadBuscadaEdit",
+                    codNuevoLimpio.lowercase()
+                ).filter { it.isNotBlank() }.joinToString(" ").replace(Regex("\\s+"), " ").trim()
+                val busquedaTokensEdit = busquedaIndiceEdit.split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
+
                 val updates = hashMapOf<String, Any>(
                     "nombre" to nombre.trim(),
                     "slug" to slugVal,
@@ -237,6 +249,8 @@ class EditarProductoRepository(
                     "permiteFraccionar" to permiteFraccionar,
                     "sugerenciasEnvase" to CatalogoEmpaques.obtenerEmpaquesCompatibles(empFinal, unidadVal),
                     "sugerenciasPerfil" to CatalogoEmpaques.obtenerUnidadesCompatibles(empFinal, unidadVal),
+                    "busquedaIndice" to busquedaIndiceEdit,
+                    "busquedaTokens" to busquedaTokensEdit,
                     "actualizadoEn" to FieldValue.serverTimestamp(),
                     "actualizadoPor" to actorUid
                 )
@@ -293,7 +307,28 @@ class EditarProductoRepository(
                 updates["presentacionPrincipalId"] = principalId
                 updates["presentaciones"] = presentacionesFinal
 
+                // Códigos de presentaciones: conservar y mantener índice único, sin huérfanos.
+                val presentacionesPreviasEdit = (snapshot.get("presentaciones") as? List<*>) ?: emptyList<Any?>()
+                val codigosPreviosPresentaciones = presentacionesPreviasEdit.mapNotNull { item ->
+                    (item as? Map<*, *>)?.get("codigoBarras") as? String
+                }.map { CodigoBarraHelper.limpiar(it) }.filter { it.isNotBlank() }.toSet()
+                val codigosNuevosPresentaciones = presentacionesFinal.mapNotNull { item ->
+                    item["codigoBarras"] as? String
+                }.map { CodigoBarraHelper.limpiar(it) }.filter { it.isNotBlank() }.toSet()
+                val codigosPresentacionesEliminar = codigosPreviosPresentaciones - codigosNuevosPresentaciones
+
+                for (codigo in codigosNuevosPresentaciones) {
+                    CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codigo, productoId)
+                }
+
                 tx.update(docRef, updates)
+
+                codigosPresentacionesEliminar.forEach { codigo ->
+                    CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codigo)
+                }
+                codigosNuevosPresentaciones.forEach { codigo ->
+                    CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codigo, productoId, nombre.trim())
+                }
 
                 // Mantener índice atómico de fichas sincronizado
                 if (claveFichaNueva != claveFichaAnterior) {

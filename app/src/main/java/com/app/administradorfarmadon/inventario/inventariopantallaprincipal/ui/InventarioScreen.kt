@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -34,11 +36,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
@@ -65,6 +70,7 @@ import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.c
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.tabla.ProductRowSkeleton
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.tabla.EmptyInventarioState
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
+import com.app.administradorfarmadon.inventario.compartido.ui.LectorCodigoBarrasCamaraDialog
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui.ProductDetailScreen
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailState
 import androidx.compose.runtime.snapshotFlow
@@ -205,7 +211,9 @@ fun InventarioScreen(
 
     var selectedProductId by rememberSaveable { mutableStateOf<String?>(null) }
     var isAlertasPanelOpen by remember { mutableStateOf(false) }
+    var mostrarScanner by remember { mutableStateOf(false) }
     var detalleTabInicial by rememberSaveable { mutableIntStateOf(0) }
+    val focusRequesterBuscador = remember { FocusRequester() }
 
     val closeSidePanels = {
         viewModel.setFilterPanelOpen(false)
@@ -222,6 +230,14 @@ fun InventarioScreen(
     val keyboardControllerInventario = LocalSoftwareKeyboardController.current
     val densityInventario = LocalDensity.current
     val isKeyboardVisibleInventario = WindowInsets.ime.getBottom(densityInventario) > 0
+
+    LaunchedEffect(Unit) {
+        // La pistola física funciona como teclado: dejamos el buscador listo para
+        // recibir el código sin que la persona tenga que tocar la pantalla.
+        focusRequesterBuscador.requestFocus()
+        keyboardControllerInventario?.hide()
+    }
+
     BackHandler(enabled = true) {
         when {
             isKeyboardVisibleInventario -> {
@@ -294,7 +310,7 @@ fun InventarioScreen(
         snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
             .collect { lastIndex ->
                 val total = uiState.pagedProducts.size
-                if (lastIndex != null && total > 0 && lastIndex >= total - 8 && !uiState.isLoadingMore && !uiState.isLoading && !uiState.endOfListReached) {
+                if (lastIndex != null && total > 0 && lastIndex >= total - 20 && !uiState.isLoadingMore && !uiState.isLoading && !uiState.endOfListReached) {
                     viewModel.cargarMas()
                 }
             }
@@ -333,6 +349,7 @@ fun InventarioScreen(
     val isBusquedaVacia = busquedaEstado is InventarioBusquedaEstado.BusquedaVacia || busquedaEstado is InventarioBusquedaEstado.BusquedaVaciaAlias
     val isBusquedaError = busquedaEstado is InventarioBusquedaEstado.Error
     val isCargandoInicial = isLoadingProducts && uiState.pagedProducts.isEmpty() && !isBusquedaCargando
+    val isCargandoMetricas = !uiState.metricasCompletas && !isBusquedaCargando
 
     val isScrolled by remember {
         derivedStateOf {
@@ -416,13 +433,19 @@ fun InventarioScreen(
                                         value = searchQuery,
                                         onValueChange = { viewModel.onSearchQueryChanged(it) },
                                         interactionSource = interactionSource,
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                        keyboardActions = KeyboardActions(onSearch = {
+                                            focusManagerInventario.clearFocus()
+                                        }),
                                         textStyle = FDType.Body.copy(color = FDColors.TextPrimary, fontSize = s.textBody.value.sp, letterSpacing = 0.1.sp),
                                         cursorBrush = SolidColor(FDColors.Primary),
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .focusRequester(focusRequesterBuscador),
                                         singleLine = true,
                                         decorationBox = { inner ->
                                             if (searchQuery.isEmpty()) Text(
-                                                "Buscar producto…",
+                                                "Buscar por nombre o código…",
                                                 style = FDType.Body.copy(color = FDColors.InputPlaceholder, fontSize = s.textBody.value.sp * 0.92f),
                                                 maxLines = 1
                                             )
@@ -437,6 +460,22 @@ fun InventarioScreen(
                                         )
                                     }
                                 }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(s.inputMinH)
+                                    .clip(RoundedCornerShape(s.radiusButton * 0.7f))
+                                    .background(FDColors.Glass)
+                                    .border(s.borderWidth * 0.6f, FDColors.Border, RoundedCornerShape(s.radiusButton * 0.7f))
+                                    .clickable { mostrarScanner = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.QrCodeScanner,
+                                    contentDescription = "Escanear código",
+                                    tint = FDColors.TextPrimary,
+                                    modifier = Modifier.size(s.iconSmall)
+                                )
                             }
                             Box(
                                 modifier = Modifier
@@ -510,10 +549,10 @@ fun InventarioScreen(
                             Modifier.fillMaxWidth().padding(horizontal = s.padScreenH, vertical = s.xs),
                             horizontalArrangement = Arrangement.spacedBy(s.xs)
                         ) {
-                            ElegantMetricCard(label = "Valor", value = formattedValue, sub = "${totalProductsCount} productos", accent = FDColors.Primary, icon = Icons.Outlined.AccountBalanceWallet, isLoading = isCargandoInicial, onClick = null, s = s, modifier = Modifier.weight(1f))
-                            ElegantMetricCard(label = "Activos", value = uiState.activeProductsCount.toString(), sub = "en venta", accent = FDColors.Success, icon = Icons.Outlined.Inventory2, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab("TODOS") }, s = s, modifier = Modifier.weight(1f))
-                            ElegantMetricCard(label = "Por reponer", value = lowStockCount.toString(), sub = if (estadoTab == "POR_REPONER") "filtrado" else "críticos", accent = FDColors.Warning, icon = Icons.Outlined.WarningAmber, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_REPONER") "TODOS" else "POR_REPONER") }, s = s, modifier = Modifier.weight(1f))
-                            ElegantMetricCard(label = "Por vencer", value = nearExpiryCount.toString(), sub = "30 días", accent = FDColors.Error, icon = Icons.Outlined.Schedule, isLoading = isCargandoInicial, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_VENCER") "TODOS" else "POR_VENCER") }, s = s, modifier = Modifier.weight(1f))
+                            ElegantMetricCard(label = "Valor", value = formattedValue, sub = if (uiState.metricasError != null) uiState.metricasError!! else "${totalProductsCount} productos", accent = FDColors.Primary, icon = Icons.Outlined.AccountBalanceWallet, isLoading = isCargandoInicial || isCargandoMetricas, onClick = null, s = s, modifier = Modifier.weight(1f))
+                            ElegantMetricCard(label = "Activos", value = uiState.activeProductsCount.toString(), sub = "en venta", accent = FDColors.Success, icon = Icons.Outlined.Inventory2, isLoading = isCargandoInicial || isCargandoMetricas, onClick = { viewModel.seleccionarEstadoTab("TODOS") }, s = s, modifier = Modifier.weight(1f))
+                            ElegantMetricCard(label = "Por reponer", value = lowStockCount.toString(), sub = if (estadoTab == "POR_REPONER") "filtrado" else "críticos", accent = FDColors.Warning, icon = Icons.Outlined.WarningAmber, isLoading = isCargandoInicial || isCargandoMetricas, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_REPONER") "TODOS" else "POR_REPONER") }, s = s, modifier = Modifier.weight(1f))
+                            ElegantMetricCard(label = "Por vencer", value = nearExpiryCount.toString(), sub = "30 días", accent = FDColors.Error, icon = Icons.Outlined.Schedule, isLoading = isCargandoInicial || isCargandoMetricas, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_VENCER") "TODOS" else "POR_VENCER") }, s = s, modifier = Modifier.weight(1f))
                         }
 
                         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = s.padScreenH, vertical = s.xs)) {
@@ -693,6 +732,16 @@ fun InventarioScreen(
                     onFocusModeChanged = onFocusModeChanged
                 )
             }
+        }
+
+        if (mostrarScanner) {
+            LectorCodigoBarrasCamaraDialog(
+                onCodigoDetectado = { codigo ->
+                    mostrarScanner = false
+                    viewModel.onSearchQueryChanged(codigo)
+                },
+                onDismiss = { mostrarScanner = false }
+            )
         }
 
     }

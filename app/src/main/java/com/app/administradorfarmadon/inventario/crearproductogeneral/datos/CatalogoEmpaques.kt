@@ -118,12 +118,12 @@ object CatalogoEmpaques {
 
     fun normalizarEmpaque(raw: String): String {
         val limpio = raw.trim().lowercase()
-        return EMPAQUES_VALIDOS.firstOrNull { it.lowercase() == limpio } ?: "Caja"
+        return EMPAQUES_VALIDOS.firstOrNull { it.lowercase() == limpio } ?: raw.trim()
     }
 
     fun normalizarCategoria(raw: String): String {
         val limpio = raw.trim().lowercase()
-        return CATEGORIAS_VALIDAS.firstOrNull { it.lowercase() == limpio } ?: "General"
+        return CATEGORIAS_VALIDAS.firstOrNull { it.lowercase() == limpio } ?: raw.trim()
     }
 
     fun normalizarUnidad(raw: String): String {

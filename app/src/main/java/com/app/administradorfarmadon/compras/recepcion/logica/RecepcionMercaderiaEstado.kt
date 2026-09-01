@@ -37,7 +37,7 @@ class RecepcionMercaderiaEstado(
         ?: ultimaRecepcionConFactura?.fechaVencimientoPago?.takeIf { it.isNotBlank() }
 
     val facturaContinua: Boolean get() = facturaExistente != null || ultimaRecepcionConFactura != null
-    val fechaVencimientoPagoVisible: String? get() = fechaVencimientoExistente
+    val fechaVencimientoPagoVisible: String? get() = fechaVencimientoPagoManual ?: fechaVencimientoExistente
 
     var numeroFactura by mutableStateOf(
         facturaExistente?.numeroFactura?.trim()?.uppercase()
@@ -61,6 +61,8 @@ class RecepcionMercaderiaEstado(
     var usarSaldoAFavor by mutableStateOf(false)
         private set
     var decisionFaltante by mutableStateOf("PARCIAL")
+        private set
+    var fechaVencimientoPagoManual by mutableStateOf<String?>(null)
         private set
     var errorGeneral by mutableStateOf<String?>(null)
         private set
@@ -107,9 +109,18 @@ class RecepcionMercaderiaEstado(
     fun onCondicionPagoChanged(condicion: String) {
         condicionPago = condicion
         if (condicion == "Contado") sincronizarPagoContado()
+        else if (condicion == "Crédito") fechaVencimientoPagoManual = null
         errorGeneral = null
     }
-    fun onDiasCreditoChanged(dias: Int) { diasCredito = dias }
+    fun onDiasCreditoChanged(dias: Int) { 
+        diasCredito = dias 
+        fechaVencimientoPagoManual = null
+    }
+    fun onFechaVencimientoPagoManualChanged(fecha: String) {
+        fechaVencimientoPagoManual = fecha
+        diasCredito = null
+        errorGeneral = null
+    }
     fun onMontoFacturaChanged(valor: String) {
         montoFacturaManual = valor
         if (condicionPago == "Contado") sincronizarPagoContado()
@@ -211,6 +222,7 @@ class RecepcionMercaderiaEstado(
 
     fun fechaPagoCredito(): String? {
         if (condicionPago != "Crédito") return null
+        fechaVencimientoPagoManual?.let { return it }
         fechaVencimientoExistente?.let { return it }
         val plazo = diasCredito ?: return null
         // Hora del servidor: la fecha de vencimiento jamás depende del reloj del celular.

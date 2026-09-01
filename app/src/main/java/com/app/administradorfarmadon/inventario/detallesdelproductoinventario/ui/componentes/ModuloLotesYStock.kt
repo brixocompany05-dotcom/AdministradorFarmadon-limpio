@@ -167,14 +167,14 @@ fun ModuloLotesYStock(
                                         Row(Modifier.weight(1.2f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Box(Modifier.size(8.dp).clip(CircleShape).background(col))
                                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                Text(lote.numero.ifBlank { "S/N" }.uppercase(), style = FDType.Body.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = InterPremium), color = FDColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(lote.numero.ifBlank { "Sin número" }.uppercase(), style = FDType.Body.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = InterPremium), color = FDColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                                 if (esPri) Text("Lote principal de consumo", style = FDType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = InterPremium), color = FDColors.Primary)
                                             }
                                         }
                                         Text("${Math.round(lote.cantidad).toInt()}", modifier = Modifier.weight(0.8f), style = FDType.Body.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, fontFamily = InterPremium), color = FDColors.TextPrimary)
-                                        Text(lote.vencimiento.ifBlank { "N/A" }, modifier = Modifier.weight(1f), style = FDType.Body.copy(fontSize = 13.sp, fontFamily = InterPremium), color = FDColors.TextSecondary)
+                                        Text(lote.vencimiento.ifBlank { "Sin fecha" }, modifier = Modifier.weight(1f), style = FDType.Body.copy(fontSize = 13.sp, fontFamily = InterPremium), color = FDColors.TextSecondary)
                                         Text(
-                                            when { dias == null -> "N/A"; dias < 0 -> "Vencido"; dias <= 30 -> "En ${dias}d"; else -> "Vigente" },
+                                            when { dias == null -> "Sin fecha"; dias < 0 -> "Vencido"; dias <= 30 -> "En ${dias}d"; else -> "Vigente" },
                                             modifier = Modifier.weight(0.9f),
                                             style = FDType.Caption.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = InterPremium), color = col
                                         )
@@ -203,9 +203,9 @@ fun ModuloLotesYStock(
  modifier = Modifier.fillMaxWidth().background(FDColors.Background.copy(alpha = 0.3f)).clickable { onAdjustStock(lote) }.padding(horizontal = 16.dp, vertical = 12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text(lote.numero.ifBlank { "S/N" }.uppercase(), modifier = Modifier.weight(1.2f), style = FDType.Body.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = InterPremium), color = FDColors.TextTertiary)
+                                            Text(lote.numero.ifBlank { "Sin número" }.uppercase(), modifier = Modifier.weight(1.2f), style = FDType.Body.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = InterPremium), color = FDColors.TextTertiary)
                                             Text("${Math.round(lote.cantidad).toInt()}", modifier = Modifier.weight(0.8f), style = FDType.Body.copy(fontSize = 12.5.sp, fontFamily = InterPremium), color = FDColors.TextTertiary)
-                                            Text(lote.vencimiento.ifBlank { "N/A" }, modifier = Modifier.weight(1f), style = FDType.Caption.copy(fontSize = 12.sp, fontFamily = InterPremium), color = FDColors.TextTertiary)
+                                            Text(lote.vencimiento.ifBlank { "Sin fecha" }, modifier = Modifier.weight(1f), style = FDType.Caption.copy(fontSize = 12.sp, fontFamily = InterPremium), color = FDColors.TextTertiary)
                                             Text("Agotado", modifier = Modifier.weight(0.9f), style = FDType.Caption.copy(fontSize = 11.5.sp, fontFamily = InterPremium), color = FDColors.TextTertiary)
                                             Spacer(Modifier.width(80.dp))
                                         }
@@ -294,11 +294,11 @@ fun ModuloLotesYStock(
                                     }
                                 }
                                 
-                                Text(loteEnUso.numero.ifBlank { "S/N" }.uppercase(), style = FDType.Heading2.copy(fontSize = 24.sp, fontWeight = FontWeight.Black, fontFamily = InterPremium), color = FDColors.TextPrimary)
+                                Text(loteEnUso.numero.ifBlank { "Sin número" }.uppercase(), style = FDType.Heading2.copy(fontSize = 24.sp, fontWeight = FontWeight.Black, fontFamily = InterPremium), color = FDColors.TextPrimary)
                                 
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text("${Math.round(loteEnUso.cantidad).toInt()} ${p.empaque} en stock", style = FDType.Body.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = InterPremium), color = FDColors.TextPrimary)
-                                    Text("Vencimiento: ${loteEnUso.vencimiento.ifBlank { "N/A" }}", style = FDType.Caption.copy(fontSize = 12.sp, fontFamily = InterPremium), color = FDColors.TextSecondary)
+                                    Text("Vencimiento: ${loteEnUso.vencimiento.ifBlank { "Sin fecha" }}", style = FDType.Caption.copy(fontSize = 12.sp, fontFamily = InterPremium), color = FDColors.TextSecondary)
                                 }
 
                                 Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(FDColors.Background).border(0.5.dp, FDColors.BorderStrong.copy(alpha = 0.4f), RoundedCornerShape(4.dp))) {

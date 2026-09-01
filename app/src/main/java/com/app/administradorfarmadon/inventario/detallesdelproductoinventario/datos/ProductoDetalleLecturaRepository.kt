@@ -97,10 +97,10 @@ class ProductoDetalleLecturaRepository(
 
             val lista = snapshot?.documents?.mapNotNull { doc ->
                 val id = doc.id
-                val tipo = doc.getString("tipo") ?: "MOVIMIENTO"
+                val tipo = doc.getString("tipo") ?: ""
                 val cant = doc.getDouble("cantidad") ?: doc.getDouble("cantidadTotal") ?: 0.0
                 val ts = doc.get("fecha") as? Timestamp
-                val user = doc.getString("usuarioEmail") ?: "Sistema"
+                val user = doc.getString("usuarioEmail") ?: ""
                 val loteNum = doc.getString("loteNumero") ?: doc.getString("lote") ?: ""
                 val prov = doc.getString("proveedorNombre") ?: ""
                 val fact = doc.getString("facturaNumero") ?: ""
@@ -114,7 +114,7 @@ class ProductoDetalleLecturaRepository(
                     if (prov.isNotBlank()) append("  ·  Prov: $prov")
                     if (fact.isNotBlank()) append("  ·  Fact: $fact")
                     if (mot.isNotBlank()) append("  ·  Motivo: $mot")
-                }.ifBlank { "Ajuste general" }
+                }
 
                 MovimientoInventario(
                     id = id,
@@ -184,7 +184,7 @@ class ProductoDetalleLecturaRepository(
                 val id = doc.id
                 val prodId = doc.getString("productoId") ?: ""
                 val prodNom = doc.getString("productoNombre") ?: ""
-                val emp = doc.getString("empaque") ?: "Caja"
+                val emp = doc.getString("empaque") ?: ""
                 val loteNum = doc.getString("loteNumero") ?: ""
                 val cant = doc.getDouble("cantidadDevuelta") ?: 0.0
                 val cUnit = doc.getDouble("costoUnitario") ?: 0.0
@@ -195,13 +195,13 @@ class ProductoDetalleLecturaRepository(
                 val guia = doc.getString("guiaRetiro") ?: ""
                 val nc = doc.getString("notaCredito") ?: ""
                 val mot = doc.getString("motivo") ?: ""
-                val mod = doc.getString("modalidadCompensacion") ?: "NOTA_CREDITO_DINERO"
-                val est = doc.getString("estado") ?: "EN_REVISION_DROGUERIA"
+                val mod = doc.getString("modalidadCompensacion") ?: ""
+                val est = doc.getString("estado") ?: ""
                 val user = doc.getString("usuarioRegistroEmail") ?: ""
                 val ts = doc.get("creadoEl") as? Timestamp
 
                 val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-                val fechaStr = ts?.toDate()?.let { sdf.format(it) } ?: "Reciente"
+                val fechaStr = ts?.toDate()?.let { sdf.format(it) } ?: ""
 
                 ExpedienteReclamoProveedor(
                     id = id,

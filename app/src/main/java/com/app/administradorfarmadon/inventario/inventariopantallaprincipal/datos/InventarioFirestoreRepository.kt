@@ -4,6 +4,8 @@ import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import android.util.Log
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
+import com.app.administradorfarmadon.compartido.logica.HoraServidor
+import com.app.administradorfarmadon.inventario.compartido.logica.CodigoBarraHelper
 import com.app.administradorfarmadon.inventario.compartido.logica.ProductoParser
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.PharmProduct
@@ -162,16 +164,54 @@ class InventarioFirestoreRepository(
         if (farmaciaId.isBlank() || sucursalId.isBlank()) {
             return PaginaInventario(emptyList(), emptyList(), null, true)
         }
-        val textoUpper = texto.trim().uppercase()
-        if (textoUpper.isBlank()) {
+        val textoLower = texto.trim().lowercase()
+        if (textoLower.isBlank()) {
             return PaginaInventario(emptyList(), emptyList(), null, true)
         }
+        // Etiqueta buscadora: nombre+contenido+unidad en minúscula, tokens. Viejos sin tokens no aparecen (pedido).
+        val tokens = textoLower.split(Regex("\\s+")).filter { it.isNotBlank() }.distinct().take(10)
+        if (tokens.isEmpty()) return PaginaInventario(emptyList(), emptyList(), null, true)
         try {
-            var query: Query = FarmadonPaths.inventario(db, farmaciaId, sucursalId)
-                .whereGreaterThanOrEqualTo("nombre", textoUpper)
-                .whereLessThan("nombre", textoUpper + "\uf8ff")
-                .orderBy("nombre")
-                .limit(limit.toLong())
+            val inventarioRef = FarmadonPaths.inventario(db, farmaciaId, sucursalId)
+            // 1. Búsqueda exacta por código de barras (pistola física o número de código).
+            val codigoLimpio = CodigoBarraHelper.limpiar(texto)
+            val esBusquedaPorCodigo = codigoLimpio.isNotBlank() &&
+                (codigoLimpio.any { it.isDigit() } || codigoLimpio.startsWith("FMD-"))
+            if (esBusquedaPorCodigo) {
+                val porCodigo = mutableListOf<DocumentSnapshot>()
+                val exactoBarras = inventarioRef.whereEqualTo("codigoBarras", codigoLimpio).limit(limit.toLong()).get().await()
+                porCodigo.addAll(exactoBarras.documents)
+                if (porCodigo.isEmpty()) {
+                    val exactoLegacy = inventarioRef.whereEqualTo("codigo", codigoLimpio).limit(limit.toLong()).get().await()
+                    porCodigo.addAll(exactoLegacy.documents)
+                }
+                if (porCodigo.isEmpty()) {
+                    val secundarios = inventarioRef.whereArrayContains("codigosSecundarios", codigoLimpio).limit(limit.toLong()).get().await()
+                    porCodigo.addAll(secundarios.documents)
+                }
+                if (porCodigo.isNotEmpty()) {
+                    val distinctById = porCodigo.distinctBy { it.id }
+                    val listaPharmCodigo = distinctById.mapNotNull { ProductoParser.parseToPharm(it) }
+                        .sortedBy { it.name.lowercase() }
+                    val listaMoldeCodigo = distinctById.mapNotNull { ProductoParser.parseToMolde(it) }
+                    return PaginaInventario(
+                        productos = listaPharmCodigo,
+                        productosMolde = listaMoldeCodigo,
+                        ultimoDocumento = distinctById.lastOrNull(),
+                        esUltimaPagina = true
+                    )
+                }
+            }
+
+            // 2. Búsqueda por nombre/contenido/unidad (tokens), misma lógica previa.
+            var query: Query = inventarioRef
+            query = if (tokens.size == 1) {
+                query.whereArrayContains("busquedaTokens", tokens[0])
+            } else {
+                query.whereArrayContainsAny("busquedaTokens", tokens)
+            }
+            // Ordenar por nombre mantiene paginación coherente con lista
+            query = query.orderBy("nombre").limit(limit.toLong())
             if (startAfterDoc != null) {
                 query = query.startAfter(startAfterDoc)
             }
@@ -182,7 +222,7 @@ class InventarioFirestoreRepository(
             val esUltima = snap.size() < limit
             return PaginaInventario(listaPharm, listaMolde, ultimo, esUltima)
         } catch (e: Exception) {
-            Log.e(TAG, "Error buscarInventarioPaginado farmacia=$farmaciaId sucursal=$sucursalId texto=$textoUpper: ${e.message}", e)
+            Log.e(TAG, "Error buscarInventarioPaginado farmacia=$farmaciaId sucursal=$sucursalId texto=$textoLower tokens=$tokens: ${e.message}", e)
             throw e
         }
     }
@@ -248,8 +288,42 @@ class InventarioFirestoreRepository(
                 totalActivos = countActivos
             )
         } catch (e: Exception) {
-            Log.w(TAG, "No se pudo obtener métricas agregadas del servidor: ${e.message}")
-            MetricasGlobalesInventario()
+            Log.e(TAG, "No se pudo obtener métricas agregadas del servidor: ${e.message}", e)
+            throw e
         }
+    }
+
+    /**
+     * Métricas completas y veraces de TODA la sede, sin importar cuántos productos haya.
+     * Se leen todos los documentos una sola vez en segundo plano; la lista no depende de
+     * esta lectura y responde de inmediato. Solo se pintan valores cuando la lectura terminó.
+     */
+    suspend fun obtenerMetricasCompletas(
+        farmaciaId: String,
+        sucursalId: String
+    ): MetricasGlobalesInventario {
+        if (farmaciaId.isBlank() || sucursalId.isBlank()) return MetricasGlobalesInventario()
+        val invRef = FarmadonPaths.inventario(db, farmaciaId, sucursalId)
+        val snapshot = invRef.get().await()
+        val productos = snapshot.documents.mapNotNull { ProductoParser.parseToPharm(it) }
+        val total = productos.size
+        val activos = productos.count { it.activo }
+        val valorTotal = productos.sumOf { it.totalValue }
+        val hoy = HoraServidor.ahoraMs()
+        val stockBajo = productos.count {
+            it.status == "Stock bajo" || it.status == "Agotado" ||
+                (it.minStock > 0 && it.stock <= it.minStock)
+        }
+        val porVencer = productos.count {
+            it.status == "Por vencer" || it.status == "Vencido" ||
+                (it.expiryTimestamp in 1L..(hoy + 30L * 24 * 60 * 60 * 1000))
+        }
+        return MetricasGlobalesInventario(
+            totalProductos = total,
+            totalActivos = activos,
+            valorTotal = valorTotal,
+            stockBajoConteo = stockBajo,
+            porVencerConteo = porVencer
+        )
     }
 }

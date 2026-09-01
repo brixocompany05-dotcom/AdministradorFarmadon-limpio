@@ -45,7 +45,7 @@ fun DetailInfoGrid(product: MoldeProductos) {
         // Segunda Fila: Perfil y Clasificación
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             InfoField("PERFIL INVENTARIO", perfilVisual.uppercase(), Modifier.weight(1.2f))
-            val concentracion = if (product.concentracion.isNotBlank()) "${product.concentracion} ${product.concentracionUnidad}" else "N/A"
+            val concentracion = if (product.concentracion.isNotBlank()) "${product.concentracion} ${product.concentracionUnidad}" else "Sin especificar"
             InfoField("CONCENTRACIÓN", concentracion.uppercase(), Modifier.weight(1f))
             val estadoStr = if (product.activo) "ACTIVO" else "INACTIVO"
             InfoField("ESTADO", estadoStr, Modifier.weight(0.7f))

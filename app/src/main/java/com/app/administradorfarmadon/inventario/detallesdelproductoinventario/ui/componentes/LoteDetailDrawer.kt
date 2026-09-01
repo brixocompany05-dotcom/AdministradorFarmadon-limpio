@@ -96,16 +96,16 @@ internal fun ContenidoFicha(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = lote.numero.ifBlank { "S/N" },
+                            text = lote.numero.ifBlank { "Sin número" },
                             style = FDType.Heading2.copy(fontSize = 22.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace, color = FDColors.TextPrimary, letterSpacing = (-0.5).sp)
                         )
                         Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if (estaEnCuarentena) FDColors.Warning else FDColors.Success))
                     }
                     Text(
                         text = buildString {
-                            append(product.categoriaPrincipal.ifBlank { "General" })
+                            append(product.categoriaPrincipal.ifBlank { "Sin categoría" })
                             append(" · ")
-                            append(lote.proveedorNombre.ifBlank { "Almacén General" })
+                            append(lote.proveedorNombre.ifBlank { "Sin proveedor" })
                             val fecha = lote.fecha.ifBlank { lote.createdAt }
                             if (fecha.isNotBlank()) { append(" · "); append(fecha.take(10)) }
                         },
@@ -717,7 +717,7 @@ internal fun ContenidoHistorialLote(
     }
     Column(Modifier.fillMaxSize()) {
         InlineHeader(
-            titulo = "Historial · Lote ${lote.numero.ifBlank { "S/N" }}",
+            titulo = "Historial · Lote ${lote.numero.ifBlank { "Sin número" }}",
             icono = Icons.Outlined.History,
             colorIcono = FDColors.Primary,
             onVolver = onVolver,
@@ -876,4 +876,3 @@ internal fun AccionLoteButtonPremium(texto: String, icono: ImageVector, tinteIco
         Text(texto, style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.3.sp, color = if (enabled && !isProcesando) FDColors.TextPrimary else FDColors.TextTertiary), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
-

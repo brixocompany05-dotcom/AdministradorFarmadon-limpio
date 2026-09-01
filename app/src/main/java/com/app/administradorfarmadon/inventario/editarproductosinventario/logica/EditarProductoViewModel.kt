@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques
 import com.app.administradorfarmadon.inventario.editarproductosinventario.datos.EditarProductoRepository
-import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,8 +36,17 @@ class EditarProductoViewModel(
     fun init(productoId: String) {
         if (_uiState.value.productoId == productoId && !_uiState.value.isLoading) return
 
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+
+        if (clienteId.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    estadoGuardado = EstadoGuardadoEdicion.ERROR,
+                    mensajeErrorGuardado = "No hay una farmacia activa. Vuelve a iniciar sesión."
+                )
+            }
+            return
         }
 
         _uiState.update {
@@ -63,7 +71,7 @@ class EditarProductoViewModel(
                     // Blindaje contra contaminación de contexto: Si el usuario cambió a otro producto mientras cargaba, descartar
                     if (_uiState.value.productoId != productoId) return@launch
                     val esRefrig = p.temperaturaAlmacenamiento.contains("REFRIG", ignoreCase = true)
-                    val catNombre = p.categoriaPrincipal.ifBlank { p.categoriaNombre }.ifBlank { "General" }
+                    val catNombre = p.categoriaPrincipal.ifBlank { p.categoriaNombre }
                     val tipoProd = if (p.requiereReceta || esRefrig || p.principioActivo.isNotBlank()) "MEDICAMENTO" else "GENERAL"
                     
                     val (cantFromContenido, unitFromContenido) = CatalogoEmpaques.separarContenidoYUnidad(p.contenido)
@@ -75,7 +83,7 @@ class EditarProductoViewModel(
                         val (_, u) = CatalogoEmpaques.separarContenidoYUnidad(p.concentracion)
                         u
                     }
-                    val empFinal = p.empaque.ifBlank { "Caja" }
+                    val empFinal = p.empaque
                     val empCompatibles = CatalogoEmpaques.EMPAQUES_VALIDOS
                     val uniCompatibles = CatalogoEmpaques.obtenerUnidadesPorEmpaque(empFinal)
 
@@ -87,7 +95,7 @@ class EditarProductoViewModel(
                             tipoProducto = tipoProd,
                             principioActivo = p.principioActivo,
                             categoriaNombre = catNombre,
-                            laboratorio = p.proveedorBaseNombre,
+                            laboratorio = p.laboratorio.ifBlank { p.proveedorBaseNombre },
                             empaque = empFinal,
                             cantidadContenido = cant,
                             unidadMedida = unidad,
@@ -337,11 +345,7 @@ class EditarProductoViewModel(
             return
         }
 
-        val cid = s.clienteId.ifBlank {
-            SessionManager.clienteIdGarantizado.ifBlank {
-                FirebaseAuth.getInstance().currentUser?.uid ?: ""
-            }
-        }
+        val cid = s.clienteId.ifBlank { SessionManager.clienteIdGarantizado }
 
         if (cid.isBlank()) {
             _uiState.update {

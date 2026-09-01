@@ -1,7 +1,6 @@
 package com.app.administradorfarmadon.compras.ui.componentes.reposicion
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,25 +23,25 @@ import androidx.compose.ui.unit.sp
 import com.app.administradorfarmadon.compras.datos.PedidoCompra
 import com.app.administradorfarmadon.compras.logica.ItemPedidoCompra
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
-import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 import java.util.Locale
 
 /**
- * Panel de pedidos de Reposición. Dos situaciones distintas:
- *  - REALIZADOS: pedidos hechos (consulta). Al tocar un proveedor se abre su pedido.
- *  - RECIBIR: mercadería pendiente de ingreso (asentar recepción, ajustes, cancelación).
+ * Panel de pedidos de Reposición. UNA sola lista, sin pestañas ni doble trabajo:
+ *  - POR RECIBIR: pedidos que siguen en camino (enviados o parciales), con sus
+ *    acciones: ingresar mercadería a stock, cerrar con ajuste, descartar faltantes
+ *    o cancelar. Así la persona sabe exactamente cuál va a recibir.
+ *  - HISTORIAL: pedidos ya resueltos (recibido, recibido parcial, cerrado por ajuste,
+ *    cancelado), con su estado y su detalle. Si un pedido no se resolvió, sigue en POR RECIBIR.
  * No existe borrador: armar un pedido se hace en el catálogo del proveedor.
  */
 @Composable
 fun ReposicionPanelPedidos(
     pedidosGuardados: List<PedidoCompra>,
-    subTabPedidosDerecha: String,
     simboloMoneda: String,
     s: MedidaAdaptativa,
     paddingTarjeta: Dp,
-    onSeleccionarSubTab: (String) -> Unit,
     onEditarPedido: (PedidoCompra, List<ItemPedidoCompra>) -> Unit,
     onEliminarPedido: (PedidoCompra) -> Unit,
     procesandoEdicion: Boolean,
@@ -61,10 +60,6 @@ fun ReposicionPanelPedidos(
     // El botón atrás del sistema cierra el detalle abierto antes de salir de la pestaña.
     BackHandler(enabled = pedidoAbiertoId != null) {
         pedidoAbiertoId = null
-    }
-
-    val pedidosPendientes = remember(pedidosGuardados) {
-        pedidosGuardados.filter { it.estado == "ENVIADO" || it.estado == "ENTREGA_PARCIAL" }
     }
 
     // Si el pedido abierto ya no existe (lo borró otro usuario), se cierra solo.
@@ -99,137 +94,67 @@ fun ReposicionPanelPedidos(
                     onEliminarPedido = { pedido ->
                         onEliminarPedido(pedido)
                         pedidoAbiertoId = null
-                    }
+                    },
+                    onRecibirMercaderia = { onRecibirMercaderia(abierto) },
+                    onCerrarConAjuste = { onCerrarConAjuste(abierto) },
+                    onCancelar = { onCancelarPedido(abierto.id) }
                 )
             } else {
-                // Tabs: REALIZADOS (consulta) y RECIBIR (ingreso de mercadería)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(s.gapLarge)
-                ) {
-                    listOf(
-                        "REALIZADOS" to "REALIZADOS",
-                        "RECIBIR" to "RECIBIR"
-                    ).forEach { (clave, etiqueta) ->
-                        val isSelected = subTabPedidosDerecha == clave
-                        Column(
-                            modifier = Modifier
-                                .clickable { onSeleccionarSubTab(clave) }
-                                .padding(vertical = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)
-                            ) {
-                                Text(
-                                    text = etiqueta,
-                                    style = FDType.Label.copy(
-                                        fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium,
-                                        fontSize = 11.sp,
-                                        letterSpacing = 1.sp
-                                    ),
-                                    color = if (isSelected) FDColors.Primary else FDColors.TextSecondary
-                                )
-                                Surface(
-                                    color = if (isSelected) FDColors.Primary.copy(alpha = 0.1f) else FDColors.TextPrimary.copy(
-                                        alpha = 0.05f
-                                    ),
-                                    shape = FDShapes.XSmall
-                                ) {
-                                    Text(
-                        text = "${if (clave == "RECIBIR") pedidosPendientes.size else pedidosGuardados.size}",
-                                        style = FDType.Label.copy(
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Black
-                                        ),
-                                        color = if (isSelected) FDColors.Primary else FDColors.TextTertiary,
-                                        modifier = Modifier.padding(
-                                            horizontal = 6.dp,
-                                            vertical = 1.dp
-                                        )
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            AnimatedVisibility(visible = isSelected) {
-                                Box(
-                                    modifier = Modifier
-                                        .height(3.dp)
-                                        .width(24.dp)
-                                        .clip(FDShapes.Full)
-                                        .background(FDColors.Primary)
-                                )
-                            }
-                        }
-                    }
+                // UNA sola lista de pedidos: primero lo que está POR RECIBIR (con sus
+                // acciones), luego el HISTORIAL de lo ya resuelto. Cero doble trabajo.
+                val pedidosPorRecibir = remember(pedidosGuardados) {
+                    pedidosGuardados
+                        .filter { it.estado == "ENVIADO" || it.estado == "ENTREGA_PARCIAL" }
+                        .sortedByDescending { it.fechaEmisionMs }
+                }
+                val pedidosHistorial = remember(pedidosGuardados) {
+                    pedidosGuardados
+                        .filter { it.estado != "ENVIADO" && it.estado != "ENTREGA_PARCIAL" }
+                        .sortedByDescending { it.fechaEmisionMs }
                 }
 
-                HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
-
-                Spacer(modifier = Modifier.height(s.sm))
-
-                if (subTabPedidosDerecha == "RECIBIR") {
-                    // Situación RECIBIR: asentar la llegada de mercadería
-                    if (pedidosPendientes.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(s.padCard),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No tienes pedidos pendientes de recibir. Los pedidos realizados aparecerán aquí para asentar la llegada de mercadería.",
-                                style = FDType.BodySmall.copy(fontSize = 12.sp),
-                                color = FDColors.TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(s.gapMedium * 0.85f)
-                        ) {
-                            items(
-                                pedidosPendientes,
-                                key = { it.id }) { pedidoGuardado ->
+                if (pedidosGuardados.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(s.padCard),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Aún no hay pedidos. Cuando envíes un pedido al proveedor, aparecerá aquí.",
+                            style = FDType.BodySmall.copy(fontSize = 12.sp),
+                            color = FDColors.TextSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                    ) {
+                        if (pedidosPorRecibir.isNotEmpty()) {
+                            item(key = "seccion_por_recibir") {
+                                EncabezadoSeccion("POR RECIBIR")
+                            }
+                            items(pedidosPorRecibir, key = { it.id }) { pedido ->
                                 TarjetaPedidoEnviado(
-                                    pedido = pedidoGuardado,
+                                    pedido = pedido,
                                     simboloMoneda = simboloMoneda,
-                                    onRecibirMercaderia = { onRecibirMercaderia(pedidoGuardado) },
-                                    onCerrarConAjuste = { onCerrarConAjuste(pedidoGuardado) },
+                                    onRecibirMercaderia = { onRecibirMercaderia(pedido) },
+                                    onCerrarConAjuste = { onCerrarConAjuste(pedido) },
                                     onDescartarProducto = { prodId ->
-                                        onDescartarProducto(pedidoGuardado.id, prodId)
+                                        onDescartarProducto(pedido.id, prodId)
                                     },
-                                    onCancelar = { onCancelarPedido(pedidoGuardado.id) }
+                                    onCancelar = { onCancelarPedido(pedido.id) },
+                                    onAbrirDetalle = { pedidoAbiertoId = pedido.id }
                                 )
                             }
                         }
-                    }
-                } else {
-                    // Situación REALIZADOS: consulta del pedido hecho
-                    if (pedidosGuardados.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(s.padCard),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Aún no hay pedidos realizados. Cuando envíes un pedido, aparecerá aquí con su detalle.",
-                                style = FDType.BodySmall.copy(fontSize = 12.sp),
-                                color = FDColors.TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(s.gapSmall)
-                        ) {
-                            items(
-                                pedidosGuardados,
-                                key = { it.id }) { pedido ->
+                        if (pedidosHistorial.isNotEmpty()) {
+                            item(key = "seccion_historial") {
+                                EncabezadoSeccion("HISTORIAL")
+                            }
+                            items(pedidosHistorial, key = { it.id }) { pedido ->
                                 FilaPedidoRealizado(
                                     pedido = pedido,
                                     simboloMoneda = simboloMoneda,
@@ -246,12 +171,34 @@ fun ReposicionPanelPedidos(
 }
 
 @Composable
+private fun EncabezadoSeccion(texto: String) {
+    Text(
+        text = texto,
+        style = FDType.Label.copy(
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.2.sp
+        ),
+        color = FDColors.Primary,
+        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+    )
+}
+
+@Composable
 private fun FilaPedidoRealizado(
     pedido: PedidoCompra,
     simboloMoneda: String,
     s: MedidaAdaptativa,
     onClick: () -> Unit
 ) {
+    val (etiquetaEstado, colorEstado) = when (pedido.estado) {
+        "ENTREGA_PARCIAL" -> "RECIBIDO PARCIAL" to FDColors.Warning
+        "RECIBIDO" -> "RECIBIDO" to FDColors.Success
+        "COMPLETADA_AJUSTE" -> "CERRADO POR AJUSTE" to FDColors.Warning
+        "CANCELADO" -> "CANCELADO" to FDColors.Error
+        else -> "ENVIADO" to FDColors.Primary
+    }
+
     Surface(
         color = Color.Transparent,
         modifier = Modifier
@@ -277,15 +224,36 @@ private fun FilaPedidoRealizado(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Text(
-                    text = "ORDEN: ${pedido.numeroOrden.ifBlank { "SIN NRO" }}",
-                    style = FDType.Numeric.copy(
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    ),
-                    color = FDColors.TextTertiary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "ORDEN: ${pedido.numeroOrden.ifBlank { "SIN NRO" }}",
+                        style = FDType.Numeric.copy(
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        ),
+                        color = FDColors.TextTertiary
+                    )
+                    Surface(
+                        color = colorEstado.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, colorEstado.copy(alpha = 0.35f))
+                    ) {
+                        Text(
+                            text = etiquetaEstado,
+                            style = FDType.Label.copy(
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Black
+                            ),
+                            color = colorEstado,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
 
                 Surface(
                     color = FDColors.TextPrimary.copy(alpha = 0.05f),

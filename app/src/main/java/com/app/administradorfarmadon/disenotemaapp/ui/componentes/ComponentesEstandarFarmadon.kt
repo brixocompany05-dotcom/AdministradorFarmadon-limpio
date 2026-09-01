@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.datos.TecladoPrefs
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 
 /**

@@ -789,6 +789,11 @@ class SidebarViewModel : ViewModel() {
 
         val itemsFiltrados = modulosBase
             .filter { moduloResuelto ->
+                // Módulos de inventario aún no operativos no se muestran como pantallas
+                // rotas. Se ocultan del sidebar hasta que tengan pantalla real y verificada.
+                moduloResuelto.modulo !in setOf("inventario_vencimientos", "inventario_transferencias")
+            }
+            .filter { moduloResuelto ->
                 // Sucursales se administra SOLO desde Configuración → Sucursales y Sedes;
                 // no se muestra en el sidebar para no duplicar caminos.
                 moduloResuelto.modulo != "sucursales"
@@ -812,7 +817,7 @@ class SidebarViewModel : ViewModel() {
                 icono = m.icono,
                 categoria = m.categoria,
                 orden = m.orden,
-                badge = if (m.modulo == "inventario_vencimientos") 2 else null
+                badge = null
             )
         }
 

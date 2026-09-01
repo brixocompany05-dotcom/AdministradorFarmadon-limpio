@@ -41,7 +41,6 @@ fun PestanaReposicion(
     pedidosGuardados: List<PedidoCompra> = emptyList(),
     proveedores: List<Proveedor> = emptyList(),
     pedidosPorProveedor: Map<String, Map<String, Int>>,
-    subTabPedidosDerecha: String = "REALIZADOS",
     enviandoPedido: Boolean = false,
     onModificarCantidadProducto: (PharmProduct, Int) -> Unit,
     onReponerSugeridosProveedor: (String) -> Unit = {},
@@ -51,7 +50,6 @@ fun PestanaReposicion(
     procesandoEdicionPedido: Boolean = false,
     procesandoEliminacionPedido: Boolean = false,
     onLimpiarPedidoProveedor: (String) -> Unit,
-    onSeleccionarSubTabPedidosDerecha: (String) -> Unit = {},
     onCancelarPedidoEnviado: (String) -> Unit = {},
     onRecibirMercaderia: (PedidoCompra) -> Unit = {},
     onCerrarOrdenConAjuste: (PedidoCompra) -> Unit = {},
@@ -328,11 +326,9 @@ fun PestanaReposicion(
                         ) {
                             ReposicionPanelPedidos(
                                 pedidosGuardados = pedidosGuardados,
-                                subTabPedidosDerecha = subTabPedidosDerecha,
                                 simboloMoneda = simboloMoneda,
                                 s = s,
                                 paddingTarjeta = paddingTarjeta,
-                                onSeleccionarSubTab = onSeleccionarSubTabPedidosDerecha,
                                 onEditarPedido = { pedido, items -> onEditarPedidoRealizado(pedido.id, items) },
                                 onEliminarPedido = { pedido -> onEliminarPedidoRealizado(pedido.id) },
                                 procesandoEdicion = procesandoEdicionPedido,

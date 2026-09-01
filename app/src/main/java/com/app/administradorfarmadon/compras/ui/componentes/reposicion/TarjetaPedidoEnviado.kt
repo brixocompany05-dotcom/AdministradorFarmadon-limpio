@@ -63,7 +63,8 @@ fun TarjetaPedidoEnviado(
     onRecibirMercaderia: () -> Unit,
     onCerrarConAjuste: () -> Unit,
     onDescartarProducto: (String) -> Unit = {},
-    onCancelar: () -> Unit
+    onCancelar: () -> Unit,
+    onAbrirDetalle: (() -> Unit)? = null
 ) {
     val s = recordarMedidaAdaptativa()
     var expandirHistorial by remember { mutableStateOf(false) }
@@ -86,24 +87,35 @@ fun TarjetaPedidoEnviado(
             verticalArrangement = Arrangement.spacedBy(s.gapMedium)
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(FDShapes.Medium)
+                    .then(
+                        if (onAbrirDetalle != null) {
+                            Modifier.clickable { onAbrirDetalle() }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
-                    Text(
-                        text = pedido.proveedorNombre.uppercase(),
-                        style = FDType.Body.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        ),
-                        color = FDColors.TextPrimary
-                    )
-                    Text(
-                        text = (if (pedido.estado == "ENTREGA_PARCIAL") "PARCIAL DESDE" else "ENVIADO") +
-                                ": ${pedido.fechaEmision} | ${pedido.items.size} ÍTEMS",
-                        style = FDType.Label.copy(fontSize = 9.sp),
-                        color = FDColors.TextTertiary
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    DatoOrden("PROVEEDOR", pedido.proveedorNombre.uppercase())
+                    DatoOrden("NRO DE ORDEN", "#${pedido.numeroOrden.ifBlank { "SIN NRO" }}")
+                    DatoOrden("FECHA Y HORA", pedido.fechaEmision)
+                    DatoOrden("CANTIDAD PRODUCTOS", "${pedido.totalProductos} ítems (${pedido.totalUnidades} und.)")
+                }
+                if (onAbrirDetalle != null) {
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        null,
+                        tint = FDColors.Primary,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
@@ -301,47 +313,7 @@ fun TarjetaPedidoEnviado(
                 }
             }
 
-            HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
 
-            // Footer de Acción Industrial
-            FDBotonPrimario(
-                texto = "INGRESAR MERCADERÍA A STOCK",
-                onClick = onRecibirMercaderia,
-                icono = Icons.Default.Inventory,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(s.btnSmallH * 0.85f)
-            )
-
-            // UNA sola salida según la verdad de esta orden (jamás dos juntas):
-            // nada recibido todavía CANCELAR ORDEN ya llegó algo CERRAR CON AJUSTE.
-            if (pedido.estado == "ENVIADO") {
-                OutlinedButton(
-                    onClick = { confirmarCancelacion = true },
-                    shape = RoundedCornerShape(s.radiusInput),
-                    border = BorderStroke(s.borderWidth, FDColors.Warning.copy(alpha = 0.5f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Warning),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(s.btnSmallH * 0.8f)
-                ) {
-                    Text(
-                        "CANCELAR ORDEN",
-                        style = FDType.Label.copy(
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                }
-            } else {
-                FDBotonSecundario(
-                    texto = "CERRAR CON AJUSTE",
-                    onClick = { confirmarAjuste = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(s.btnSmallH * 0.8f)
-                )
-            }
         }
     }
 
@@ -363,4 +335,35 @@ fun TarjetaPedidoEnviado(
         onCancelarDescartar = { productoParaDescartar = null }
     )
 }
+
+@Composable
+private fun DatoOrden(etiqueta: String, valor: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = etiqueta,
+            style = FDType.Label.copy(
+                fontSize = 8.5.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.5.sp
+            ),
+            color = FDColors.TextTertiary,
+            modifier = Modifier.width(110.dp)
+        )
+        Text(
+            text = valor,
+            style = FDType.BodySmall.copy(
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            ),
+            color = FDColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 

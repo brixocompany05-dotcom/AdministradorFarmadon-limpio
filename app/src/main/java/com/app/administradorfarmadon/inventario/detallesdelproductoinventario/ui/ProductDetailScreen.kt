@@ -100,6 +100,10 @@ fun ProductDetailScreen(
     var enterpriseMsg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     // enterpriseMsg: Pair(message, isError) -> isError true = error, false = éxito
 
+    LaunchedEffect(viewModel.kardexError) {
+        viewModel.kardexError?.let { enterpriseMsg = it to true }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()

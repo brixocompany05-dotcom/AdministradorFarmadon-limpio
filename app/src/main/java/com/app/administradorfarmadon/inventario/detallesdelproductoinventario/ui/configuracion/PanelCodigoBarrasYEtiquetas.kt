@@ -33,6 +33,7 @@ import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.bounceClick
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto
+import com.app.administradorfarmadon.inventario.compartido.modelo.EtiquetaPendienteItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -306,7 +307,7 @@ fun PanelCodigoBarrasYEtiquetas(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                listOf(true to "Góndola (50x30mm)", false to "Mini (30x20mm)").forEach { (isGondola, label) ->
+                listOf(true to "Estándar (50x30mm)").forEach { (isGondola, label) ->
                     val isSelected = formatoGondola == isGondola
                     Surface(
                         color = if (isSelected) FDColors.Primary.copy(alpha = 0.15f) else FDColors.Surface,
@@ -482,6 +483,47 @@ fun PanelCodigoBarrasYEtiquetas(
 
         // ── 5. BOTONES DE ACCIÓN (HABILITADOS SOLO SI HAY CÓDIGO Y PRECIO REAL) ──
         val puedeImprimir = codigoActual.isNotBlank() && errorDuplicado == null && presentacionSeleccionada != null && presentacionSeleccionada!!.precioventa > 0
+        val puedeImprimirTodas = codigoActual.isNotBlank() && errorDuplicado == null && presentacionesValidas.size > 1
+
+        if (presentacionesValidas.size > 1) {
+            OutlinedButton(
+                onClick = {
+                    val items = presentacionesValidas.map { pres ->
+                        EtiquetaPendienteItem(
+                            presentacionId = pres.presentacionId,
+                            nombre = pres.nombre.ifBlank { "Presentación" },
+                            precio = pres.precioventa,
+                            cantidad = pres.cantidad
+                        )
+                    }
+                    val pdfFile = LabelPdfExporter.generarPdfEtiquetasLote(
+                        context = context,
+                        producto = producto,
+                        items = items,
+                        formatoGondola = formatoGondola
+                    )
+                    LabelPdfExporter.imprimirPdfDirecto(
+                        context = context,
+                        pdfFile = pdfFile,
+                        nombreTrabajo = "Etiquetas_${producto.nombre.take(15)}",
+                        onImpresionConfirmada = { onMarcarEtiquetaImpresa() }
+                    )
+                },
+                enabled = puedeImprimirTodas,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, if (puedeImprimirTodas) FDColors.Primary else FDColors.Border),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .bounceClick()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Default.Print, null, tint = if (puedeImprimirTodas) FDColors.Primary else FDColors.TextTertiary, modifier = Modifier.size(16.dp))
+                    Text("Imprimir todas las presentaciones (${presentacionesValidas.size})", style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (puedeImprimirTodas) FDColors.Primary else FDColors.TextTertiary))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),

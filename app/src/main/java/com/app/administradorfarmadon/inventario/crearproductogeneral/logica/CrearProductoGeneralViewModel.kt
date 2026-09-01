@@ -396,8 +396,8 @@ class CrearProductoGeneralViewModel(
                 p.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
             }
 
-        val empaqueFinal = if (s.empaque.isBlank()) "Caja" else CatalogoEmpaques.normalizarEmpaque(s.empaque)
-        val categoriaFinal = if (s.categoriaNombre.isBlank()) "General" else CatalogoEmpaques.normalizarCategoria(s.categoriaNombre)
+        val empaqueFinal = CatalogoEmpaques.normalizarEmpaque(s.empaque)
+        val categoriaFinal = CatalogoEmpaques.normalizarCategoria(s.categoriaNombre)
         val medidaFinal = s.medidaConcentracion
         val tipoFinal = if (s.tipoProducto.isBlank()) {
             if (s.requiereReceta || s.esRefrigerado || s.principioActivo.isNotBlank()) "MEDICAMENTO" else "GENERAL"

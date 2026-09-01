@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDDialogoContenedor
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDSelectorProfesional
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
@@ -117,6 +118,8 @@ fun DialogoSeleccionPais(
         iconoCabecera = Icons.Default.Public,
         anchoMaximo = 680.dp
     ) {
+        // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+        AplicarBloqueoTecladoVentana()
         OutlinedTextField(
             value = filtroInterno,
             onValueChange = { filtroInterno = it },

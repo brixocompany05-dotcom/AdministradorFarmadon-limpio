@@ -47,6 +47,9 @@ class AppFarmadon : Application() {
             RelojServidorSincronizador.cargar(this@AppFarmadon)
             RelojServidorSincronizador.sincronizar(this@AppFarmadon)
             SessionManager.init(this@AppFarmadon)
+            com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.datos.TecladoPrefs.init(this@AppFarmadon)
+            com.app.administradorfarmadon.configuracion.preferencias_sistema.impresion.datos.ImpresionPrefs.init(this@AppFarmadon)
+            com.app.administradorfarmadon.configuracion.preferencias_sistema.ux.datos.UxPrefs.init(this@AppFarmadon)
             NetworkHealthMonitor.init(this@AppFarmadon)
             LocalDraftManager.init(this@AppFarmadon)
         }

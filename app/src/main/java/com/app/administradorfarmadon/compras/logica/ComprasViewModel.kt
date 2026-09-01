@@ -65,8 +65,10 @@ class ComprasViewModel(
     private val ultimoValorEnviado = java.util.concurrent.ConcurrentHashMap<String, Int>()
     /** Objetivos locales del carrito: el número que la pantalla muestra mientras la red confirma. */
     private val optimismoObjetivo = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    /** Claves con una escritura real aún en tránsito (el optimismo solo aplica mientras exista). */
-    private val escriturasCarritoEnCurso = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    /** Conteo de escrituras REALES aún en tránsito por producto: un toque = una escritura.
+     *  El optimismo solo se suelta cuando TODAS las escrituras de ese producto terminaron,
+     *  así un snapshot intermedio del servidor jamás baja el número que la persona acaba de tocar. */
+    private val escriturasCarritoEnCurso = java.util.concurrent.ConcurrentHashMap<String, Int>()
     /** Id de orden por proveedor: el reintento reutiliza el mismo documento (anti duplicación). */
     private val intentoEnvioIds = java.util.concurrent.ConcurrentHashMap<String, String>()
     /** Última foto viva confirmada por el servidor (para revertir sin pisar la verdad). */
@@ -198,7 +200,7 @@ class ComprasViewModel(
             val proveedor = clave.substringBefore('\u0001')
             val productoId = clave.substringAfter('\u0001')
             val servidorValor = servidor[proveedor]?.get(productoId) ?: 0
-            if (objetivo > servidorValor && escriturasCarritoEnCurso.contains(clave)) {
+            if (objetivo > servidorValor && (escriturasCarritoEnCurso[clave] ?: 0) > 0) {
                 mostrado.getOrPut(proveedor) { mutableMapOf() }[productoId] = objetivo
             } else {
                 optimismoObjetivo.remove(clave)
@@ -362,7 +364,10 @@ class ComprasViewModel(
             val base = optimismoObjetivo[clave] ?: servidor
             val objetivo = if (esDelta) base + valor else valor
             if (objetivo <= 0) optimismoObjetivo.remove(clave) else optimismoObjetivo[clave] = objetivo
-            escriturasCarritoEnCurso.add(clave)
+            // Un toque = una escritura en vuelo. Se cuenta, no se marca: si la persona
+            // toca + varias veces seguidas, la primera escritura que termina NO puede
+            // soltar el optimismo mientras las demás siguen aplicándose al servidor.
+            escriturasCarritoEnCurso[clave] = (escriturasCarritoEnCurso[clave] ?: 0) + 1
         }
         _uiState.update { current ->
             val mapa = current.pedidosPorProveedor.toMutableMap()
@@ -383,16 +388,21 @@ class ComprasViewModel(
                 esDelta = esDelta
             )
             cambios.keys.forEach { productoId ->
-                escriturasCarritoEnCurso.remove(claveCarrito(proveedorNombre, productoId))
+                val clave = claveCarrito(proveedorNombre, productoId)
+                val restante = (escriturasCarritoEnCurso[clave] ?: 1) - 1
+                if (restante <= 0) escriturasCarritoEnCurso.remove(clave) else escriturasCarritoEnCurso[clave] = restante
             }
             if (resultado.isFailure) {
                 val causa = resultado.exceptionOrNull()?.message ?: "falló la conexión"
-                // Revertir el optimismo: se quita el objetivo fallido y la pantalla
-                // vuelve a la última verdad confirmada por el servidor.
+                // Revertir el optimismo solo de lo que ya no tiene escrituras en vuelo:
+                // si el mismo producto tiene otros toques aún aplicándose, el objetivo
+                // se conserva y la pantalla no salta hacia atrás a mitad de operación.
                 cambios.keys.forEach { productoId ->
                     val clave = claveCarrito(proveedorNombre, productoId)
-                    optimismoObjetivo.remove(clave)
-                    ultimoValorEnviado.remove(clave)
+                    if ((escriturasCarritoEnCurso[clave] ?: 0) <= 0) {
+                        optimismoObjetivo.remove(clave)
+                        ultimoValorEnviado.remove(clave)
+                    }
                 }
                 _uiState.update {
                     it.copy(
@@ -426,10 +436,6 @@ class ComprasViewModel(
         // tocan el mismo producto al mismo tiempo jamás pierden una unidad.
         if (delta == 0) return
         aplicarCambiosCarrito(proveedorNombre, mapOf(productoId to delta))
-    }
-
-    fun seleccionarSubTabPedidosDerecha(subTab: String) {
-        _uiState.update { it.copy(subTabPedidosDerecha = subTab) }
     }
 
     fun confirmarPedidoEnviado(pedido: PedidoProveedor) {
@@ -549,7 +555,6 @@ class ComprasViewModel(
                     limpiarPedidoProveedor(pedido.proveedorNombre)
                     _uiState.update {
                         it.copy(
-                            subTabPedidosDerecha = "REALIZADOS",
                             envioExitosoProveedor = pedido.proveedorNombre,
                             mensajeExito = " ¡Orden para ${pedido.proveedorNombre} guardada y marcada como ENVIADA!$notaMultiusuario"
                         )
@@ -767,7 +772,7 @@ class ComprasViewModel(
 
     fun limpiarPedidoProveedor(proveedorNombre: String) {
         // Optimismo inmediato: el panel vacía al instante y la red lo confirma.
-        escriturasCarritoEnCurso.removeIf { it.startsWith("$proveedorNombre\u0001") }
+        escriturasCarritoEnCurso.keys.removeIf { it.startsWith("$proveedorNombre\u0001") }
         intentoEnvioIds.remove(proveedorNombre)
         val objetivosQuitados = optimismoObjetivo
             .filterKeys { it.startsWith("$proveedorNombre\u0001") }
@@ -799,7 +804,7 @@ class ComprasViewModel(
     /**
      * Edición de un pedido REALIZADO con auditoría: guarda los cambios y registra
      * en la bitácora qué cambió, quién y cuándo. Solo se edita mientras el pedido
-     * sigue sin mercadería recibida; una vez recibido, vive en RECIBIR.
+     * sigue sin mercadería recibida; una vez recibido, su historial vive en RECIBIDOS.
      */
     fun editarPedidoRealizado(pedidoId: String, itemsNuevos: List<ItemPedidoCompra>) {
         if (_uiState.value.procesandoEdicionPedido) return
@@ -810,7 +815,7 @@ class ComprasViewModel(
         }
         if (pedidoActual.estado != "ENVIADO" || pedidoActual.recepciones.isNotEmpty() || pedidoActual.totalUnidadesRecibidas > 0) {
             _uiState.update {
-                it.copy(mensajeError = "Este pedido ya recibió mercadería o cambió de estado; no se puede editar aquí. Usa la pestaña RECIBIR.")
+                it.copy(mensajeError = "Este pedido ya recibió mercadería o cambió de estado; no se puede editar aquí. Consúltalo en la pestaña RECIBIDOS.")
             }
             return
         }

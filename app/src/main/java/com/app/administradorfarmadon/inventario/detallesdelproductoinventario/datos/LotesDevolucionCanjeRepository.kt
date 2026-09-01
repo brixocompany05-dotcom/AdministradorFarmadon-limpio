@@ -167,7 +167,7 @@ class LotesDevolucionCanjeRepository(
                     "clienteId" to clienteId,
                     "productoId" to productId,
                     "productoNombre" to (snap.getString("nombre") ?: ""),
-                    "empaque" to (snap.getString("empaque") ?: "Caja"),
+                    "empaque" to (snap.getString("empaque") ?: ""),
                     "loteNumero" to lote.numero,
                     "cantidadDevuelta" to cantidadDevuelta,
                     "costoUnitario" to costoUnitarioLote,
@@ -218,7 +218,7 @@ class LotesDevolucionCanjeRepository(
                                 "motivo" to motivo,
                                 "fechaLegible" to fechaLegible,
                                 "fechaMs" to ahoraMs,
-                                "usuarioNombre" to "Administración",
+                                "usuarioNombre" to SessionManager.nombreUsuario,
                                 "usuarioEmail" to usuarioEmail
                             )
                         )
@@ -261,7 +261,7 @@ class LotesDevolucionCanjeRepository(
                                 "motivo" to motivo,
                                 "fechaLegible" to fechaLegible,
                                 "fechaMs" to ahoraMs,
-                                "usuarioNombre" to "Administración",
+                                "usuarioNombre" to SessionManager.nombreUsuario,
                                 "usuarioEmail" to usuarioEmail
                             )
                             if (provSnap.exists()) {

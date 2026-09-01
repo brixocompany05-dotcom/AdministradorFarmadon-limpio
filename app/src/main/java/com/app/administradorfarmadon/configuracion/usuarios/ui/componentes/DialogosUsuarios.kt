@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 
@@ -213,6 +214,8 @@ fun DialogoConfirmarEliminarUsuario(
             }
         },
         text = {
+            // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+            AplicarBloqueoTecladoVentana()
             Column(verticalArrangement = Arrangement.spacedBy(s.sm)) {
                 Text(
                     text = "Perderá el acceso de inmediato y saldrá de la lista activa. Su ficha se archivará: podrás recontratarlo cuando quieras desde la sección DADOS DE BAJA.",

@@ -119,7 +119,7 @@ fun ModuloConfiguracionPrincipal(
                     maxLines = 1
                 )
                 Text(
-                    text = "${product.categoriaPrincipal.ifBlank { "General" }}  ·  ${product.stockDisponibleUnidades.toInt()} ${product.empaque.ifBlank { "Unid" }}  ·  ${if (product.activo) "Activo" else "Pausado"}  ·  ${ubicacionState.ifBlank { "Sin ubicación" }}",
+                    text = "${product.categoriaPrincipal.ifBlank { "Sin categoría" }}  ·  ${product.stockDisponibleUnidades.toInt()} ${product.empaque.ifBlank { "unidades" }}  ·  ${if (product.activo) "Activo" else "Pausado"}  ·  ${ubicacionState.ifBlank { "Sin ubicación" }}",
                     style = FDType.Caption.copy(fontSize = 11.5.sp, fontFamily = InterPremium),
                     color = FDColors.TextSecondary,
                     maxLines = 1

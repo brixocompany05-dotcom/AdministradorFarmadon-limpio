@@ -60,7 +60,6 @@ data class LineaAnulacionVista(
 data class ComprasUiState(
     val tabSeleccionada: String = "REPOSICION",
     val subTabProveedor: String = "RESUMEN",
-    val subTabPedidosDerecha: String = "REALIZADOS", // "REALIZADOS" | "RECIBIR"
     val todosLosProductos: List<PharmProduct> = emptyList(),
     val proveedores: List<Proveedor> = emptyList(),
     val facturas: List<FacturaCompra> = emptyList(),

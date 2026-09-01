@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDBotonPrimario
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDBotonSecundario
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDCampoTexto
@@ -73,6 +74,8 @@ fun DialogoCrearProveedor(
         onDismiss = onDismiss,
         bloqueado = guardando
     ) {
+        // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+        AplicarBloqueoTecladoVentana()
         // ── FORMULARIO EN CUADRÍCULA 50% / 50% ESPACIOSA ──
         Column(
             modifier = Modifier

@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
@@ -89,6 +90,8 @@ fun DialogoNotaCredito(
         onDismissRequest = { if (!procesando) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+        AplicarBloqueoTecladoVentana()
         Box(
             modifier = Modifier.fillMaxSize()
                 .background(FDColors.Background.copy(alpha = 0.6f))

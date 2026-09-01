@@ -129,17 +129,17 @@ object CodigoBarraHelper {
 
         val snap1 = inv.whereEqualTo("codigoBarras", codLimpio).limit(5).get().await()
         snap1.documents.firstOrNull { it.id != excludeId }?.let {
-            return Pair(it.id, it.getString("nombre") ?: "Producto existente")
+            return Pair(it.id, it.getString("nombre") ?: "otro producto")
         }
 
         val snap2 = inv.whereEqualTo("codigo", codLimpio).limit(5).get().await()
         snap2.documents.firstOrNull { it.id != excludeId }?.let {
-            return Pair(it.id, it.getString("nombre") ?: "Producto existente")
+            return Pair(it.id, it.getString("nombre") ?: "otro producto")
         }
 
         val snap3 = inv.whereArrayContains("codigosSecundarios", codLimpio).limit(5).get().await()
         snap3.documents.firstOrNull { it.id != excludeId }?.let {
-            return Pair(it.id, it.getString("nombre") ?: "Producto existente")
+            return Pair(it.id, it.getString("nombre") ?: "otro producto")
         }
 
         val base = baseSinSufijo(codLimpio)
@@ -149,7 +149,7 @@ object CodigoBarraHelper {
                 ?: inv.whereEqualTo("codigo", base).limit(5).get().await()
                     .documents.firstOrNull { it.id != excludeId }
             if (base1 != null) {
-                val nombre = base1.getString("nombre") ?: "Producto existente"
+                val nombre = base1.getString("nombre") ?: "otro producto"
                 return Pair(base1.id, "$nombre (Fracción de $base)")
             }
         }
@@ -205,6 +205,31 @@ object CodigoBarraHelper {
             val numero = random.nextInt(900000) + 100000
             val candidato = "FMD-$numero"
             if (buscarDuplicadoOutside(db, clienteId, candidato) == null) {
+                return candidato
+            }
+        }
+        return "FMD-${System.currentTimeMillis().toString().takeLast(8)}"
+    }
+
+    /**
+     * Genera un código interno único para una presentación de producto verificándolo
+     * contra el índice real de códigos de la sede (no contra el inventario a secas).
+     * Productos y presentaciones comparten el mismo índice, por lo que jamás se repite
+     * ni se cruza un código entre dos productos o entre dos presentaciones.
+     */
+    suspend fun generarCodigoPresentacionUnico(
+        db: FirebaseFirestore,
+        clienteId: String,
+        sucursalId: String = SessionManager.sucursalIdEfectiva
+    ): String {
+        val random = java.util.Random()
+        repeat(50) {
+            val numero = random.nextInt(900000) + 100000
+            val candidato = "FMD-$numero"
+            val ref = indiceRef(db, clienteId, sucursalId, candidato)
+            if (!ref.get().await().exists() &&
+                buscarDuplicadoOutside(db, clienteId, candidato, "", sucursalId) == null
+            ) {
                 return candidato
             }
         }

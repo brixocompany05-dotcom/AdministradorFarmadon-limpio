@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.bounceClick
@@ -80,6 +81,8 @@ fun OverlaySelectorUbicacionDialog(
             dismissOnClickOutside = true
         )
     ) {
+        // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+        AplicarBloqueoTecladoVentana()
         Box(
             modifier = Modifier
                 .fillMaxSize()

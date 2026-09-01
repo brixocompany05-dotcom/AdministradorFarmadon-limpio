@@ -97,7 +97,7 @@ class AjusteInventarioViewModel(
                 tipo = tipo,
                 motivo = motivo,
                 usuarioEmail = SessionManager.email,
-                usuarioNombre = SessionManager.nombreUsuario.ifBlank { "Administración" },
+                usuarioNombre = SessionManager.nombreUsuario,
                 idempotenciaId = op.idem
             )
             res.fold(
@@ -139,7 +139,7 @@ class AjusteInventarioViewModel(
                 tipo = tipo,
                 motivo = motivo,
                 usuarioEmail = SessionManager.email,
-                usuarioNombre = SessionManager.nombreUsuario.ifBlank { "Administración" },
+                usuarioNombre = SessionManager.nombreUsuario,
                 idempotenciaId = op.idem
             )
             res.fold(

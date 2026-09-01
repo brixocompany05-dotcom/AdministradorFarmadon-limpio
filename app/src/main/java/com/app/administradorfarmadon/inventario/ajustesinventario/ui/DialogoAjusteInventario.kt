@@ -801,7 +801,7 @@ private fun SeccionCantidadPorLote(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.Inventory2, null, tint = FDColors.Primary, modifier = Modifier.size(16.dp))
                 Text(
-                    "LOTE ${lote.numero.ifBlank { "S/N" }} · Vence ${lote.vencimiento.ifBlank { "N/A" }}",
+                    "LOTE ${lote.numero.ifBlank { "Sin número" }} · Vence ${lote.vencimiento.ifBlank { "Sin fecha" }}",
                     style = FDType.Body.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Black),
                     color = FDColors.Primary,
                     maxLines = 1,

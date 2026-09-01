@@ -32,9 +32,9 @@ data class EditarProductoUiState(
     val nombre: String = "",
     val tipoProducto: String = "MEDICAMENTO", // "MEDICAMENTO" | "GENERAL"
     val principioActivo: String = "",
-    val categoriaNombre: String = "General",
+    val categoriaNombre: String = "",
     val laboratorio: String = "",
-    val empaque: String = "Caja",
+    val empaque: String = "",
     
     // Contenido (numérico) y Unidad de Medida (selector canónico)
     val cantidadContenido: String = "",

@@ -42,6 +42,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.configuracion.plan.datos.BrixoCanalesPagoInfo
@@ -161,6 +162,8 @@ fun ReportarPagoDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+        AplicarBloqueoTecladoVentana()
         Surface(
             color = FDColors.Surface,
             shape = RoundedCornerShape(16.dp),

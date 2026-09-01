@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,7 +36,9 @@ import java.util.Locale
 /**
  * Detalle de un pedido REALIZADO: consulta, edición con bitácora interna
  * (qué cambió, quién, cuándo) y eliminación total del rastro si el pedido muere.
- * La recepción de mercadería vive en la pestaña RECIBIR, nunca aquí.
+ * Para los pedidos que siguen en camino, aquí también se recibe la mercadería
+ * (botón RECIBIR MERCADERÍA) y se resuelve lo que nunca llegará (cancelar o cerrar
+ * con ajuste). El pedido resuelto queda como historial en la misma lista.
  */
 @Composable
 fun ReposicionDetallePedidoRealizado(
@@ -46,15 +49,21 @@ fun ReposicionDetallePedidoRealizado(
     s: MedidaAdaptativa,
     onVolver: () -> Unit,
     onEditarPedido: (PedidoCompra, List<ItemPedidoCompra>) -> Unit,
-    onEliminarPedido: (PedidoCompra) -> Unit
+    onEliminarPedido: (PedidoCompra) -> Unit,
+    onRecibirMercaderia: () -> Unit = {},
+    onCerrarConAjuste: () -> Unit = {},
+    onCancelar: () -> Unit = {}
 ) {
     var modoEdicion by remember { mutableStateOf(false) }
     var itemsEditando by remember { mutableStateOf<List<ItemPedidoCompra>?>(null) }
     var confirmarEliminacion by remember { mutableStateOf(false) }
+    var confirmarAjuste by remember { mutableStateOf(false) }
+    var confirmarCancelacion by remember { mutableStateOf(false) }
 
     val itemsVisibles = itemsEditando ?: pedido.items
     val hayCambios = itemsEditando != null && itemsEditando != pedido.items
     val puedeGuardar = hayCambios && itemsEditando.orEmpty().any { it.cantidad > 0 }
+    val esPendiente = pedido.estado == "ENVIADO" || pedido.estado == "ENTREGA_PARCIAL"
 
     // En modo edición, el botón atrás del sistema cancela la edición (vuelve a consulta).
     BackHandler(enabled = modoEdicion) {
@@ -106,7 +115,7 @@ fun ReposicionDetallePedidoRealizado(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "DOC: ${pedido.numeroOrden.ifBlank { "SIN NRO" }}",
+                    text = "DOC: ${pedido.numeroOrden.ifBlank { "SIN NRO" }} · ${estadoLegiblePedido(pedido.estado)}",
                     style = FDType.Numeric.copy(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -222,6 +231,78 @@ fun ReposicionDetallePedidoRealizado(
                 }
             }
         } else {
+            if (esPendiente) {
+                // Pedido en camino: aquí se recibe la mercadería y se resuelve
+                // lo que nunca llegará. Nada queda a medias sin explicación.
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                ) {
+                    Button(
+                        onClick = onRecibirMercaderia,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = FDColors.Primary,
+                            contentColor = FDColors.PrimaryText
+                        ),
+                        shape = RoundedCornerShape(s.radiusButton),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(s.btnMediumH)
+                    ) {
+                        Icon(
+                            Icons.Default.Inventory,
+                            null,
+                            modifier = Modifier.size(s.iconSmall)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "RECIBIR MERCADERÍA",
+                            style = FDType.Label.copy(
+                                fontSize = s.textLabel.value.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.4.sp
+                            )
+                        )
+                    }
+                    if (pedido.estado == "ENVIADO") {
+                        OutlinedButton(
+                            onClick = { confirmarCancelacion = true },
+                            shape = RoundedCornerShape(s.radiusButton),
+                            border = BorderStroke(s.borderWidth, FDColors.Warning.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Warning),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(s.btnSmallH * 0.85f)
+                        ) {
+                            Text(
+                                "CANCELAR ORDEN (no llegará)",
+                                style = FDType.Label.copy(
+                                    fontSize = s.textLabel.value.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { confirmarAjuste = true },
+                            shape = RoundedCornerShape(s.radiusButton),
+                            border = BorderStroke(s.borderWidth, FDColors.Warning.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Warning),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(s.btnSmallH * 0.85f)
+                        ) {
+                            Text(
+                                "CERRAR CON AJUSTE (quiebre de stock)",
+                                style = FDType.Label.copy(
+                                    fontSize = s.textLabel.value.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 verticalAlignment = Alignment.Bottom,
@@ -327,6 +408,35 @@ fun ReposicionDetallePedidoRealizado(
             }
         )
     }
+
+    DialogosPedidoEnviado(
+        proveedorNombre = pedido.proveedorNombre,
+        unidadesPendientes = pedido.items.sumOf { it.saldoPendiente },
+        confirmarAjuste = confirmarAjuste,
+        confirmarCancelacion = confirmarCancelacion,
+        productoParaDescartar = null,
+        s = s,
+        onConfirmarAjuste = {
+            confirmarAjuste = false
+            onCerrarConAjuste()
+        },
+        onCancelarAjuste = { confirmarAjuste = false },
+        onConfirmarCancelacion = {
+            confirmarCancelacion = false
+            onCancelar()
+        },
+        onCancelarCancelacion = { confirmarCancelacion = false },
+        onConfirmarDescartar = {},
+        onCancelarDescartar = {}
+    )
+}
+
+private fun estadoLegiblePedido(estado: String): String = when (estado) {
+    "ENTREGA_PARCIAL" -> "RECIBIDO PARCIAL"
+    "RECIBIDO" -> "RECIBIDO"
+    "COMPLETADA_AJUSTE" -> "CERRADO POR AJUSTE"
+    "CANCELADO" -> "CANCELADO"
+    else -> "ENVIADO"
 }
 
 @Composable
@@ -356,6 +466,16 @@ private fun FilaItemConsultaPedido(
                 style = FDType.BodySmall.copy(fontSize = 11.sp),
                 color = FDColors.TextTertiary
             )
+            if (item.cantidadRecibida > 0) {
+                Text(
+                    text = "Recibido ${item.cantidadRecibida} · Falta ${item.saldoPendiente}",
+                    style = FDType.Label.copy(
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = if (item.saldoPendiente > 0) FDColors.Warning else FDColors.Success
+                )
+            }
         }
         Text(
             text = "$simboloMoneda ${String.format(Locale.US, "%.2f", item.subtotal)}",

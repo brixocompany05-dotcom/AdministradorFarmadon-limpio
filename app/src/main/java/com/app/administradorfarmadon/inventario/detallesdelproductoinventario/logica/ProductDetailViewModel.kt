@@ -54,16 +54,22 @@ class ProductDetailViewModel(
         private set
     var infoEliminacion by mutableStateOf<ProductoDetalleLecturaRepository.InfoEliminacion?>(null)
         private set
+    var kardexError by mutableStateOf<String?>(null)
+        private set
 
     fun loadProduct(productId: String) {
         val userRole = SessionManager.rol.lowercase()
         val isPrivileged = userRole in listOf("administrador", "supervisor")
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+
+        if (clienteId.isBlank()) {
+            uiState = ProductDetailState.Error("No hay una farmacia activa. Vuelve a iniciar sesión.")
+            return
         }
 
         productJob?.cancel()
         movementsJob?.cancel()
+        kardexError = null
 
         // 1. Si el estado anterior es de otro producto (incluido borrado), limpiarlo de inmediato —” evita parpadeo de "ELIMINADO" en producto ajeno
         val prev = uiState
@@ -136,7 +142,8 @@ class ProductDetailViewModel(
                     }
                 }
             } catch (e: Exception) {
-                // Kardex sin conexión: mantiene producto visible, solo log
+                // Kardex sin conexión: mantiene producto visible y muestra el bloqueo real.
+                kardexError = "No se pudo cargar el historial del producto. Verifica internet y vuelve a intentar."
             }
         }
     }
@@ -146,10 +153,13 @@ class ProductDetailViewModel(
     fun cambiarBloqueoLote(productId: String, lote: LoteProducto, ponerEnCuarentena: Boolean, cantidadAfectada: Double = 0.0, motivo: String, onComplete: (Result<Unit>) -> Unit) {
         if (bloqueoLoteEnCurso) return
         bloqueoLoteEnCurso = true
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            bloqueoLoteEnCurso = false
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
 
         viewModelScope.launch {
             try {
@@ -173,11 +183,14 @@ class ProductDetailViewModel(
     fun definirLotePrioritario(productId: String, loteId: String?, onComplete: (Result<Unit>) -> Unit) {
         if (definirPrioritarioEnCurso) return
         definirPrioritarioEnCurso = true
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            definirPrioritarioEnCurso = false
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
-        val userRol = SessionManager.rol.ifBlank { "Administrador" }
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
+        val userRol = SessionManager.rol
         viewModelScope.launch {
             try {
                 val result = lotesRepo.definirLotePrioritario(
@@ -212,10 +225,13 @@ class ProductDetailViewModel(
             devolucionPendiente
         )
         devolucionPendiente = op
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            devolucionEnCurso = false
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
 
         viewModelScope.launch {
             try {
@@ -257,10 +273,13 @@ class ProductDetailViewModel(
             canjePendiente
         )
         canjePendiente = op
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            canjeEnCurso = false
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
 
         viewModelScope.launch {
             try {
@@ -288,10 +307,13 @@ class ProductDetailViewModel(
     fun anularIngreso(productId: String, lote: LoteProducto, motivo: String, onComplete: (Result<Unit>) -> Unit) {
         if (anularEnCurso) return
         anularEnCurso = true
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            anularEnCurso = false
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
 
         viewModelScope.launch {
             try {
@@ -319,10 +341,13 @@ class ProductDetailViewModel(
     ) {
         if (guardandoPreciosEnCurso) return
         guardandoPreciosEnCurso = true
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            guardandoPreciosEnCurso = false
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
 
         viewModelScope.launch {
             try {
@@ -347,9 +372,8 @@ class ProductDetailViewModel(
         private set
 
     fun cargarCatalogoUbicaciones() {
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        }
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) return
         ubicacionesJob?.cancel()
         ubicacionesJob = viewModelScope.launch {
             lecturaRepo.observarCatalogoUbicaciones(clienteId).collect { lista ->
@@ -359,16 +383,13 @@ class ProductDetailViewModel(
     }
 
     suspend fun generarCodigoInternoUnico(): String {
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        }
+        val clienteId = SessionManager.clienteIdGarantizado
         return lecturaRepo.generarCodigoInternoUnico(clienteId)
     }
 
     suspend fun buscarDuplicadoCodigo(codigo: String, currentProductId: String): String? {
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
-        }
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) return null
         return lecturaRepo.buscarDuplicadoCodigoBarras(clienteId, codigo, currentProductId)
     }
 
@@ -386,10 +407,13 @@ class ProductDetailViewModel(
     ) {
         if (guardandoConfigEnCurso) return
         guardandoConfigEnCurso = true
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            guardandoConfigEnCurso = false
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
 
         // Optimización en vivo inmediata
         if (ubicacion.isNotBlank()) {
@@ -435,10 +459,13 @@ class ProductDetailViewModel(
             return
         }
         eliminandoEnCurso = true
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            eliminandoEnCurso = false
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
         viewModelScope.launch {
             try {
                 val result = preciosRepo.eliminarProductoDefinitivo(
@@ -466,10 +493,12 @@ class ProductDetailViewModel(
         productId: String,
         onComplete: (Result<Unit>) -> Unit = {}
     ) {
-        val clienteId = SessionManager.clienteIdGarantizado.ifBlank {
-            FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
         }
-        val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: "administrador@farmacia.com"
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
 
         viewModelScope.launch {
             val result = preciosRepo.marcarEtiquetaImpresa(clienteId, productId, userEmail)

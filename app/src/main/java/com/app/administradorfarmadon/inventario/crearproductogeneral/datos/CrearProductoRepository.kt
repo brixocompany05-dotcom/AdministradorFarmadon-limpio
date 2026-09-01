@@ -76,18 +76,18 @@ class CrearProductoRepository(
         if (clienteId != clienteIdSesion) throw SecurityException("Aislamiento entre farmacias: el producto no pertenece a tu farmacia.")
         if (producto.nombre.isBlank()) throw IllegalArgumentException("El nombre del producto es obligatorio.")
 
-        val actorUid = auth.currentUser?.uid ?: "anon"
-        val actorEmail = auth.currentUser?.email ?: "usuario@farmacia"
+        val actorUid = auth.currentUser?.uid.orEmpty()
+        val actorEmail = auth.currentUser?.email.orEmpty()
         val effectiveSucursalId = sucursalId.ifBlank { SessionManager.sucursalIdEfectiva }
 
-        val catFinal = producto.categoriaNombre.trim().ifBlank { "N/A" }
-        val empFinal = producto.empaque.trim().ifBlank { "N/A" }
+        val catFinal = producto.categoriaNombre.trim()
+        val empFinal = producto.empaque.trim()
         // Blindaje de coherencia: envase + unidad deben pertenecer a la misma familia
         val uniTemp = producto.contenidoUnidad.ifBlank {
             val (_, u) = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.separarContenidoYUnidad(producto.medidaConcentracion)
             u
         }
-        if (empFinal.isNotBlank() && uniTemp.isNotBlank() && empFinal != "N/A" && uniTemp != "N/A") {
+        if (empFinal.isNotBlank() && uniTemp.isNotBlank()) {
             val fam = com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques.detectarFamiliaFisica(empFinal, uniTemp)
             val empOk2 = fam.empaquesCompatibles.any { it.equals(empFinal, ignoreCase = true) }
             val uniOk2 = fam.unidadesCompatibles.any { it.equals(uniTemp, ignoreCase = true) }
@@ -106,10 +106,10 @@ class CrearProductoRepository(
             "comprimido", "comprimidos",
             "gragea", "grageas"
         )
-        if (producto.permiteFraccionar && empFinal != "N/A" && uniTemp != "N/A" && empFinal.lowercase() in empaquesSellados && uniTemp.lowercase() in unidadesSolidas) {
+        if (producto.permiteFraccionar && empFinal.isNotBlank() && uniTemp.isNotBlank() && empFinal.lowercase() in empaquesSellados && uniTemp.lowercase() in unidadesSolidas) {
             throw IllegalArgumentException("'$empFinal' es empaque sellado: no puede venderse fraccionado. Usa Granel o Bolsa si necesitas vender por unidad.")
         }
-        val labFinal = producto.laboratorio.trim().ifBlank { "N/A" }
+        val labFinal = producto.laboratorio.trim()
         val (cantFromConcentracion, unitFromConcentracion) = CatalogoEmpaques.separarContenidoYUnidad(producto.medidaConcentracion)
         val cantVal = producto.contenido.ifBlank { cantFromConcentracion }
         val unidadVal = producto.contenidoUnidad.ifBlank { unitFromConcentracion }
@@ -167,6 +167,18 @@ class CrearProductoRepository(
         val esRefrigeradoFinal = if (esGeneral) false else producto.esRefrigerado
         val clasificacionControlFinal = if (esGeneral) "VENTA_LIBRE" else if (requiereRecetaFinal) "CONTROLADO" else "VENTA_LIBRE"
         val tempAlmacenamientoFinal = if (esRefrigeradoFinal) "REFRIGERACION" else "AMBIENTE"
+
+        // Etiqueta buscadora coherente: nombre + contenido + unidad (minúscula, con y sin espacio)
+        val nombreBuscado = producto.nombre.trim().lowercase()
+        val contenidoBuscado = cantVal.trim().lowercase()
+        val unidadBuscada = unidadVal.trim().lowercase()
+        val busquedaIndice = listOf(
+            nombreBuscado,
+            "$contenidoBuscado$unidadBuscada",
+            "$contenidoBuscado $unidadBuscada",
+            codLimpio.lowercase()
+        ).filter { it.isNotBlank() }.joinToString(" ").replace(Regex("\\s+"), " ").trim()
+        val busquedaTokens = busquedaIndice.split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
 
         // Payload 100% canónico, ordenado y compatible con todos los módulos de inventario, ventas y edición
         val payload = linkedMapOf<String, Any>(
@@ -229,6 +241,8 @@ class CrearProductoRepository(
                     "precioventa" to 0.0
                 )
             ),
+            "busquedaIndice" to busquedaIndice,
+            "busquedaTokens" to busquedaTokens,
             "creadoEn" to FieldValue.serverTimestamp(),
             "creadoPor" to actorUid,
             "actualizadoEn" to FieldValue.serverTimestamp()

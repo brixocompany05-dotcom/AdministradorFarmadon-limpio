@@ -81,6 +81,8 @@ data class InventarioUiState(
     val pendingNewProductIds: Set<String> = emptySet(),
     val isRealtimeConnected: Boolean = false,
     val activeProductsCount: Int = 0,
+    val metricasCompletas: Boolean = false,
+    val metricasError: String? = null,
     // Compatibilidad paginación visible deprecada —” no usada por UI infinita
     val currentPage: Int = 1,
     val itemsPerPage: Int = 10,

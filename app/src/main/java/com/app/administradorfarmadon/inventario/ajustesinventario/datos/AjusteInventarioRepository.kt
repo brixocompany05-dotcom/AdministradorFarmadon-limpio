@@ -118,6 +118,12 @@ class AjusteInventarioRepository(
                     "costoUnitario" to costoUnitarioOriginal,
                     "ultimaEntrada" to FieldValue.serverTimestamp()
                 )
+                (loteActual?.get("cantidadBloqueada") as? Number)?.let { loteFinalData["cantidadBloqueada"] = it.toDouble() }
+                (loteActual?.get("ventasRegistradas") as? Number)?.let { loteFinalData["ventasRegistradas"] = it.toDouble() }
+                loteActual?.get("estadoSanitario")?.let { loteFinalData["estadoSanitario"] = it }
+                loteActual?.get("motivoBloqueo")?.let { loteFinalData["motivoBloqueo"] = it }
+                loteActual?.get("fechaIngreso")?.let { loteFinalData["fechaIngreso"] = it }
+                loteActual?.get("createdAt")?.let { loteFinalData["createdAt"] = it }
                 if (loteActual == null) loteFinalData["fechaIngreso"] = FieldValue.serverTimestamp()
                 currentLotes[keyLoteDestino] = loteFinalData
 

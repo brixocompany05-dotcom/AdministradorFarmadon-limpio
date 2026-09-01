@@ -11,6 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
@@ -130,6 +131,8 @@ fun PanelEliminarProducto(
                 )
             },
             text = {
+                // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+                AplicarBloqueoTecladoVentana()
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         "Se libera el código y queda en auditoría. No se puede deshacer.",

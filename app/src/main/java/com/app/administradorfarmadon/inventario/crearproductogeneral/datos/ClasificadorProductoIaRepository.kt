@@ -22,10 +22,10 @@ import java.util.concurrent.TimeUnit
 data class ProductoIaSugerencia(
     val nombreCorregido: String = "",
     val tipoProducto: String = "MEDICAMENTO", // "MEDICAMENTO" | "GENERAL"
-    val categoriaNombre: String = "General",
+    val categoriaNombre: String = "",
     val principioActivo: String = "",
     val laboratorio: String = "",
-    val empaque: String = "Caja",
+    val empaque: String = "",
     val cantidadContenido: String = "", // "500", "1.5", "400", "100", etc.
     val unidadMedida: String = "",       // "ml", "L", "mg", "g", "kg", "Cáp", "Tab", etc.
     val variantesSugeridas: List<String> = emptyList(),
@@ -207,9 +207,9 @@ object ClasificadorProductoIaRepository {
                 if (cleanedJson.isNotBlank()) {
                     val parsed = moshi.adapter(AiProductJsonResponse::class.java).fromJson(cleanedJson)
                     if (parsed != null) {
-                        val empaqueValido = CatalogoEmpaques.normalizarEmpaque(parsed.empaque)
-                        val categoriaValida = CatalogoEmpaques.normalizarCategoria(parsed.categoriaNombre)
-                        val unidadValida = CatalogoEmpaques.normalizarUnidad(parsed.unidadMedida)
+                        val empaqueValido = if (parsed.empaque.isBlank()) "" else CatalogoEmpaques.normalizarEmpaque(parsed.empaque)
+                        val categoriaValida = if (parsed.categoriaNombre.isBlank()) "" else CatalogoEmpaques.normalizarCategoria(parsed.categoriaNombre)
+                        val unidadValida = if (parsed.unidadMedida.isBlank()) "" else CatalogoEmpaques.normalizarUnidad(parsed.unidadMedida)
                         val esControl = parsed.clasificacionControl.uppercase() in listOf("PSICOTROPICO", "CONTROLADO", "ESTUPEFACIENTE", "ANTIBIOTICO")
 
                         return ProductoIaSugerencia(
@@ -239,10 +239,10 @@ object ClasificadorProductoIaRepository {
         return ProductoIaSugerencia(
             nombreCorregido = q,
             tipoProducto = "MEDICAMENTO",
-            categoriaNombre = "General",
+            categoriaNombre = "",
             principioActivo = "",
             laboratorio = "",
-            empaque = "Caja",
+            empaque = "",
             cantidadContenido = "",
             unidadMedida = "",
             variantesSugeridas = emptyList(),

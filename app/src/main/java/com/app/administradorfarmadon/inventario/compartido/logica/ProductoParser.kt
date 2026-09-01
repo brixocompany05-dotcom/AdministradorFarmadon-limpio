@@ -56,9 +56,9 @@ object ProductoParser {
             val nombre = docString(doc, "nombre")
             val principioActivo = docString(doc, "principioActivo")
             val codigoBarras = docString(doc, "codigoBarras", "codigo")
-            val categoria = docString(doc, "categoriaNombre", "categoriaPrincipal", fallback = "General")
-            val laboratorio = docString(doc, "laboratorio", "proveedorBaseNombre", fallback = "N/A")
-            val empaque = docString(doc, "empaque", fallback = "Caja")
+            val categoria = docString(doc, "categoriaNombre", "categoriaPrincipal")
+            val laboratorio = docString(doc, "laboratorio", "proveedorBaseNombre")
+            val empaque = docString(doc, "empaque")
             val medida = docString(doc, "medidaConcentracion", "concentracion")
             val requiereReceta = docBoolean(doc, "requiereReceta", false)
             val precioCompra = docDouble(doc, "precioCompra")
@@ -71,7 +71,7 @@ object ProductoParser {
             val permiteFraccionar = docBoolean(doc, "permiteFraccionar", false) || docBoolean(doc, "esFraccionable", false)
             val creadoPorUid = docString(doc, "creadoPor", "creadoPorUid", "auditCreatedByUid")
             val creadoEnMillis = try { (doc.getTimestamp("creadoEn")?.toDate()?.time ?: 0L) } catch (e: Exception) { android.util.Log.w("ProductoParser", "creadoEn parse falló", e); 0L }
-            val unidadBase = docString(doc, "unidadBase", "empaque", fallback = "Unidades")
+            val unidadBase = docString(doc, "unidadBase", "empaque")
 
             // Lotes —” tolera Map y List
             val lotesMap = mutableMapOf<String, LoteProducto>()
@@ -110,8 +110,12 @@ object ProductoParser {
 
             val registroSanitario = docString(doc, "registroSanitario")
             val esRefrigerado = docBoolean(doc, "esRefrigerado", false) || (docString(doc, "temperaturaAlmacenamiento").contains("REFRIG", ignoreCase = true))
-            val temperatura = if (esRefrigerado) "REFRIGERACION" else "AMBIENTE"
-            val clasificacion = docString(doc, "clasificacionControl", fallback = if (requiereReceta) "CONTROLADO" else "VENTA_LIBRE")
+            val temperaturaAlmacenamiento = docString(doc, "temperaturaAlmacenamiento")
+            val temperatura = if (temperaturaAlmacenamiento.isNotBlank()) temperaturaAlmacenamiento
+                else if (esRefrigerado) "REFRIGERACION" else "AMBIENTE"
+            val clasificacion = docString(doc, "clasificacionControl").ifBlank {
+                if (requiereReceta) "CONTROLADO" else "VENTA_LIBRE"
+            }
 
             // Presentaciones
             val presentacionesList = mutableListOf<PresentacionProducto>()
@@ -157,7 +161,7 @@ object ProductoParser {
                 indice = id, nombre = nombre, principioActivo = principioActivo, codigo = codigoBarras,
                 categoriaPrincipal = categoria, categoriaNombre = categoria,
                 laboratorio = laboratorio,
-                proveedorBaseNombre = docString(doc, "proveedorBaseNombre").ifBlank { "N/A" },
+                proveedorBaseNombre = docString(doc, "proveedorBaseNombre"),
                 empaque = empaque, contenido = contenido, contenidoUnidad = contenidoUnidad,
                 concentracion = medida, concentracionUnidad = concentracionUnidad,
                 sugerenciasEnvase = sugerenciasEnvase, sugerenciasPerfil = sugerenciasPerfil,
@@ -193,9 +197,9 @@ object ProductoParser {
             val nombre = docString(doc, "nombre")
             val principioActivo = docString(doc, "principioActivo")
             val codigoBarras = docString(doc, "codigoBarras", "codigo")
-            val categoria = docString(doc, "categoriaNombre", "categoriaPrincipal", fallback = "General")
-            val laboratorio = docString(doc, "laboratorio", "proveedorBaseNombre", fallback = "N/A")
-            val empaque = docString(doc, "empaque", fallback = "Caja")
+            val categoria = docString(doc, "categoriaNombre", "categoriaPrincipal")
+            val laboratorio = docString(doc, "laboratorio", "proveedorBaseNombre")
+            val empaque = docString(doc, "empaque")
             val medida = docString(doc, "medidaConcentracion", "concentracion")
             val requiereReceta = docBoolean(doc, "requiereReceta", false)
             val esRefrigerado = docBoolean(doc, "esRefrigerado", false)
@@ -245,7 +249,7 @@ object ProductoParser {
 
             val stockMinimo = docDouble(doc, "stockMinimo", "stockMinimoBase")
             val stockFisico = stockDisponible.coerceAtLeast(0.0)
-            val empaqueDisplay = empaque.ifBlank { "Unid" }
+            val empaqueDisplay = empaque.ifBlank { "unidades" }
             val contentFactor = doc.get("contenido")?.toString()?.toDoubleOrNull()?.takeIf { it > 1.0 } ?: 1.0
             val contenidoUnidadDisp = docString(doc, "contenidoUnidad").ifBlank { null }
             val tieneStockFraccional = stockFisico > 0.0 && (stockFisico % 1.0) > 0.001 && contentFactor > 1.0 && contenidoUnidadDisp != null
@@ -296,8 +300,14 @@ object ProductoParser {
                 else -> "—”"
             }
             val codigosSecundarios = (doc.get("codigosSecundarios") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-            val unidadReal = docString(doc, "contenidoUnidad", "unidadBase", fallback = "unid")
+            val unidadReal = docString(doc, "contenidoUnidad", "unidadBase").ifBlank { "unidades" }
             val unidadSufijo = " $unidadReal"
+
+            val creadoEnMillisPharm = try {
+                (doc.getTimestamp("creadoEn") ?: doc.getTimestamp("actualizadoEn"))?.toDate()?.time ?: 0L
+            } catch (e: Exception) {
+                android.util.Log.w("ProductoParser", "creadoEn parse falló en Pharm", e); 0L
+            }
 
             PharmProduct(
                 id = id, name = nombre, presentation = presentacionFormateada,
@@ -309,17 +319,20 @@ object ProductoParser {
                 stockHumanReadable = stockHumanReadable, stockBaseReadable = "$stockInt",
                 minStockHumanReadable = "$stockMinimoInt ${empaqueDisplay.let { if (stockMinimoInt == 1) it else if (it.endsWith("s", ignoreCase = true)) it else "${it}s" }}",
                 nearestLoteNumero = loteMasProximo?.numero ?: "",
-                code = codigoBarras, laboratory = laboratorio.ifBlank { "N/A" },
+                code = codigoBarras, laboratory = laboratorio,
                 category = categoria, categories = listOf(categoria), empaque = empaque,
                 stock = stockInt, stockBloqueado = stockBloqueadoInt, minStock = stockMinimoInt,
                 expiryDate = vencimientoCalculado,
                 expiryTimestamp = expiryTimestamp,
                 status = status, purchasePrice = precioCompra, salePrice = precioPrincipal, totalValue = totalFisico * precioCompra,
-                clasificacionControl = if (requiereReceta) "RECETA_MEDICA" else "VENTA_LIBRE",
+                clasificacionControl = docString(doc, "clasificacionControl").ifBlank {
+                    if (requiereReceta) "RECETA_MEDICA" else "VENTA_LIBRE"
+                },
                 requiereRefrigeracion = esRefrigerado, controlReceta = requiereReceta,
                 ubicacion = ubicacion, concentration = medida,
                 content = doc.get("contenido")?.toString()?.ifBlank { null } ?: medida,
-                contentUnit = docString(doc, "contenidoUnidad", fallback = unidadReal),
+                contentUnit = docString(doc, "contenidoUnidad").ifBlank { unidadReal },
+                createdAtTimestamp = creadoEnMillisPharm,
                 secondaryCodes = codigosSecundarios,
                 activo = activoPharm,
                 permiteFraccionar = permiteFraccionarPharm,

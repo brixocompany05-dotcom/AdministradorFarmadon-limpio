@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import java.util.Locale
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
@@ -252,6 +253,8 @@ internal fun EnterpriseModalShell(
         onDismissRequest = { if (!isProcesando) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+        AplicarBloqueoTecladoVentana()
         Box(
             modifier = Modifier
                 .fillMaxSize()

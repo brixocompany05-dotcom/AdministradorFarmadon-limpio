@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 import com.google.android.gms.location.LocationServices
@@ -191,6 +192,8 @@ fun AddressPickerDialog(
             usePlatformDefaultWidth = false
         )
     ) {
+        // Regla "Bloquear Teclado": este diálogo tampoco abre el teclado si está activada.
+        AplicarBloqueoTecladoVentana()
         Surface(
             modifier = Modifier
                 .widthIn(max = 540.dp)
