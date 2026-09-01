@@ -71,6 +71,7 @@ fun ComprasScreen(
         DialogoCrearProveedor(
             proveedorEditando = state.proveedorEditando,
             guardando = state.guardandoProveedor,
+            errorGuardado = state.errorGuardadoProveedor,
             onGuardar = { nom, ruc, cont, tel, em, dir, min -> viewModel.guardarProveedor(nom, ruc, cont, tel, em, dir, min) },
             onDismiss = { viewModel.cerrarDialogoProveedor() }
         )

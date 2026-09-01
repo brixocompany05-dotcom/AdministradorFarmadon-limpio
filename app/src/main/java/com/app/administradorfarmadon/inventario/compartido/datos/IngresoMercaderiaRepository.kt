@@ -113,6 +113,15 @@ class IngresoMercaderiaRepository(
         if (itemsConIngreso.isEmpty()) {
             return Result.failure(IllegalArgumentException("No llegaron unidades en esta recepción. Si nada llegó, CANCELA o DESCARTA la orden; no se puede asentar un ingreso vacío."))
         }
+        // R3: el dinero jamás se ignora en silencio. Sin número de factura no hay asiento de
+        // pago posible; un monto pagado o saldo a favor sin factura quedaría sin registro.
+        val hayDineroSinFactura = montoPagadoEnRecepcion > 0.01 || pagosRecepcion.isNotEmpty() || saldoAFavorUsado > 0.01
+        if (numFacturaLimpio.isBlank() && hayDineroSinFactura) {
+            return Result.failure(IllegalArgumentException(
+                "Registraste dinero (pago o saldo a favor) sin número de factura; ese pago quedaría sin asiento. " +
+                    "Escribe el número de factura del proveedor para registrar el pago, o deja el pago en 0.00."
+            ))
+        }
         if (esRecepcionPedido && itemsConIngreso.all { it.cantidadComprada == 0 }) {
             return Result.failure(IllegalArgumentException("Los regalos acompañan una compra: incluye al menos una unidad comprada en la recepción."))
         }
@@ -795,6 +804,18 @@ class IngresoMercaderiaRepository(
                             }
                             proveedorIdSaldo = proveedorId
                             saldoSnapAnulacion = tx.get(SaldoAFavorFirestore.refSaldo(db, farmaciaId, sucursalId, proveedorId))
+                            // La ficha del proveedor (donde vive el saldo a favor) puede haber sido
+                            // eliminada mientras la factura seguía viva. Un tx.update sobre esa ficha
+                            // fallaría con un error técnico y encallaría la anulación entera sin
+                            // explicar nada. Aquí se corta con la verdad humana y las opciones reales.
+                            if (saldoSnapAnulacion == null || !saldoSnapAnulacion.exists()) {
+                                val nombreProv = facturaSnap.getString("proveedorNombre")?.takeIf { it.isNotBlank() }?.trim() ?: proveedorId
+                                throw IllegalStateException(
+                                    "El proveedor '$nombreProv' ya no existe (fue eliminado), así que no se puede " +
+                                        "registrar el saldo a favor sin su ficha. Elige 'devolución recibida' del dinero o " +
+                                        "declara la pérdida; o registra primero al proveedor de nuevo y reintenta la anulación."
+                                )
+                            }
                         }
                         "DEVOLUCION_RECIBIDA" -> {
                             if (metodoDevolucion.trim().isBlank()) {

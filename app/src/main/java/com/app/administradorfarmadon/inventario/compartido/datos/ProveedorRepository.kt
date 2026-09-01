@@ -140,7 +140,24 @@ class ProveedorRepository(
                     tx.set(docRef, data, com.google.firebase.firestore.SetOptions.merge())
                 }.await()
             } else {
-                docRef.set(data, com.google.firebase.firestore.SetOptions.merge()).await()
+                // Edición con transacción: si otra persona ELIMINÓ el proveedor mientras
+                // se editaba, el guardado NO lo resucita. Un set(merge) sin verificación
+                // recrearía la ficha desde cero, sin su saldo a favor ni su historial
+                // (la plata se quedaría sin casa y el historial se perdería en silencio).
+                // La transacción relee el documento: se guarda solo si sigue existiendo,
+                // y un saldo a favor que cambió mientras se editaba jamás se pisa (merge
+                // solo toca los campos comerciales; el dinero nace y se mueve en sus
+                // propias transacciones).
+                db.runTransaction { tx ->
+                    val snap = tx.get(docRef)
+                    if (!snap.exists()) {
+                        throw IllegalStateException(
+                            "El proveedor fue eliminado mientras lo editabas; no se guardó. " +
+                                "Cierra el formulario y revisa la lista de proveedores."
+                        )
+                    }
+                    tx.set(docRef, data, com.google.firebase.firestore.SetOptions.merge())
+                }.await()
             }
             Result.success(provId)
         } catch (e: Exception) {

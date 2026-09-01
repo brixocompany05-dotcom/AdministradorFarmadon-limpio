@@ -82,6 +82,9 @@ data class ComprasUiState(
     val busquedaQuery: String = "",
     val cargando: Boolean = true,
     val guardandoProveedor: Boolean = false,
+    /** Error REAL del guardado de proveedor, mostrado DENTRO del diálogo (R3: el bloqueo
+     *  se ve donde ocurre; el snackbar quedaría tapado por el diálogo). */
+    val errorGuardadoProveedor: String? = null,
     val procesandoPago: Boolean = false,
     val enviandoPedido: Boolean = false,
     val procesandoEdicionPedido: Boolean = false,

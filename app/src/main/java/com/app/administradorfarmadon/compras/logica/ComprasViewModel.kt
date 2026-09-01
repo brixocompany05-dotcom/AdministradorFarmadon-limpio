@@ -1430,7 +1430,13 @@ class ComprasViewModel(
     }
 
     fun cerrarDialogoProveedor() {
-        _uiState.update { it.copy(mostrarDialogoProveedor = false, proveedorEditando = null) }
+        _uiState.update {
+            it.copy(
+                mostrarDialogoProveedor = false,
+                proveedorEditando = null,
+                errorGuardadoProveedor = null
+            )
+        }
     }
 
     fun guardarProveedor(
@@ -1468,6 +1474,7 @@ class ComprasViewModel(
             _uiState.update {
                 it.copy(
                     guardandoProveedor = true,
+                    errorGuardadoProveedor = null,
                     mensajeError = null,
                     mensajeExito = null
                 )
@@ -1487,7 +1494,10 @@ class ComprasViewModel(
                 _uiState.update {
                     it.copy(
                         guardandoProveedor = false,
-                        mensajeError = errorMsg
+                        // El error se ve DENTRO del diálogo, en el lugar del bloqueo (R3):
+                        // el snackbar quedaría tapado por el diálogo y el fallo sería silencioso.
+                        errorGuardadoProveedor = errorMsg,
+                        mensajeError = null
                     )
                 }
             }

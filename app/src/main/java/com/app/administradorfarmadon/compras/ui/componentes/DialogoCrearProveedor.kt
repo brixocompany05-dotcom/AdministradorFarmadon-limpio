@@ -1,5 +1,6 @@
 package com.app.administradorfarmadon.compras.ui.componentes
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +35,7 @@ import java.util.Locale
 fun DialogoCrearProveedor(
     proveedorEditando: Proveedor? = null,
     guardando: Boolean = false,
+    errorGuardado: String? = null,
     onGuardar: (
         nombre: String,
         idFiscal: String,
@@ -238,6 +241,40 @@ fun DialogoCrearProveedor(
                     modifier = Modifier.weight(1f)
                 )
             }
+        }
+
+        // Error REAL del guardado visible aquí mismo, en el lugar del bloqueo (R3):
+        // si el proveedor fue eliminado mientras se editaba, la persona lo ve y decide.
+        errorGuardado?.let { error ->
+            Surface(
+                color = colores.estadoPeligro.copy(alpha = 0.07f),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, colores.estadoPeligro.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = colores.estadoPeligro,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = error,
+                        style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = colores.estadoPeligro,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
         }
 
         Spacer(Modifier.height(24.dp))
