@@ -12,7 +12,6 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques
 import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto
-import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
@@ -134,32 +133,6 @@ class ProductoDetalleLecturaRepository(
         awaitClose {
             listener.remove()
         }
-    }
-
-
-    private fun calcularResumenStockYFefo(lotesMap: Map<*, *>): Triple<Double, Double, String> {
-        val nuevoStockDisponible = lotesMap.values.sumOf { 
-            val data = it as? Map<*, *>
-            (data?.get("cantidad") as? Number)?.toDouble() ?: 0.0 
-        }
-        val nuevoStockTotal = lotesMap.values.sumOf { 
-            val data = it as? Map<*, *>
-            val cDisp = (data?.get("cantidad") as? Number)?.toDouble() ?: 0.0
-            val cBloq = (data?.get("cantidadBloqueada") as? Number)?.toDouble() ?: 0.0
-            cDisp + cBloq
-        }
-        val nuevoVencimientoMasCercano = lotesMap.values
-            .mapNotNull { it as? Map<*, *> }
-            .filter { 
-                val cDisp = (it["cantidad"] as? Number)?.toDouble() ?: 0.0
-                cDisp > 0.0 && (it["vencimiento"] as? String)?.isNotBlank() == true
-            }
-            .minByOrNull { 
-                val v = it["vencimiento"] as? String ?: ""
-                ProductDetailMapper.diasHastaVencer(v) ?: Int.MAX_VALUE 
-            }?.get("vencimiento") as? String ?: ""
-
-        return Triple(nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano)
     }
 
 

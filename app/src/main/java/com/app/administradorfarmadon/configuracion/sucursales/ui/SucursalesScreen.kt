@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -64,6 +65,19 @@ fun SucursalesScreen(
     val listState = rememberLazyListState()
 
     var mostrarSelectorMapa by remember { mutableStateOf(false) }
+    var dispararConfeti by remember { mutableStateOf(false) }
+
+    // R3: Éxito visible — la animación de confeti se dispara al registrar exitosamente una nueva sede
+    val mensajeExito = state.mensajeExito
+    LaunchedEffect(mensajeExito) {
+        if (!mensajeExito.isNullOrBlank()) {
+            if (mensajeExito.contains("Sede registrada", ignoreCase = true) || mensajeExito.contains("exitosamente", ignoreCase = true)) {
+                dispararConfeti = true
+            }
+            Toast.makeText(context, mensajeExito, Toast.LENGTH_LONG).show()
+            viewModel.limpiarMensajes()
+        }
+    }
 
     // La ubicación se elige solo por acción explícita del usuario desde el mapa.
     // No se dispara un diálogo de dirección al iniciar ni al intentar crear una sucursal.
@@ -89,7 +103,8 @@ fun SucursalesScreen(
         when {
             isKeyboardVisibleSuc -> { keyboardControllerSuc?.hide(); focusManagerSuc.clearFocus(force = true) }
             mostrarSelectorMapa -> mostrarSelectorMapa = false
-            state.mostrarDialogoEliminar || state.mostrarDialogoDescartar || state.mostrarDialogoLimite -> viewModel.cerrarDialogos()
+            state.mostrarDialogoDescartar -> viewModel.seguirEditando()
+            state.mostrarDialogoEliminar || state.mostrarDialogoLimite -> viewModel.cerrarDialogos()
             panelAbierto -> viewModel.solicitarCerrarPanel()
             else -> viewModel.solicitarVolver(onVolver)
         }
@@ -100,10 +115,26 @@ fun SucursalesScreen(
         DialogoLimitePlan(state.planNombre, state.maxSucursales) { viewModel.cerrarDialogos() }
     }
     if (state.mostrarDialogoEliminar && state.sucursalSeleccionada != null) {
-        DialogoConfirmarEliminar(state.sucursalSeleccionada!!.nombre, state.colaboradoresAsignadosNombres, { viewModel.confirmarEliminar() }) { viewModel.cerrarDialogos() }
+        DialogoEliminarSedePasos(
+            nombreSucursal = state.sucursalSeleccionada!!.nombre,
+            colaboradores = state.colaboradoresAsignados,
+            sedesDisponibles = state.sucursales.filter { it.id != state.sucursalSeleccionada!!.id },
+            pasoActual = state.pasoEliminarSede,
+            opcionMacro = state.opcionMacroEliminarPersonal,
+            subOpcionReubicar = state.subOpcionReubicar,
+            sedeDestinoTodosId = state.sedeDestinoTodosId,
+            mapaDestinoIndividual = state.mapaDestinoIndividual,
+            onSeleccionarOpcionMacro = viewModel::seleccionarOpcionMacroEliminarPersonal,
+            onSetSubOpcionReubicar = viewModel::setSubOpcionReubicar,
+            onSetSedeDestinoTodos = viewModel::setSedeDestinoTodos,
+            onSetSedeDestinoIndividual = viewModel::setSedeDestinoIndividual,
+            onVolverPaso = viewModel::volverPasoEliminarSede,
+            onConfirmarEliminar = viewModel::confirmarEliminar,
+            onDismiss = viewModel::cerrarDialogos
+        )
     }
     if (state.mostrarDialogoDescartar) {
-        DialogoDescartarCambios({ viewModel.confirmarDescartar() }) { viewModel.cerrarDialogos() }
+        DialogoDescartarCambios({ viewModel.confirmarDescartar() }) { viewModel.seguirEditando() }
     }
     if (mostrarSelectorMapa) {
         AddressPickerDialog(
@@ -168,7 +199,13 @@ fun SucursalesScreen(
             horizontalArrangement = Arrangement.spacedBy(s.gapMedium)
         ) {
             IconButton(
-                onClick = { viewModel.solicitarVolver(onVolver) },
+                onClick = {
+                    if (panelAbierto) {
+                        viewModel.solicitarCerrarPanel()
+                    } else {
+                        viewModel.solicitarVolver(onVolver)
+                    }
+                },
                 modifier = Modifier
                     .size(s.btnSmallH * 1.15f)
                     .clip(RoundedCornerShape(s.radiusButton))
@@ -234,10 +271,14 @@ fun SucursalesScreen(
                         .background(FDColors.Border)
                 )
 
+                val esTemaOscuro = !colores.esTemaClaro
+                val fondoPanelContenedor = if (esTemaOscuro) Color(0xFF11151F) else Color(0xFFF1F5F9)
+                val bordePanelContenedor = if (esTemaOscuro) Color.White.copy(alpha = 0.12f) else Color(0xFFCBD5E1)
+
                 Surface(
-                    color = colores.cardBase,
+                    color = fondoPanelContenedor,
                     shape = RoundedCornerShape(s.radiusCard * 0.75f),
-                    border = BorderStroke(s.borderWidth, colores.cardBorde),
+                    border = BorderStroke(s.borderWidth, bordePanelContenedor),
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 ) {
                     if (state.cargando) {
@@ -321,14 +362,18 @@ fun SucursalesScreen(
                 }
             }
 
-            // Sin cajas anidadas: el detalle ya es una Surface única — el contenedor externo es solo Box con borde vivo
+            // Panel derecho con fondo mate contrastante y borde definido
+            val esTemaOscuroPanel = !colores.esTemaClaro
+            val fondoPanelDerecho = if (esTemaOscuroPanel) Color(0xFF11151F) else Color(0xFFF1F5F9)
+            val bordePanelDerecho = if (esTemaOscuroPanel) Color.White.copy(alpha = 0.12f) else Color(0xFFCBD5E1)
+
             Box(
                 modifier = Modifier
                     .weight(0.65f)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(s.radiusCard * 0.75f))
-                    .background(colores.cardBase)
-                    .border(s.borderWidth, if (panelAbierto) FDColors.Primary.copy(alpha = 0.4f) else colores.cardBorde, RoundedCornerShape(s.radiusCard * 0.75f))
+                    .background(fondoPanelDerecho)
+                    .border(s.borderWidth, if (panelAbierto) FDColors.Primary.copy(alpha = 0.5f) else bordePanelDerecho, RoundedCornerShape(s.radiusCard * 0.75f))
             ) {
                 if (panelAbierto) {
                     SucursalFormularioPanel(
@@ -342,13 +387,20 @@ fun SucursalesScreen(
                         { viewModel.guardarSucursal() },
                         { viewModel.solicitarEliminar() },
                         { viewModel.solicitarCerrarPanel() },
-                        s
+                        s,
+                        onAddressSelected = viewModel::onAddressSelected
                     )
                 } else {
                     EmptyDetailPlaceholder(colores, s)
                 }
             }
         }
+
+        ConfettiAnimation(
+            mostrar = dispararConfeti,
+            onTerminado = { dispararConfeti = false },
+            modifier = Modifier.fillMaxSize()
+        )
         } // BoxWithConstraints
     }
 }

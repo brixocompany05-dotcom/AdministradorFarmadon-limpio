@@ -47,6 +47,7 @@ import com.app.administradorfarmadon.configuracion.usuarios.logica.UsuariosViewM
 import com.app.administradorfarmadon.configuracion.usuarios.ui.UsuariosScreen
 import com.app.administradorfarmadon.configuracion.plan.ui.GestionPlanScreen
 import com.app.administradorfarmadon.configuracion.plan.ui.PlanFacturacionScreen
+import com.app.administradorfarmadon.facturacionelectronica.ui.FacturacionElectronicaScreen
 import com.app.administradorfarmadon.configuracion.ui.ConfiguracionScreen
 import com.app.administradorfarmadon.configuracion.metodospago.ui.MetodosPagoScreen
 import com.app.administradorfarmadon.notificaciones.suscripcion.logica.AlertaSuscripcionViewModel
@@ -367,7 +368,11 @@ private fun AppNavHost(
     NavHost(
         navController = navController,
         startDestination = "inventario",
-        modifier = modifier
+        modifier = modifier,
+        enterTransition = { fadeIn(animationSpec = androidx.compose.animation.core.tween(150)) },
+        exitTransition = { fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) },
+        popEnterTransition = { fadeIn(animationSpec = androidx.compose.animation.core.tween(150)) },
+        popExitTransition = { fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) }
     ) {
         // --- INVENTARIO ---
         composable("inventario") {
@@ -407,10 +412,36 @@ private fun AppNavHost(
         }
 
         // --- VENTAS ---
-        composable("ventas") { com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen() }
-        composable("ventas_nueva") { com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen() }
-        composable("ventas_dia")   { PantallaEnConstruccion("Ventas del Día") { navController.popBackStack() } }
-        composable("ventas_devoluciones") { PantallaEnConstruccion("Devoluciones") { navController.popBackStack() } }
+        composable("ventas") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("ventas_nueva") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("ventas_dia") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "VENTAS DEL DÍA",
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("ventas_devoluciones") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "DEVOLUCIONES",
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("ventas_caja") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "CIERRE DE CAJA",
+                onVolver = { navController.popBackStack() }
+            )
+        }
 
         // --- DISPENSACIÓN ---
         composable("dispensacion_recetas") { PantallaEnConstruccion("Recetas Médicas") { navController.popBackStack() } }
@@ -444,7 +475,11 @@ private fun AppNavHost(
         composable("inventario_transferencias") { PantallaEnConstruccion("Transferencias entre Sucursales") { navController.popBackStack() } }
 
         // --- CLIENTES ---
-        composable("clientes_directorio") { PantallaEnConstruccion("Directorio de Clientes") { navController.popBackStack() } }
+        composable("clientes_directorio") {
+            com.app.administradorfarmadon.clientes.ui.ClientesScreen(
+                onVolver = { navController.popBackStack() }
+            )
+        }
         composable("clientes_puntos") { PantallaEnConstruccion("Programa de Puntos") { navController.popBackStack() } }
         composable("clientes_historial") { PantallaEnConstruccion("Historial Clínico") { navController.popBackStack() } }
 
@@ -518,12 +553,21 @@ private fun AppNavHost(
         composable("config_plan") { pantallaPlan() }
         composable("plan") { pantallaPlan() }
 
+        // --- FACTURACIÓN ELECTRÓNICA ---
+        val pantallaFacturacion: @Composable () -> Unit = {
+            FacturacionElectronicaScreen(
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("facturacion") { pantallaFacturacion() }
+        composable("facturacion_electronica") { pantallaFacturacion() }
+
         // --- MÓDULOS DEL CATÁLOGO (rutas por código canónico) ---
         // El sidebar navega por código de módulo (plan/rol/overrides en tiempo
         // real). Cada módulo sin pantalla propia aún llega a un placeholder
         // honesto. "inventario", "compras", "sucursales" y "usuarios" ya tienen pantalla real arriba.
         val modulosPendientes = listOf(
-            "facturacion", "clientes_crm", "reportes", "soporte",
+            "clientes_crm", "reportes", "soporte",
             "notificaciones", "api", "automatizaciones", "bi", "marketplace",
             "backups", "observabilidad", "ia_copiloto", "ia_sugeridor", "reglas_negocio",
             "camara_qr", "gestion_documental", "telemedicina", "pagos_embebidos",

@@ -215,6 +215,32 @@ object FechaVencimientoHelper {
             ?.get("vencimiento") as? String ?: ""
     }
 
+    /**
+     * Resumen canónico tras mutar lotes: (stockDisponible, stockTotal, vencimientoMásCercano).
+     * Fuente única: lo usan bloqueo, devolución, canje y anulación — una sola regla,
+     * imposible que dos caminos calculen distinto el mismo estante.
+     */
+    fun resumenStockYFefo(lotesMap: Map<*, *>): Triple<Double, Double, String> {
+        val stockDisponible = lotesMap.values.sumOf {
+            ((it as? Map<*, *>)?.get("cantidad") as? Number)?.toDouble() ?: 0.0
+        }
+        val stockTotal = lotesMap.values.sumOf {
+            val d = it as? Map<*, *>
+            val cDisp = (d?.get("cantidad") as? Number)?.toDouble() ?: 0.0
+            val cBloq = (d?.get("cantidadBloqueada") as? Number)?.toDouble() ?: 0.0
+            cDisp + cBloq
+        }
+        val vencMasCercano = lotesMap.values
+            .mapNotNull { it as? Map<*, *> }
+            .filter {
+                val cDisp = (it["cantidad"] as? Number)?.toDouble() ?: 0.0
+                cDisp > 0.0 && (it["vencimiento"] as? String)?.isNotBlank() == true
+            }
+            .minByOrNull { diasHastaVencer(it["vencimiento"] as? String ?: "") ?: Int.MAX_VALUE }
+            ?.get("vencimiento") as? String ?: ""
+        return Triple(stockDisponible, stockTotal, vencMasCercano)
+    }
+
     fun timestampDeVencimiento(vencimiento: String): Long {
         if (vencimiento.isBlank() || vencimiento == "—”") return 0L
         return try {

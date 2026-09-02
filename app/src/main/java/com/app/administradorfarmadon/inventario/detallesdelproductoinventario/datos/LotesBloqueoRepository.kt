@@ -13,7 +13,6 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques
 import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto
-import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
@@ -112,9 +111,7 @@ class LotesBloqueoRepository(
                 loteData["ultimaModificacionEstado"] = FieldValue.serverTimestamp()
                 lotesMap[cleanKeyReal] = loteData
 
-                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = calcularResumenStockYFefo(
-                    lotesMap
-                )
+                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = FechaVencimientoHelper.resumenStockYFefo(lotesMap)
 
                 val updatesProducto = mutableMapOf<String, Any>(
                     "lotes" to lotesMap,
@@ -250,12 +247,25 @@ class LotesBloqueoRepository(
                                 "La trazabilidad sanitaria debe preservarse. Usa MERMA o DEVOLUCIÓN para las unidades restantes."
                     )
                 }
+                // Candado anti-borrado ajeno: si el lote junta mercadería de MÁS DE UN
+                // ingreso (dos facturas, o ajuste + compra), anularlo borraría también lo
+                // que no nació de esta recepción. Se bloquea con la salida correcta.
+                @Suppress("UNCHECKED_CAST")
+                val entradasDelLote = (loteData["entradas"] as? List<Map<String, Any>>) ?: emptyList()
+                val origenesDistintos = entradasDelLote
+                    .mapNotNull { (it["factura"] as? String)?.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                if (origenesDistintos.size > 1) {
+                    throw Exception(
+                        "El lote ${lote.numero} junta mercadería de ${origenesDistintos.size} ingresos distintos (${origenesDistintos.take(3).joinToString(" · ")}). " +
+                                "Anularlo borraría también lo que no nació de esta compra. Corrige la cantidad con Ajuste de salida (error de conteo) o anula la factura desde Cuentas por Pagar."
+                    )
+                }
                 val cleanKey = cleanKeyRealAnular
 
                 lotesMap.remove(cleanKeyRealAnular)
-                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = calcularResumenStockYFefo(
-                    lotesMap
-                )
+                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = FechaVencimientoHelper.resumenStockYFefo(lotesMap)
 
                 val updatesProducto = mutableMapOf<String, Any>(
                     "lotes" to lotesMap,
@@ -287,34 +297,47 @@ class LotesBloqueoRepository(
                 if (esFacturaFormal) {
                     val cleanNumero =
                         facturaNumeroRaw.uppercase().replace("/", "-").replace(" ", "_")
-                    val provKey = proveedorNombreRaw.uppercase().replace("/", "-").replace(" ", "_")
+                    val provIdLote = (loteData["proveedorId"] as? String)?.trim().orEmpty()
+                    val provKeyNombre = proveedorNombreRaw.uppercase().replace("/", "-").replace(" ", "_")
                         .replace(".", "__DOT__")
-                    val compositeId = "${provKey}__${cleanNumero}"
-                    val facturaRef = tiendaRef.collection("compras_facturas").document(compositeId)
-                    val legacyRef = tiendaRef.collection("compras_facturas").document(cleanNumero)
-                    // Si la lectura falla, la TRANSACCIÓN falla con la verdad (jamás se
-                    // salta la sincronización de la factura ni del pedido en silencio).
-                    var snapLeida = tx.get(facturaRef)
-                    var refEfectiva = facturaRef
-                    if (!snapLeida.exists()) {
-                        val legacySnap = tx.get(legacyRef)
-                        if (legacySnap.exists()) {
-                            val legProv = legacySnap.getString("proveedorNombre") ?: ""
-                            if (legProv.trim().equals(proveedorNombreRaw, ignoreCase = true)) {
-                                snapLeida = legacySnap
-                                refEfectiva = legacyRef
-                            }
+                    // La factura pudo nacer con llave proveedorId__numero O nombre__numero
+                    // (llegadas por pedido o por ingreso suelto). Se prueban todas las llaves
+                    // reales: si ninguna existe, se ABORTA con la verdad (jamás se anula el
+                    // lote dejando la factura viva con su deuda intacta en silencio).
+                    val candidatas = buildList {
+                        if (provIdLote.isNotBlank()) add(tiendaRef.collection("compras_facturas").document("${provIdLote}__${cleanNumero}"))
+                        if (provKeyNombre.isNotBlank()) add(tiendaRef.collection("compras_facturas").document("${provKeyNombre}__${cleanNumero}"))
+                        add(tiendaRef.collection("compras_facturas").document(cleanNumero))
+                    }.distinctBy { it.id }
+                    var snapLeida: com.google.firebase.firestore.DocumentSnapshot? = null
+                    var refEfectiva: com.google.firebase.firestore.DocumentReference? = null
+                    for (refC in candidatas) {
+                        val c = tx.get(refC)
+                        if (!c.exists()) continue
+                        // La llave plana de OTRO proveedor no es esta factura.
+                        if (refC.id == cleanNumero && candidatas.size > 1) {
+                            val provDeLaFactura = (c.getString("proveedorNombre") ?: "").trim()
+                            val idProvDeLaFactura = (c.getString("proveedorId") ?: "").trim()
+                            val mismo = (provIdLote.isNotBlank() && idProvDeLaFactura == provIdLote) ||
+                                provDeLaFactura.equals(proveedorNombreRaw, ignoreCase = true)
+                            if (!mismo) continue
                         }
+                        snapLeida = c
+                        refEfectiva = refC
+                        break
                     }
-                    if (snapLeida.exists()) {
-                        facturaSnap = snapLeida
-                        effectiveRef = refEfectiva
-                        // El pedido asociado también se lee AHORA, en la zona de lecturas.
-                        val pedidoIdLectura = snapLeida.getString("pedidoId") ?: ""
-                        if (pedidoIdLectura.isNotBlank()) {
-                            pedidoRefFactura = tiendaRef.collection("pedidos_compra").document(pedidoIdLectura)
-                            pedidoSnapFactura = tx.get(pedidoRefFactura!!)
-                        }
+                    if (snapLeida == null) {
+                        throw IllegalStateException(
+                            "La factura $facturaNumeroRaw de este lote no aparece en Cuentas por Pagar; anular el lote sin tocarla dejaría la deuda y el stock partidos. No se anuló nada: revisa la factura primero."
+                        )
+                    }
+                    facturaSnap = snapLeida
+                    effectiveRef = refEfectiva
+                    // El pedido asociado también se lee AHORA, en la zona de lecturas.
+                    val pedidoIdLectura = snapLeida.getString("pedidoId") ?: ""
+                    if (pedidoIdLectura.isNotBlank()) {
+                        pedidoRefFactura = tiendaRef.collection("pedidos_compra").document(pedidoIdLectura)
+                        pedidoSnapFactura = tx.get(pedidoRefFactura!!)
                     }
                 }
 
@@ -451,30 +474,89 @@ class LotesBloqueoRepository(
         }
     }
 
-
-
-    private fun calcularResumenStockYFefo(lotesMap: Map<*, *>): Triple<Double, Double, String> {
-        val nuevoStockDisponible = lotesMap.values.sumOf {
-            val data = it as? Map<*, *>
-            (data?.get("cantidad") as? Number)?.toDouble() ?: 0.0
+    /**
+     * Corrección de vencimiento mal tipeado al recibir. Sin esto, un "12/2026" que era
+     * "12/2027" mentiría en las alertas para siempre (y la única salida era anular el
+     * lote entero — demasiado destructivo). Es una transacción atómica que NO toca
+     * cantidades: solo corrige la fecha, recalcula el FEFO del producto y deja asiento
+     * en el kardex con el antes → después, quién y por qué.
+     * La fecha puede quedar en el pasado a propósito (la mercadería realmente está
+     * vencida hoy): corregir hacia la verdad jamás se bloquea.
+     */
+    suspend fun corregirVencimientoLote(
+        clienteId: String,
+        productId: String,
+        lote: LoteProducto,
+        nuevoVencimiento: String,
+        motivo: String,
+        usuarioEmail: String
+    ): Result<Unit> {
+        // R1: el tenant de la sesión es el clienteId de la farmacia (RUC), no el uid de auth.
+        if (clienteId != SessionManager.clienteIdGarantizado) return Result.failure(
+            SecurityException("Aislamiento entre farmacias: el registro no pertenece a tu farmacia.")
+        )
+        if (clienteId.isBlank() || productId.isBlank() || lote.numero.isBlank()) {
+            return Result.failure(Exception("Datos insuficientes para corregir el vencimiento."))
         }
-        val nuevoStockTotal = lotesMap.values.sumOf {
-            val data = it as? Map<*, *>
-            val cDisp = (data?.get("cantidad") as? Number)?.toDouble() ?: 0.0
-            val cBloq = (data?.get("cantidadBloqueada") as? Number)?.toDouble() ?: 0.0
-            cDisp + cBloq
+        val vtoNorm = FechaVencimientoHelper.normalizar(nuevoVencimiento.trim())
+            ?: return Result.failure(IllegalArgumentException("La fecha nueva no es válida (usa formato mes/año)."))
+        if (motivo.trim().length < 5) {
+            return Result.failure(IllegalArgumentException("Escribe el motivo real de la corrección (mínimo 5 letras)."))
         }
-        val nuevoVencimientoMasCercano = lotesMap.values
-            .mapNotNull { it as? Map<*, *> }
-            .filter {
-                val cDisp = (it["cantidad"] as? Number)?.toDouble() ?: 0.0
-                cDisp > 0.0 && (it["vencimiento"] as? String)?.isNotBlank() == true
-            }
-            .minByOrNull {
-                val v = it["vencimiento"] as? String ?: ""
-                ProductDetailMapper.diasHastaVencer(v) ?: Int.MAX_VALUE
-            }?.get("vencimiento") as? String ?: ""
 
-        return Triple(nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano)
+        return try {
+            val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
+            val productRef = tiendaRef.collection("inventario").document(productId)
+            val movimientoRef = tiendaRef.collection("movimientos").document(UUID.randomUUID().toString())
+
+            db.runTransaction { tx ->
+                val snap = tx.get(productRef)
+                if (!snap.exists()) throw Exception("El producto no existe.")
+
+                val lotesMap = (snap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
+                val res = FechaVencimientoHelper.resolverLote(lotesMap, lote.numero)
+                    ?: throw Exception("El lote ya no existe en inventario.")
+                val (cleanKeyReal, loteData) = res
+                val vencActual = (loteData["vencimiento"] as? String)?.trim().orEmpty()
+                val vencActualNorm = FechaVencimientoHelper.normalizar(vencActual) ?: vencActual
+                if (vencActualNorm == vtoNorm) {
+                    throw IllegalArgumentException("El lote ${lote.numero} ya tiene el vencimiento $vtoNorm; no hay nada que corregir.")
+                }
+
+                loteData["vencimiento"] = vtoNorm
+                lotesMap[cleanKeyReal] = loteData
+
+                // Solo recalcula la fecha guía del producto; el stock no se toca.
+                val (_, _, nuevoVencimientoMasCercano) = FechaVencimientoHelper.resumenStockYFefo(lotesMap)
+                tx.update(
+                    productRef,
+                    mapOf(
+                        "lotes" to lotesMap,
+                        "vencimientoMasCercano" to nuevoVencimientoMasCercano,
+                        "actualizadoEl" to FieldValue.serverTimestamp()
+                    )
+                )
+
+                // Asiento de kardex: qué cambió (antes → después), quién y por qué.
+                tx.set(
+                    movimientoRef,
+                    mapOf(
+                        "id" to movimientoRef.id,
+                        "tipo" to "CORRECCION_VENCIMIENTO",
+                        "productoId" to productId,
+                        "productoNombre" to (snap.getString("nombre") ?: ""),
+                        "loteNumero" to lote.numero,
+                        "cantidad" to 0.0,
+                        "motivo" to "Vencimiento corregido: ${vencActual.ifBlank { "sin fecha" }} → $vtoNorm. ${motivo.trim()}",
+                        "usuarioEmail" to usuarioEmail,
+                        "fecha" to FieldValue.serverTimestamp()
+                    )
+                )
+            }.await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error corrigiendo vencimiento del lote ${lote.numero}: ${e.message}", e)
+            Result.failure(e)
+        }
     }
 }

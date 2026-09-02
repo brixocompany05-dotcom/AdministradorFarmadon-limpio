@@ -271,6 +271,12 @@ class IngresoMercaderiaRepository(
                 // ── 1. Actualizar cada producto + kardex (fase de escrituras) ──
                 val itemsFacturaList = mutableListOf<Map<String, Any>>()
                 var totalCostoCalculado = 0.0
+                // ACUMULADOR POR PRODUCTO (R3, cero pérdida): una misma recepción puede
+                // traer el MISMO producto en 2+ lotes distintos. Cada fila debe partir
+                // del mapa YA mutado por la fila anterior — si cada una arrancara de la
+                // foto original, la segunda fila BORRARÍA el lote de la primera al
+                // sobrescribir el campo "lotes".
+                val lotesAcumuladosPorProducto = HashMap<String, MutableMap<Any?, Any?>>()
 
                 for (item in itemsConIngreso) {
                     val productRef = tiendaRef.collection("inventario").document(item.productoId)
@@ -279,8 +285,10 @@ class IngresoMercaderiaRepository(
                     val movimientoId = UUID.randomUUID().toString()
                     val movimientoRef = tiendaRef.collection("movimientos").document(movimientoId)
                     val cleanLoteKey = FechaVencimientoHelper.llaveLote(item.loteNumero)
-                    @Suppress("UNCHECKED_CAST")
-                    val currentLotes = (productSnap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
+                    val currentLotes = lotesAcumuladosPorProducto.getOrPut(item.productoId) {
+                        @Suppress("UNCHECKED_CAST")
+                        ((productSnap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>())
+                    }
                     val resLote = FechaVencimientoHelper.resolverLote(currentLotes, item.loteNumero)
                     val keyLoteDestino = resLote?.first ?: cleanLoteKey
                     val loteActualData = resLote?.second as? Map<*, *>
@@ -865,7 +873,10 @@ class IngresoMercaderiaRepository(
                     )
                 }
 
-                // Si con devolución, validar y descontar stock por cada item
+                // Si con devolución, validar y descontar stock por cada item.
+                // Misma regla anti-pérdida que en la recepción: la factura puede traer el
+                // MISMO producto en 2+ lotes; cada fila parte del mapa ya mutado.
+                val lotesAcumuladosAnulacion = HashMap<String, MutableMap<Any?, Any?>>()
                 if (conDevolucion) {
                     for (itemMap in itemsRaw) {
                         val productoId = itemMap["productoId"] as? String ?: ""
@@ -876,8 +887,10 @@ class IngresoMercaderiaRepository(
                         val productRef = tiendaRef.collection("inventario").document(productoId)
                         val productSnap = productoSnapsDev[productoId]
                             ?: throw IllegalStateException("No se pudo leer el producto $productoId dentro de la anulación.")
-                        @Suppress("UNCHECKED_CAST")
-                        val currentLotes = (productSnap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
+                        val currentLotes = lotesAcumuladosAnulacion.getOrPut(productoId) {
+                            @Suppress("UNCHECKED_CAST")
+                            ((productSnap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>())
+                        }
                         val res = FechaVencimientoHelper.resolverLote(currentLotes, loteNumero)
                             ?: throw IllegalStateException("El lote $loteNumero de $productoId no existe. Ya se vendió o fue borrado.")
                         val key = res.first

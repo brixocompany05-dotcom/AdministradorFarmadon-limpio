@@ -171,14 +171,55 @@ class PreciosEtiquetasRepository(
                 val presentacionesPrevias = snapshot.get("presentaciones") as? List<Map<String, Any>> ?: emptyList()
                 val codigosNuevos = presentacionesData.mapNotNull { it["codigoBarras"] as? String }
                     .filter { it.isNotBlank() }.toSet()
-                val codigosPrevios = presentacionesPrevias.mapNotNull { it["codigoBarras"] as? String }
-                    .filter { it.isNotBlank() }.toSet()
                 // Fase de lecturas completa antes de escribir: verificar que ningún código
                 // de presentación pise a otro producto o a otra presentación.
                 for (codigo in codigosNuevos) {
                     CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codigo, productId)
                 }
-                val codigosEliminar = codigosPrevios - codigosNuevos
+
+                // ══ REGLA DE IDENTIDAD FÍSICA (nunca daño colateral) ══
+                // Un código ya impreso en una etiqueta física JAMÁS muere mientras el
+                // producto viva: su índice no se libera (nadie más podrá reclamarlo) y
+                // queda como alias vivo en `codigosAnteriores` de su presentación.
+                // Escanear la etiqueta vieja cobra ESA presentación a precio actual.
+                val previosPorId = presentacionesPrevias.mapNotNull { prev ->
+                    val pid = prev["presentacionId"] as? String ?: return@mapNotNull null
+                    val cod = CodigoBarraHelper.limpiar((prev["codigoBarras"] as? String) ?: "")
+                    val anteriores = (prev["codigosAnteriores"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                    pid to (cod to anteriores)
+                }.toMap()
+                val idsNuevos = presentacionesData.mapNotNull { it["presentacionId"] as? String }.toSet()
+
+                val codigosEditadosVivos = mutableSetOf<String>()  // cambió de código pero la presentación sigue
+                val presentacionesDataFinales = presentacionesData.map { data ->
+                    val pid = (data["presentacionId"] as? String) ?: ""
+                    val previo = previosPorId[pid]
+                    val codNuevo = CodigoBarraHelper.limpiar((data["codigoBarras"] as? String) ?: "")
+                    if (previo != null && previo.first.isNotBlank() && previo.first != codNuevo) {
+                        codigosEditadosVivos.add(previo.first)
+                        val anterioresFinales = (previo.second + previo.first)
+                            .map { CodigoBarraHelper.limpiar(it) }
+                            .filter { it.isNotBlank() && it != codNuevo }
+                            .distinct()
+                        data + ("codigosAnteriores" to anterioresFinales)
+                    } else {
+                        data
+                    }
+                }
+                // Códigos de presentaciones ELIMINADAS: tampoco mueren — escanear su
+                // etiqueta vieja debe encontrar al producto (nunca a otro producto).
+                val codigosDeEliminadas = previosPorId
+                    .filterKeys { it !in idsNuevos }
+                    .map { it.value.first }
+                    .filter { it.isNotBlank() }
+                val secundariosFinales = (
+                    (snapshot.get("codigosSecundarios") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                    ).toMutableList().apply {
+                        (codigosEditadosVivos + codigosDeEliminadas).forEach { cod ->
+                            val limpio = CodigoBarraHelper.limpiar(cod)
+                            if (limpio.isNotBlank() && !contains(limpio)) add(limpio)
+                        }
+                    }
 
                 val cambiosDetectados = mutableListOf<Map<String, Any>>()
                 val descripcionesCambios = mutableListOf<String>()
@@ -188,10 +229,17 @@ class PreciosEtiquetasRepository(
                     val precioNuevo = nuevaPres.precioventa
                     val presPrevia = presentacionesPrevias.firstOrNull { (it["presentacionId"] as? String) == nuevaPres.presentacionId }
                     val precioAnterior = (presPrevia?.get("precioventa") as? Number)?.toDouble() ?: 0.0
-                    if (precioAnterior > 0 && precioNuevo > 0 && Math.abs(precioNuevo - precioAnterior) > 0.01) {
+                    val codPrevio = previosPorId[nuevaPres.presentacionId]?.first ?: ""
+                    val codNuevoPres = CodigoBarraHelper.limpiar(nuevaPres.codigoBarras)
+                    val huboCambioPrecio = precioAnterior > 0 && precioNuevo > 0 && Math.abs(precioNuevo - precioAnterior) > 0.01
+                    val huboCambioCodigo = codPrevio.isNotBlank() && codPrevio != codNuevoPres
+                    if (huboCambioPrecio || huboCambioCodigo) {
                         val nom = nuevaPres.nombre.ifBlank { "Presentación" }
-                        val precioTxt = currencyFormatter.format(precioNuevo)
-                        descripcionesCambios.add("$nom ($precioTxt)")
+                        val motivoCambio = buildString {
+                            if (huboCambioPrecio) append(currencyFormatter.format(precioNuevo))
+                            if (huboCambioCodigo) append(if (huboCambioPrecio) " · " else "").append("código nuevo")
+                        }
+                        descripcionesCambios.add("$nom ($motivoCambio)")
                         cambiosDetectados.add(
                             mapOf(
                                 "presentacionId" to nuevaPres.presentacionId,
@@ -205,11 +253,13 @@ class PreciosEtiquetasRepository(
 
                 val updateMap = mutableMapOf<String, Any>(
                     "unidadBase" to CatalogoEmpaques.normalizarUnidad(unidadBase).ifBlank { unidadBase.trim() },
-                    "presentaciones" to presentacionesData,
+                    "presentaciones" to presentacionesDataFinales,
                     "precioVenta" to precioVentaPrincipal,
                     "actualizadoEl" to FieldValue.serverTimestamp(),
                     "actualizadoPor" to usuarioEmail
                 )
+                // Alias vivos del producto (códigos viejos de etiquetas físicas) — siempre conservados
+                updateMap["codigosSecundarios"] = secundariosFinales
 
                 val yaSeImprimieronEtiquetasAntes = snapshot.get("etiquetaUltimaImpresionEn") != null ||
                         snapshot.getBoolean("etiquetasImpresasPreviamente") == true
@@ -220,16 +270,32 @@ class PreciosEtiquetasRepository(
                     updateMap["etiquetasPendientesLista"] = cambiosDetectados
                     updateMap["etiquetaPendientePresentacionId"] = cambiosDetectados.first()["presentacionId"] as String
                     updateMap["etiquetaPendientePrecio"] = cambiosDetectados.first()["precio"] as Double
+                } else {
+                    // Poda R3: una reimpresión pendiente que apunta a una presentación que
+                    // YA NO existe jamás debe pedir papel (cero tareas ficticias).
+                    val pendientesPrevias = (snapshot.get("etiquetasPendientesLista") as? List<Map<String, Any>>) ?: emptyList()
+                    val pendientesVivas = pendientesPrevias.filter { (it["presentacionId"] as? String)?.let { id -> idsNuevos.contains(id) } == true }
+                    val pendienteIdSimple = snapshot.getString("etiquetaPendientePresentacionId") ?: ""
+                    val pendienteSimpleVivo = pendienteIdSimple.isBlank() || idsNuevos.contains(pendienteIdSimple)
+                    if (pendientesVivas.size != pendientesPrevias.size || !pendienteSimpleVivo) {
+                        updateMap["etiquetasPendientesLista"] = pendientesVivas
+                        if (!pendienteSimpleVivo) {
+                            updateMap["etiquetaPendientePresentacionId"] = ""
+                            updateMap["etiquetaPendientePrecio"] = 0.0
+                            updateMap["etiquetaPendienteDetalle"] = ""
+                        }
+                        val sigueHabiendoPendientes = pendientesVivas.isNotEmpty() ||
+                            (pendienteSimpleVivo && pendienteIdSimple.isNotBlank() && snapshot.getBoolean("etiquetaPendienteReimpresion") == true)
+                        updateMap["etiquetaPendienteReimpresion"] = sigueHabiendoPendientes
+                    }
                 }
 
                 tx.update(productRef, updateMap)
 
-                // Índices atómicos de códigos de presentación: eliminar los que ya no viven
-                // en este producto y crear los nuevos. Misma transacción, jamás huérfanos.
+                // Índices atómicos: aquí NADA se borra jamás (regla de identidad física).
+                // Un índice solo muere cuando el PRODUCTO entero muere sin etiquetas impresas
+                // (eliminarProductoDefinitivo). Se crean los índices de los códigos nuevos.
                 val nombreProducto = snapshot.getString("nombre") ?: ""
-                codigosEliminar.forEach { codigo ->
-                    CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codigo)
-                }
                 codigosNuevos.forEach { codigo ->
                     CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codigo, productId, nombreProducto)
                 }
@@ -376,6 +442,28 @@ class PreciosEtiquetasRepository(
                     if (codPrevio.isNotBlank() && codPrevio != codLimpio) {
                         updateMap["codigosSecundarios"] = FieldValue.arrayUnion(codPrevio)
 
+                        // La presentación base (la etiqueta de estante) hereda el código nuevo
+                        // y conserva el viejo como alias vivo: la etiqueta física vieja sigue
+                        // cobrando ESTA misma presentación (jamás "no existe", jamás otra).
+                        val principalIdCfg = (snapshot.get("presentacionPrincipalId") as? String)?.takeIf { it.isNotBlank() } ?: productId
+                        val presCfg = (snapshot.get("presentaciones") as? List<*>)?.mapNotNull { (it as? Map<*, *>)?.toMutableMap() } ?: mutableListOf()
+                        if (presCfg.isNotEmpty()) {
+                            var sincronizadaBase = false
+                            presCfg.forEach { m ->
+                                val esBase = ((m["presentacionId"] as? String) ?: principalIdCfg) == principalIdCfg
+                                if (esBase) {
+                                    val anteriores = (m["codigosAnteriores"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                                    m["codigosAnteriores"] = (anteriores + codPrevio)
+                                        .map { CodigoBarraHelper.limpiar(it) }
+                                        .filter { it.isNotBlank() && it != codLimpio }
+                                        .distinct()
+                                    m["codigoBarras"] = codLimpio
+                                    sincronizadaBase = true
+                                }
+                            }
+                            if (sincronizadaBase) updateMap["presentaciones"] = presCfg
+                        }
+
                         val yaSeImprimieronEtiquetasAntes = snapshot.get("etiquetaUltimaImpresionEn") != null ||
                                 snapshot.getBoolean("etiquetasImpresasPreviamente") == true
 
@@ -391,13 +479,14 @@ class PreciosEtiquetasRepository(
 
                 tx.update(productRef, updateMap)
 
-                // Mantener índice atómico sincronizado (dentro del mismo candado)
+                // Mantener índice atómico sincronizado (dentro del mismo candado).
+                // Regla de identidad física: el índice del código VIEJO NUNCA se borra
+                // mientras el producto viva — sigue apuntando a este producto, así la
+                // etiqueta física vieja siempre encuentra a su dueño y ningún otro
+                // producto podrá reclamar ese código jamás.
                 if (nuevoCodigo != null) {
                     val codLimpio = CodigoBarraHelper.limpiar(nuevoCodigo)
                     val codPrevio = CodigoBarraHelper.limpiar(CodigoBarraHelper.leerCodigo(snapshot))
-                    if (codPrevio.isNotBlank() && codPrevio != codLimpio) {
-                        CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codPrevio)
-                    }
                     if (codLimpio.isNotBlank() && codLimpio != codPrevio) {
                         val nombreParaIndice = snapshot.getString("nombre") ?: updateMap["nombre"] as? String ?: ""
                         CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codLimpio, productId, nombreParaIndice)
@@ -502,10 +591,11 @@ class PreciosEtiquetasRepository(
             val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
             val productRef = tiendaRef.collection("inventario").document(productId)
 
-            // Pre-checks profesionales fuera de transacción (rápidos, sin índice compuesto)
+            // Pre-checks profesionales fuera de transacción (rápidos, sin índice compuesto).
+            // SIN límite: mirar solo un puñado de movimientos dejaría pasar una venta
+            // antigua; la regla "con ventas no se borra" se verifica contra TODO el kardex.
             val movSnap = tiendaRef.collection("movimientos")
                 .whereEqualTo("productoId", productId)
-                .limit(10)
                 .get()
                 .await()
             val tieneVentas = movSnap.documents.any { doc ->
@@ -564,9 +654,33 @@ class PreciosEtiquetasRepository(
                 .get()
                 .await()
 
+            // Guardia física: una transacción Firestore admite máx. 500 escrituras
+            // (archivar + borrar = 2 por movimiento + ~6 de cierre). Si el historial
+            // es grande, la transacción reventaría con un error técnico cada vez;
+            // mejor decir la verdad humana ANTES de intentar lo imposible.
+            if (movimientosAEliminar.size() > 240) {
+                return Result.failure(IllegalStateException(
+                    "Este producto tiene ${movimientosAEliminar.size()} movimientos de historial y no cabe en una sola operación segura. " +
+                    "Usa 'Pausar' para ocultarlo de caja —el historial queda intacto— o pide a soporte BRIXO la baja definitiva."
+                ))
+            }
+
             db.runTransaction { tx ->
                 val snap = tx.get(productRef)
                 if (!snap.exists()) throw IllegalStateException("El producto ya no existe.")
+
+                // Regla de identidad física: si este producto alguna vez imprimió etiquetas,
+                // esos papeles viven en el estante. Eliminarlo los dejaría mudos para siempre
+                // (y liberaría sus códigos para que otro producto los herede — daño colateral
+                // terminal). La salida honesta es PAUSAR: desaparece de caja y conserva todo.
+                val tuvoEtiquetasImpresas = snap.get("etiquetaUltimaImpresionEn") != null ||
+                    snap.getBoolean("etiquetasImpresasPreviamente") == true
+                if (tuvoEtiquetasImpresas) {
+                    throw IllegalStateException(
+                        "No se puede eliminar: este producto ya tiene etiquetas físicas impresas en la tienda. " +
+                        "Si desaparece, esas etiquetas quedarían mudas para siempre. Usa 'Pausar': no se vende ni se rompe nada."
+                    )
+                }
 
                 // Verdad única: stock debe ser 0 total (disponible + bloqueado)
                 val lotesMap = (snap.get("lotes") as? Map<*, *>) ?: emptyMap<Any?, Any?>()

@@ -1,13 +1,12 @@
 package com.app.administradorfarmadon.configuracion.sucursales.logica
-import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 
 import android.app.Application
-import android.content.Context
 import android.util.Log
+import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
-import com.app.administradorfarmadon.autenticacion.registro.paso1_datos.logica.UbicacionHelper
+import com.app.administradorfarmadon.configuracion.sucursales.datos.ManejoPersonalEliminacion
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 import com.app.administradorfarmadon.configuracion.sucursales.datos.SucursalesRepository
 import com.google.firebase.firestore.FirebaseFirestore
@@ -118,42 +117,44 @@ class SucursalesViewModel @JvmOverloads constructor(
                         }
                     }
                     .collect { lista ->
-                    // Orden de creación: la más antigua primero (SEDE-01, SEDE-02…).
-                    // El código interno es secuencial y nunca miente sobre el orden.
-                    val ordenada = lista.sortedBy { it.codigoInterno }
-                    _uiState.update { currentState ->
-                        val seleccionada = if (currentState.esModoCreacion) {
-                            null
-                        } else {
-                            currentState.sucursalSeleccionada?.let { sel ->
-                                lista.find { it.id == sel.id }
+                        // Orden de creación: la más antigua primero (SEDE-01, SEDE-02…).
+                        // El código interno es secuencial y nunca miente sobre el orden.
+                        val ordenada = lista.sortedBy { it.codigoInterno }
+                        _uiState.update { currentState ->
+                            val seleccionada = if (currentState.esModoCreacion) {
+                                null
+                            } else {
+                                currentState.sucursalSeleccionada?.let { sel ->
+                                    lista.find { it.id == sel.id }
+                                }
                             }
-                        }
 
-                        val updated = currentState.copy(
-                            sucursales = ordenada,
-                            cargando = false,
-                            mensajeError = if (ordenada.isNotEmpty() && currentState.mensajeError?.contains("cargar", ignoreCase = true) == true) null else currentState.mensajeError,
-                            sucursalSeleccionada = seleccionada
-                        )
+                            val updated = currentState.copy(
+                                sucursales = ordenada,
+                                cargando = false,
+                                mensajeError = if (ordenada.isNotEmpty() && currentState.mensajeError?.contains("cargar", ignoreCase = true) == true) null else currentState.mensajeError,
+                                sucursalSeleccionada = seleccionada
+                            )
 
-                        if (!currentState.esModoCreacion && seleccionada != null) {
-                            if (!currentState.hayCambiosSinGuardar) {
-                                cargarFormularioDesdeSucursal(updated, seleccionada)
+                            if (!currentState.esModoCreacion && seleccionada != null) {
+                                if (!currentState.hayCambiosSinGuardar) {
+                                    cargarFormularioDesdeSucursal(updated, seleccionada)
+                                } else {
+                                    updated
+                                }
+                            } else if (!currentState.esModoCreacion && currentState.sucursalSeleccionada != null) {
+                                // La sede fue eliminada remotamente por otro dispositivo mientras el usuario la visualizaba o tenía su diálogo abierto
+                                updated.copy(
+                                    sucursalSeleccionada = null,
+                                    mostrarDialogoEliminar = false,
+                                    pasoEliminarSede = 0,
+                                    mensajeError = "La sede que estabas visualizando fue eliminada por otro usuario o dispositivo."
+                                )
                             } else {
                                 updated
                             }
-                        } else if (!currentState.esModoCreacion && currentState.sucursalSeleccionada != null && seleccionada == null) {
-                            // La sede fue eliminada remotamente mientras el usuario la visualizaba
-                            updated.copy(
-                                sucursalSeleccionada = null,
-                                mensajeError = "La sede que estabas visualizando fue dada de baja o eliminada."
-                            )
-                        } else {
-                            updated
                         }
                     }
-                }
             }
 
             // Métodos de pago configurados en la Sede Principal: son la plantilla
@@ -176,11 +177,12 @@ class SucursalesViewModel @JvmOverloads constructor(
     }
 
     private var sucursalPendiente: Sucursal? = null
-    private var accionPendienteVolver: (() -> Unit)? = null
+    private var accionPendienteDescartar: (() -> Unit)? = null
 
     fun solicitarSeleccionarSucursal(sucursal: Sucursal) {
         if (_uiState.value.hayCambiosSinGuardar && _uiState.value.sucursalSeleccionada?.id != sucursal.id) {
             sucursalPendiente = sucursal
+            accionPendienteDescartar = null
             _uiState.update { it.copy(mostrarDialogoDescartar = true) }
         } else {
             seleccionarSucursal(sucursal)
@@ -193,6 +195,7 @@ class SucursalesViewModel @JvmOverloads constructor(
         }
         if (_uiState.value.hayCambiosSinGuardar && !_uiState.value.esModoCreacion) {
             sucursalPendiente = null
+            accionPendienteDescartar = { iniciarNuevaSucursal() }
             _uiState.update { it.copy(mostrarDialogoDescartar = true) }
         } else {
             iniciarNuevaSucursal()
@@ -202,6 +205,7 @@ class SucursalesViewModel @JvmOverloads constructor(
     fun solicitarCerrarPanel() {
         if (_uiState.value.hayCambiosSinGuardar) {
             sucursalPendiente = null
+            accionPendienteDescartar = { cerrarPanel() }
             _uiState.update { it.copy(mostrarDialogoDescartar = true) }
         } else {
             cerrarPanel()
@@ -229,27 +233,31 @@ class SucursalesViewModel @JvmOverloads constructor(
 
     fun solicitarVolver(onVolver: () -> Unit) {
         if (_uiState.value.hayCambiosSinGuardar) {
-            accionPendienteVolver = onVolver
+            sucursalPendiente = null
+            accionPendienteDescartar = onVolver
             _uiState.update { it.copy(mostrarDialogoDescartar = true) }
         } else {
             onVolver()
         }
     }
 
+    fun seguirEditando() {
+        sucursalPendiente = null
+        accionPendienteDescartar = null
+        _uiState.update { it.copy(mostrarDialogoDescartar = false) }
+    }
+
     fun confirmarDescartar() {
         _uiState.update { it.copy(mostrarDialogoDescartar = false) }
-        val accionVolver = accionPendienteVolver
-        if (accionVolver != null) {
-            accionPendienteVolver = null
-            accionVolver()
-            return
-        }
+        val accion = accionPendienteDescartar
+        accionPendienteDescartar = null
         val pendiente = sucursalPendiente
-        if (pendiente != null) {
-            sucursalPendiente = null
-            seleccionarSucursal(pendiente)
-        } else {
-            cerrarPanel()
+        sucursalPendiente = null
+
+        when {
+            accion != null -> accion()
+            pendiente != null -> seleccionarSucursal(pendiente)
+            else -> cerrarPanel()
         }
     }
 
@@ -278,7 +286,14 @@ class SucursalesViewModel @JvmOverloads constructor(
             return
         }
 
-        val siguienteNumero = s.totalSucursales + 1
+        // Paridad con el servidor: el código sugerido usa el mismo algoritmo de max numérico + 1
+        // (no size+1 que colisiona tras borrar una sede intermedia — Bug 4 corregido).
+        val maxNum = s.sucursales.mapNotNull { sede ->
+            Regex("""SEDE-0*(\d+)""").find(sede.codigoInterno)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        }.maxOrNull() ?: s.sucursales.size
+        val siguienteNumero = maxNum + 1
+        val codigoSugerido = "SEDE-0$siguienteNumero"
+
         _uiState.update {
             it.copy(
                 esModoCreacion = true,
@@ -288,7 +303,7 @@ class SucursalesViewModel @JvmOverloads constructor(
                 formDireccion = "",
                 formTelefono = "",
                 formResponsable = "",
-                formCodigoInterno = "SEDE-0$siguienteNumero",
+                formCodigoInterno = codigoSugerido,
                 formLatitud = null,
                 formLongitud = null,
                 formActiva = true,
@@ -459,8 +474,7 @@ class SucursalesViewModel @JvmOverloads constructor(
                     e.message?.contains("NOMBRE_DUPLICADO") == true -> "Ya tienes una sede registrada con este nombre."
                     e.message?.contains("DIRECCION_DUPLICADA") == true -> "Ya tienes una sede registrada en esta misma dirección."
                     e.message?.contains("No se encontró") == true -> "No se encontró el registro de la farmacia."
-                    // R9: si el servidor dijo algo concreto (p. ej. reubicación pendiente tras
-                    // eliminar), se muestra SU verdad, nunca un comodín genérico.
+                    // R9: si el servidor dijo algo concreto, se muestra SU verdad, nunca un comodín genérico.
                     else -> e.message?.takeIf { it.isNotBlank() }
                         ?: "No se pudo guardar la sede. Revisa tu conexión a internet e intenta de nuevo."
                 }
@@ -495,22 +509,73 @@ class SucursalesViewModel @JvmOverloads constructor(
                     .whereEqualTo("sucursalId", sel.id)
                     .get()
                     .await()
-                val nombres = usersSnap.documents.mapNotNull { it.getString("nombre") }
+
+                val listaColaboradores = usersSnap.documents.map { doc ->
+                    ColaboradorItem(
+                        id = doc.id,
+                        nombre = doc.getString("nombre") ?: doc.getString("usuario") ?: "Colaborador",
+                        rol = doc.getString("rol") ?: "Personal"
+                    )
+                }
+
+                // Sede de destino por defecto (primera sede activa distinta a la que se elimina, o "principal")
+                val sedeDefecto = s.sucursales.firstOrNull { it.id != sel.id && it.activa }?.id ?: "principal"
+                val mapaInicial = listaColaboradores.associate { it.id to sedeDefecto }
+
                 _uiState.update {
                     it.copy(
                         mostrarDialogoEliminar = true,
-                        colaboradoresAsignadosNombres = nombres
+                        colaboradoresAsignados = listaColaboradores,
+                        colaboradoresAsignadosNombres = listaColaboradores.map { c -> c.nombre },
+                        pasoEliminarSede = if (listaColaboradores.isNotEmpty()) 1 else 2,
+                        opcionMacroEliminarPersonal = if (listaColaboradores.isNotEmpty()) "REUBICAR" else "SIN_PERSONAL",
+                        subOpcionReubicar = "TODOS_IGUAL",
+                        sedeDestinoTodosId = sedeDefecto,
+                        mapaDestinoIndividual = mapaInicial
                     )
                 }
             } catch (e: Exception) {
-                // Verdad antes de borrar: si no se pudo verificar quiénes trabajan en la
-                // sede, NO se abre el diálogo (nada se elimina a ciegas ni a medias).
                 _uiState.update {
                     it.copy(
                         mensajeError = "No se pudo verificar quiénes trabajan en la sede (${e.message ?: "error de red"}). " +
                             "No se elimina nada hasta poder confirmarlo. Revisa tu conexión e intenta de nuevo."
                     )
                 }
+            }
+        }
+    }
+
+    fun seleccionarOpcionMacroEliminarPersonal(opcion: String) {
+        _uiState.update {
+            it.copy(
+                opcionMacroEliminarPersonal = opcion,
+                pasoEliminarSede = 2
+            )
+        }
+    }
+
+    fun setSubOpcionReubicar(subOpcion: String) {
+        _uiState.update { it.copy(subOpcionReubicar = subOpcion) }
+    }
+
+    fun setSedeDestinoTodos(sucursalId: String) {
+        _uiState.update { it.copy(sedeDestinoTodosId = sucursalId) }
+    }
+
+    fun setSedeDestinoIndividual(colaboradorId: String, sucursalId: String) {
+        _uiState.update {
+            val mapa = it.mapaDestinoIndividual.toMutableMap()
+            mapa[colaboradorId] = sucursalId
+            it.copy(mapaDestinoIndividual = mapa)
+        }
+    }
+
+    fun volverPasoEliminarSede() {
+        _uiState.update {
+            if (it.pasoEliminarSede == 2 && it.colaboradoresAsignados.isNotEmpty()) {
+                it.copy(pasoEliminarSede = 1)
+            } else {
+                it.copy(mostrarDialogoEliminar = false, pasoEliminarSede = 0)
             }
         }
     }
@@ -524,11 +589,34 @@ class SucursalesViewModel @JvmOverloads constructor(
         val clienteId = s.clienteId
         if (clienteId.isBlank()) return
 
-        _uiState.update { it.copy(guardando = true, mostrarDialogoEliminar = false) }
+        // Construir modelo de manejo de personal según la selección en 2 pasos
+        val manejoPersonal = when {
+            s.colaboradoresAsignados.isEmpty() || s.opcionMacroEliminarPersonal == "SIN_PERSONAL" -> {
+                ManejoPersonalEliminacion.ReubicarTodos("todas", "Todas las Sedes (Itinerante)")
+            }
+            s.opcionMacroEliminarPersonal == "ELIMINAR_TODOS" -> {
+                ManejoPersonalEliminacion.EliminarTodos
+            }
+            s.subOpcionReubicar == "INDIVIDUAL" -> {
+                val mapaNombres = s.mapaDestinoIndividual.mapValues { entry ->
+                    val sucId = entry.value
+                    val sucNombre = s.sucursales.find { it.id == sucId }?.nombre ?: "Sede Principal"
+                    Pair(sucId, sucNombre)
+                }
+                ManejoPersonalEliminacion.ReubicarIndividual(mapaNombres)
+            }
+            else -> { // REUBICAR TODOS IGUAL
+                val destId = s.sedeDestinoTodosId.ifBlank { "principal" }
+                val destNombre = s.sucursales.find { it.id == destId }?.nombre ?: "Sede Principal"
+                ManejoPersonalEliminacion.ReubicarTodos(destId, destNombre)
+            }
+        }
+
+        _uiState.update { it.copy(guardando = true, mostrarDialogoEliminar = false, pasoEliminarSede = 0) }
 
         viewModelScope.launch {
             try {
-                repository.eliminarSucursal(clienteId, sel.id)
+                repository.eliminarSucursal(clienteId, sel.id, manejoPersonal)
                 _uiState.update {
                     it.copy(
                         guardando = false,
@@ -549,7 +637,7 @@ class SucursalesViewModel @JvmOverloads constructor(
 
     fun cerrarDialogos() {
         sucursalPendiente = null
-        accionPendienteVolver = null
+        accionPendienteDescartar = null
         _uiState.update {
             it.copy(
                 mostrarDialogoLimite = false,

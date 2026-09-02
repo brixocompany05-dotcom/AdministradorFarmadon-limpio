@@ -3,7 +3,6 @@ import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 
 import android.util.Log
-import com.app.administradorfarmadon.base_datos.PlanSuscripcion
 import com.app.administradorfarmadon.compartido.datos.EcosistemaPaths
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.google.firebase.auth.FirebaseAuth
@@ -27,6 +26,12 @@ data class InfoPlanCliente(
     // La app no inventa un "1/1": muestra que falta configuración del panel central.
     val limiteNoConfigurado: Boolean = false
 )
+
+sealed class ManejoPersonalEliminacion {
+    object EliminarTodos : ManejoPersonalEliminacion()
+    data class ReubicarTodos(val nuevaSucursalId: String, val nuevaSucursalNombre: String) : ManejoPersonalEliminacion()
+    data class ReubicarIndividual(val destinos: Map<String, Pair<String, String>>) : ManejoPersonalEliminacion()
+}
 
 class SucursalesRepository(
     private val db: FirebaseFirestore = FarmadonFirestore.db,
@@ -92,7 +97,10 @@ class SucursalesRepository(
                 }
                 val subDoc = subSnapshot?.documents?.firstOrNull()
                 subDocumentoExiste = subDoc != null
-                maxSucursalesSub = (subDoc?.getLong("maxSucursalesAlContratar") ?: 0L).toInt().takeIf { it > 0 }
+                val maxVal = subDoc?.getLong("maxSucursalesAlContratar")
+                    ?: subDoc?.getLong("maxSucursales")
+                    ?: subDoc?.getLong("max_sucursales")
+                maxSucursalesSub = (maxVal ?: 0L).toInt().takeIf { it > 0 }
                 emitir()
             }
 
@@ -122,7 +130,7 @@ class SucursalesRepository(
                         val geo = doc.getGeoPoint("ubicacionGeo")
                         Sucursal(
                             id = doc.id,
-                            nombre = doc.getString("nombre") ?: "Sede Principal",
+                            nombre = doc.getString("nombre") ?: "",
                             direccion = doc.getString("direccion") ?: "",
                             telefono = doc.getString("telefono") ?: "",
                             latitud = geo?.latitude ?: doc.getDouble("latitud"),
@@ -169,7 +177,10 @@ class SucursalesRepository(
         var maxPermitidoGlobal = 1
         val subSnap = SucursalesPaths.farmacia(db, clienteId).collection("suscripciones").limit(1).get().await()
         val subDoc = subSnap.documents.firstOrNull()
-        val maxFromSub = (subDoc?.getLong("maxSucursalesAlContratar") ?: 0L).toInt().takeIf { it > 0 }
+        val maxValSub = subDoc?.getLong("maxSucursalesAlContratar")
+            ?: subDoc?.getLong("maxSucursales")
+            ?: subDoc?.getLong("max_sucursales")
+        val maxFromSub = (maxValSub ?: 0L).toInt().takeIf { it > 0 }
         if (maxFromSub != null) maxPermitidoGlobal = maxFromSub
         val subDocRef = subDoc?.reference
 
@@ -209,7 +220,10 @@ class SucursalesRepository(
                     if (subDocRef != null) {
                         try {
                             val freshSnap = tx.get(subDocRef)
-                            val freshMax = (freshSnap.getLong("maxSucursalesAlContratar") ?: 0L).toInt().takeIf { it > 0 }
+                            val freshVal = freshSnap.getLong("maxSucursalesAlContratar")
+                                ?: freshSnap.getLong("maxSucursales")
+                                ?: freshSnap.getLong("max_sucursales")
+                            val freshMax = (freshVal ?: 0L).toInt().takeIf { it > 0 }
                             if (freshMax != null) maxTx = freshMax
                         } catch (_: Exception) { /* conserva maxPermitidoGlobal si falla lectura tx */ }
                     }
@@ -426,7 +440,11 @@ class SucursalesRepository(
         }.await()
     }
 
-    suspend fun eliminarSucursal(clienteId: String, sucursalId: String) {
+    suspend fun eliminarSucursal(
+        clienteId: String,
+        sucursalId: String,
+        manejoPersonal: ManejoPersonalEliminacion = ManejoPersonalEliminacion.ReubicarTodos("todas", "Todas las Sedes (Itinerante)")
+    ) {
         validarPermisoPrincipal("activar, desactivar o eliminar sucursales")
         if (sucursalId == "principal") {
             throw IllegalStateException("La Sede Principal es el ancla del negocio y no puede ser eliminada.")
@@ -440,7 +458,10 @@ class SucursalesRepository(
         db.runTransaction { tx ->
             val docRef = SucursalesPaths.sucursales(db, clienteId).document(sucursalId)
             val snap = tx.get(docRef)
-            if (snap.exists() && snap.getBoolean("esPrincipal") == true) {
+            if (!snap.exists()) {
+                throw IllegalStateException("La sede que intentas eliminar ya fue dada de baja o eliminada previamente por otro usuario.")
+            }
+            if (snap.getBoolean("esPrincipal") == true) {
                 throw IllegalStateException("La Sede Principal no puede ser eliminada.")
             }
 
@@ -450,9 +471,7 @@ class SucursalesRepository(
             val farmaciaRef = SucursalesPaths.farmacia(db, clienteId)
             val farmaciaSnap = tx.get(farmaciaRef)
 
-            // 1. Reubicar colaboradores asignados a 'todas' para que sigan operativos
-            // RAÍZ: re-leer cada colaborador dentro de la tx para evitar pisar cambios
-            // concurrentes y no fallar si el doc ya fue movido/borrado.
+            // 1. Procesar colaboradores según la decisión del dueño/administrador
             usuariosAfectados.documents.forEach { uDoc ->
                 val uRef = SucursalesPaths.usuarios(db, clienteId).document(uDoc.id)
                 val globalRef = SucursalesPaths.usuariosFarmacia(db).document(uDoc.id)
@@ -462,22 +481,45 @@ class SucursalesRepository(
                     val sucActual = freshSnap.getString("sucursalId")
                     if (sucActual != sucursalId) return@forEach
                 } catch (_: Exception) { return@forEach }
-                tx.update(uRef, mapOf(
-                    "sucursalId" to "todas",
-                    "sucursalNombre" to "Todas las Sedes (Itinerante)",
-                    "actualizadoEn" to FieldValue.serverTimestamp()
-                ))
-                tx.set(globalRef, mapOf(
-                    "sucursalId" to "todas",
-                    "sucursalNombre" to "Todas las Sedes (Itinerante)",
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ), com.google.firebase.firestore.SetOptions.merge())
+
+                when (manejoPersonal) {
+                    is ManejoPersonalEliminacion.EliminarTodos -> {
+                        // Eliminar completamente el acceso del colaborador
+                        tx.delete(uRef)
+                        tx.delete(globalRef)
+                    }
+                    is ManejoPersonalEliminacion.ReubicarTodos -> {
+                        tx.update(uRef, mapOf(
+                            "sucursalId" to manejoPersonal.nuevaSucursalId,
+                            "sucursalNombre" to manejoPersonal.nuevaSucursalNombre,
+                            "actualizadoEn" to FieldValue.serverTimestamp()
+                        ))
+                        tx.set(globalRef, mapOf(
+                            "sucursalId" to manejoPersonal.nuevaSucursalId,
+                            "sucursalNombre" to manejoPersonal.nuevaSucursalNombre,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        ), SetOptions.merge())
+                    }
+                    is ManejoPersonalEliminacion.ReubicarIndividual -> {
+                        val destino = manejoPersonal.destinos[uDoc.id] ?: Pair("principal", "Sede Principal")
+                        tx.update(uRef, mapOf(
+                            "sucursalId" to destino.first,
+                            "sucursalNombre" to destino.second,
+                            "actualizadoEn" to FieldValue.serverTimestamp()
+                        ))
+                        tx.set(globalRef, mapOf(
+                            "sucursalId" to destino.first,
+                            "sucursalNombre" to destino.second,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        ), SetOptions.merge())
+                    }
+                }
             }
 
             // 2. Eliminar documento de sucursal
             tx.delete(docRef)
 
-            // 3. Limpiar array resumen en la farmacia (nada en el cliente)
+            // 3. Limpiar array resumen en la farmacia
             if (farmaciaSnap.exists()) {
                 @Suppress("UNCHECKED_CAST")
                 val rawSucursales = farmaciaSnap.get("sucursales") as? List<Map<String, Any?>> ?: emptyList()
@@ -494,6 +536,12 @@ class SucursalesRepository(
             val auditGlobalRef = EcosistemaPaths.auditoriaClientes(db).document()
             val auditLocalRef = SucursalesPaths.auditoriaLocal(db, clienteId).document(auditGlobalRef.id)
 
+            val modoDesc = when (manejoPersonal) {
+                is ManejoPersonalEliminacion.EliminarTodos -> "Cuentas de ${usuariosAfectados.size()} colaboradores eliminadas."
+                is ManejoPersonalEliminacion.ReubicarTodos -> "${usuariosAfectados.size()} colaboradores reubicados a ${manejoPersonal.nuevaSucursalNombre}."
+                is ManejoPersonalEliminacion.ReubicarIndividual -> "${usuariosAfectados.size()} colaboradores reubicados individualmente."
+            }
+
             val auditData = mapOf(
                 "seccion" to "sucursales",
                 "actorUid" to userUid,
@@ -505,8 +553,8 @@ class SucursalesRepository(
                 "entidadId" to clienteId,
                 "sucursalId" to sucursalId,
                 "accion" to "ELIMINACION_SUCURSAL",
-                "motivo" to "Baja de sede: $nombreEliminado ($direccionEliminada). ${usuariosAfectados.size()} colaboradores reubicados a Sede Itinerante.",
-                "colaboradoresReubicados" to usuariosAfectados.size(),
+                "motivo" to "Baja de sede: $nombreEliminado ($direccionEliminada). $modoDesc",
+                "colaboradoresAfectados" to usuariosAfectados.size(),
                 "antes" to mapOf(
                     "nombre" to nombreEliminado,
                     "direccion" to direccionEliminada
@@ -516,9 +564,10 @@ class SucursalesRepository(
             tx.set(auditGlobalRef, auditData)
             tx.set(auditLocalRef, auditData)
         }.await()
-        // Cierre del todo-o-nada: ningún colaborador puede quedar apuntando a una sede
-        // que ya no existe (ni siquiera por un alta simultánea durante el borrado).
-        // Se reintenta; si no cierra, se grita la verdad: jamás silencio ni éxito falso (R3/R9).
+
+        // Verificación post-transacción solo si no había usuarios afectados
+        if (usuariosAfectados.isEmpty) return
+
         var reubicacionCerrada = false
         repeat(3) { intento ->
             if (!reubicacionCerrada) {
@@ -528,17 +577,39 @@ class SucursalesRepository(
                     if (!huerfanos.isEmpty) {
                         val batch = db.batch()
                         huerfanos.documents.forEach { d ->
-                            batch.update(d.reference, mapOf(
-                                "sucursalId" to "todas",
-                                "sucursalNombre" to "Todas las Sedes (Itinerante)",
-                                "actualizadoEn" to FieldValue.serverTimestamp()
-                            ))
-                            val gRef = SucursalesPaths.usuariosFarmacia(db).document(d.id)
-                            batch.set(gRef, mapOf(
-                                "sucursalId" to "todas",
-                                "sucursalNombre" to "Todas las Sedes (Itinerante)",
-                                "updatedAt" to FieldValue.serverTimestamp()
-                            ), com.google.firebase.firestore.SetOptions.merge())
+                            when (manejoPersonal) {
+                                is ManejoPersonalEliminacion.EliminarTodos -> {
+                                    batch.delete(d.reference)
+                                    batch.delete(SucursalesPaths.usuariosFarmacia(db).document(d.id))
+                                }
+                                is ManejoPersonalEliminacion.ReubicarTodos -> {
+                                    batch.update(d.reference, mapOf(
+                                        "sucursalId" to manejoPersonal.nuevaSucursalId,
+                                        "sucursalNombre" to manejoPersonal.nuevaSucursalNombre,
+                                        "actualizadoEn" to FieldValue.serverTimestamp()
+                                    ))
+                                    val gRef = SucursalesPaths.usuariosFarmacia(db).document(d.id)
+                                    batch.set(gRef, mapOf(
+                                        "sucursalId" to manejoPersonal.nuevaSucursalId,
+                                        "sucursalNombre" to manejoPersonal.nuevaSucursalNombre,
+                                        "updatedAt" to FieldValue.serverTimestamp()
+                                    ), SetOptions.merge())
+                                }
+                                is ManejoPersonalEliminacion.ReubicarIndividual -> {
+                                    val dest = manejoPersonal.destinos[d.id] ?: Pair("principal", "Sede Principal")
+                                    batch.update(d.reference, mapOf(
+                                        "sucursalId" to dest.first,
+                                        "sucursalNombre" to dest.second,
+                                        "actualizadoEn" to FieldValue.serverTimestamp()
+                                    ))
+                                    val gRef = SucursalesPaths.usuariosFarmacia(db).document(d.id)
+                                    batch.set(gRef, mapOf(
+                                        "sucursalId" to dest.first,
+                                        "sucursalNombre" to dest.second,
+                                        "updatedAt" to FieldValue.serverTimestamp()
+                                    ), SetOptions.merge())
+                                }
+                            }
                         }
                         batch.commit().await()
                     }
@@ -552,8 +623,7 @@ class SucursalesRepository(
         if (!reubicacionCerrada) {
             throw IllegalStateException(
                 "La sede fue eliminada, pero no se pudo confirmar la reubicación de colaboradores por un fallo de red. " +
-                    "Nada quedó oculto: abre la pantalla Personal y confirma que nadie siga en la sede eliminada; " +
-                    "si el problema persiste, contacta a soporte BRIXO."
+                    "Abre la pantalla Personal y confirma el estado de las cuentas; si el problema persiste, contacta a soporte."
             )
         }
     }

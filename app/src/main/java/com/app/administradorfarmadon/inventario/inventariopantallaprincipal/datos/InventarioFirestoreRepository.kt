@@ -189,6 +189,29 @@ class InventarioFirestoreRepository(
                     val secundarios = inventarioRef.whereArrayContains("codigosSecundarios", codigoLimpio).limit(limit.toLong()).get().await()
                     porCodigo.addAll(secundarios.documents)
                 }
+                if (porCodigo.isEmpty()) {
+                    // CIERRE DEL CIRCUITO ETIQUETA→ESCÁNER (R3): el código de una
+                    // presentación vive en el índice atómico (indices_codigos), no como
+                    // campo del documento. Sin esta consulta, escanear la etiqueta
+                    // impresa de una presentación decía "sin resultados" siendo falso.
+                    val refIndice = FarmadonPaths.indicesCodigos(db, farmaciaId, sucursalId).document(codigoLimpio)
+                    var productoIdIndice = refIndice.get().await().getString("productoId").orEmpty()
+                    if (productoIdIndice.isBlank()) {
+                        // Etiqueta derivada de fracción (BASE-B10 / BASE-U1): el índice
+                        // vive con el código base; resolver igual que resolverPresentacionPorCodigo.
+                        val base = CodigoBarraHelper.baseSinSufijo(codigoLimpio)
+                        if (base.isNotBlank() && base != codigoLimpio) {
+                            productoIdIndice = FarmadonPaths.indicesCodigos(db, farmaciaId, sucursalId)
+                                .document(base).get().await().getString("productoId").orEmpty()
+                        }
+                    }
+                    if (productoIdIndice.isNotBlank()) {
+                        val docDelIndice = inventarioRef.document(productoIdIndice).get().await()
+                        if (docDelIndice.exists()) porCodigo.add(docDelIndice)
+                        // Si el índice apunta a un producto eliminado, se cae a resultados
+                        // vacíos con verdad: "sin resultados" (no se muestra un muerto).
+                    }
+                }
                 if (porCodigo.isNotEmpty()) {
                     val distinctById = porCodigo.distinctBy { it.id }
                     val listaPharmCodigo = distinctById.mapNotNull { ProductoParser.parseToPharm(it) }
@@ -291,6 +314,21 @@ class InventarioFirestoreRepository(
             Log.e(TAG, "No se pudo obtener métricas agregadas del servidor: ${e.message}", e)
             throw e
         }
+    }
+
+    /**
+     * Lectura puntual de TODOS los productos de la sede para el centro de alertas.
+     * Las alertas de stock/vencimiento no caben en una página de 50: se leen todos
+     * los documentos una sola vez (segundo plano) y la alerta se calcula con la
+     * verdad completa, jamás solo con las páginas visibles.
+     */
+    suspend fun leerTodosLosProductos(
+        farmaciaId: String,
+        sucursalId: String
+    ): List<PharmProduct> {
+        if (farmaciaId.isBlank() || sucursalId.isBlank()) return emptyList()
+        val snapshot = FarmadonPaths.inventario(db, farmaciaId, sucursalId).get().await()
+        return snapshot.documents.mapNotNull { ProductoParser.parseToPharm(it) }
     }
 
     /**

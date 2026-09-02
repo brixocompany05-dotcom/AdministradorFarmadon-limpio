@@ -1,28 +1,68 @@
 package com.app.administradorfarmadon.ventas.compartido.ui
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Update
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,8 +70,9 @@ import androidx.compose.ui.unit.sp
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
-import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.TipoEstadoFarmadon
+import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
+import java.util.Locale
 
 /**
  * COMPONENTES COMPARTIDOS POS
@@ -40,14 +81,11 @@ import com.app.administradorfarmadon.disenotemaapp.ui.componentes.TipoEstadoFarm
 
 @Composable
 fun POSHeader(
-    titulo: String,
-    cajaNombre: String = "",
-    usuarioNombre: String = "",
-    estaConectado: Boolean = true,
+    titulo: String = "",
     cajaCerrada: Boolean = false
 ) {
     val s = recordarMedidaAdaptativa()
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = s.gapMedium)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) { // Reducido de gapMedium
         if (cajaCerrada) {
             POSNotificationBar(
                 mensaje = "LA CAJA SE ENCUENTRA CERRADA. ALGUNAS FUNCIONES ESTÁN DESHABILITADAS.",
@@ -62,56 +100,56 @@ fun POSHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            if (titulo.isNotEmpty()) {
                 Text(
                     text = titulo.uppercase(),
-                    style = FDType.Heading1.copy(fontWeight = FontWeight.Black, letterSpacing = 1.sp),
+                    style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 22.sp),
                     color = FDColors.TextPrimary
                 )
-                if (cajaNombre.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Default.PointOfSale, null, modifier = Modifier.size(14.dp), tint = FDColors.TextTertiary)
-                        Text(text = cajaNombre, style = FDType.Caption, color = FDColors.TextTertiary)
-                    }
-                }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.gapMedium)) {
-                // Usuario
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Surface(
-                        color = FDColors.PrimarySubtle,
-                        shape = CircleShape,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Person, null, modifier = Modifier.size(20.dp), tint = FDColors.Primary)
-                        }
-                    }
-                    Column {
-                        Text(text = usuarioNombre.ifEmpty { "Cajero Farmadon" }, style = FDType.BodySmall.copy(fontWeight = FontWeight.Bold), color = FDColors.TextPrimary)
-                        Text(text = "Cajero(a)", style = FDType.Caption.copy(fontSize = 10.sp), color = FDColors.TextTertiary)
-                    }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                POSHeaderSelector(icono = Icons.Default.AccountBalance, label = "Caja 01")
+                POSHeaderSelector(icono = Icons.Default.Update, label = "Turno: Mañana")
+                POSHeaderSelector(icono = Icons.Default.Person, label = "Cajero: Sin seleccionar")
+                
+                Column(horizontalAlignment = Alignment.Start) {
+                    Text("Apertura", style = FDType.Caption.copy(fontSize = 9.sp), color = FDColors.TextTertiary)
+                    Text("--/-- --:--", style = FDType.Label.copy(fontSize = 10.sp), color = FDColors.TextSecondary)
                 }
 
-                // Status Conexión
                 Surface(
-                    color = if (estaConectado) FDColors.SuccessSubtle else FDColors.ErrorSubtle,
+                    color = FDColors.Warning.copy(alpha = 0.15f),
                     shape = CircleShape,
-                    border = BorderStroke(1.dp, if (estaConectado) FDColors.Success.copy(alpha = 0.2f) else FDColors.Error.copy(alpha = 0.2f))
+                    border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.3f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(if (estaConectado) FDColors.Success else FDColors.Error))
-                        Icon(if (estaConectado) Icons.Default.Wifi else Icons.Default.WifiOff, null, modifier = Modifier.size(12.dp), tint = if (estaConectado) FDColors.Success else FDColors.Error)
-                        Text(text = if (estaConectado) "CONECTADO" else "SIN RED", style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = if (estaConectado) FDColors.Success else FDColors.Error)
+                        Box(modifier = Modifier.size(6.dp).background(FDColors.Warning, CircleShape))
+                        Text("En Proceso", style = FDType.Label.copy(fontSize = 10.sp, color = FDColors.Warning))
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun POSHeaderSelector(icono: ImageVector, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.clickable { }
+    ) {
+        Icon(icono, null, modifier = Modifier.size(16.dp), tint = FDColors.TextSecondary)
+        Text(label, style = FDType.Label.copy(fontSize = 11.sp), color = FDColors.TextSecondary)
+        Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(14.dp), tint = FDColors.TextTertiary)
     }
 }
 
@@ -167,10 +205,10 @@ fun POSStatusOverlay(
         if (loading) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                color = FDColors.Surface.copy(alpha = 0.7f)
+                color = FDColors.Surface.copy(alpha = 0.6f) // Más traslúcido
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = FDColors.Primary, strokeWidth = 3.dp)
+                    CircularProgressIndicator(color = FDColors.Primary, strokeWidth = 2.dp) // Más fino
                 }
             }
         }
@@ -236,25 +274,24 @@ fun POSTable(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val s = recordarMedidaAdaptativa()
     Column(modifier = modifier.fillMaxWidth()) {
         // Headers
         Surface(
-            color = FDColors.InputBackground.copy(alpha = 0.5f),
+            color = FDColors.InputBackground.copy(alpha = 0.4f),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+            Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 headers.forEach { header ->
                     Text(
                         text = header.uppercase(),
-                        style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
+                        style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp),
                         color = FDColors.TextTertiary,
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
-        HorizontalDivider(color = FDColors.Border)
+        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
         
         // Rows container
         Column(modifier = Modifier.weight(1f)) {
@@ -262,16 +299,16 @@ fun POSTable(
         }
         
         // Pagination visual
-        HorizontalDivider(color = FDColors.Border)
+        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "Mostrando 0 de 0 registros", style = FDType.Caption)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton(onClick = {}, enabled = false) { Icon(Icons.Default.ChevronLeft, null) }
-                IconButton(onClick = {}, enabled = false) { Icon(Icons.Default.ChevronRight, null) }
+            Text(text = "0 registros", style = FDType.Caption.copy(fontSize = 11.sp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = {}, enabled = false, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ChevronLeft, null, modifier = Modifier.size(18.dp)) }
+                IconButton(onClick = {}, enabled = false, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ChevronRight, null, modifier = Modifier.size(18.dp)) }
             }
         }
     }
@@ -294,7 +331,7 @@ fun POSTableRow(
     ) {
         Column {
             Row(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 cells.forEachIndexed { index, cell ->
@@ -314,7 +351,7 @@ fun POSTableRow(
                     }
                 }
             }
-            HorizontalDivider(color = FDColors.Border.copy(alpha = 0.3f), modifier = Modifier.padding(horizontal = 20.dp))
+            HorizontalDivider(color = FDColors.Border.copy(alpha = 0.2f), modifier = Modifier.padding(horizontal = 16.dp))
         }
     }
 }
@@ -334,8 +371,8 @@ fun POSBadge(texto: String, tipo: TipoEstadoFarmadon) {
     ) {
         Text(
             text = texto,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp),
             color = color
         )
     }
@@ -348,10 +385,10 @@ fun POSShortcutHint(tecla: String, label: String = "") {
             color = FDColors.InputBackground,
             shape = FDShapes.XSmall,
             border = BorderStroke(1.dp, FDColors.Border),
-            modifier = Modifier.height(20.dp).widthIn(min = 24.dp)
+            modifier = Modifier.height(24.dp).widthIn(min = 28.dp)
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 4.dp)) {
-                Text(text = tecla, style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary)
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
+                Text(text = tecla, style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary)
             }
         }
         if (label.isNotEmpty()) {
@@ -428,11 +465,29 @@ fun POSSideSheet(
 fun POSSummaryCard(
     titulo: String,
     valor: String,
+    modifier: Modifier = Modifier,
     simbolo: String = "",
-    tipo: TipoEstadoFarmadon = TipoEstadoFarmadon.NEUTRO,
-    modifier: Modifier = Modifier
+    tipo: TipoEstadoFarmadon = TipoEstadoFarmadon.NEUTRO
 ) {
-    val s = recordarMedidaAdaptativa()
+    POSMetricCard(
+        titulo = titulo,
+        valor = valor,
+        simbolo = simbolo,
+        tipo = tipo,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun POSMetricCard(
+    titulo: String,
+    valor: String,
+    modifier: Modifier = Modifier,
+    simbolo: String = "",
+    subtitulo: String = "",
+    icono: ImageVector? = null,
+    tipo: TipoEstadoFarmadon = TipoEstadoFarmadon.NEUTRO
+) {
     val colorAcento = when (tipo) {
         TipoEstadoFarmadon.EXITO -> FDColors.Success
         TipoEstadoFarmadon.ALERTA -> FDColors.Warning
@@ -446,14 +501,77 @@ fun POSSummaryCard(
         border = BorderStroke(1.dp, FDColors.Border),
         modifier = modifier
     ) {
-        Column(modifier = Modifier.padding(s.padCard), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(text = titulo.uppercase(), style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary)
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (simbolo.isNotEmpty()) {
-                    Text(text = simbolo, style = FDType.Numeric.copy(fontSize = 14.sp, color = colorAcento))
+        Box(modifier = Modifier.padding(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = titulo.uppercase(),
+                    style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp),
+                    color = FDColors.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (simbolo.isNotEmpty()) {
+                            Text(text = simbolo, style = FDType.Numeric.copy(fontSize = 12.sp, color = colorAcento))
+                        }
+                        Text(
+                            text = valor,
+                            style = FDType.NumericLg.copy(color = colorAcento, fontWeight = FontWeight.Black, fontSize = 20.sp)
+                        )
+                    }
+                    
+                    if (subtitulo.isNotEmpty()) {
+                        Text(
+                            text = subtitulo,
+                            style = FDType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                            color = FDColors.TextSecondary
+                        )
+                    }
                 }
-                Text(text = valor, style = FDType.NumericLg.copy(color = colorAcento, fontWeight = FontWeight.Black))
             }
+
+            if (icono != null) {
+                Surface(
+                    color = colorAcento.copy(alpha = 0.1f),
+                    shape = CircleShape,
+                    modifier = Modifier.size(32.dp).align(Alignment.TopEnd)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(icono, null, modifier = Modifier.size(16.dp), tint = colorAcento)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun POSSurfacePanel(
+    titulo: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val s = recordarMedidaAdaptativa()
+    Surface(
+        color = FDColors.Surface,
+        shape = FDShapes.Medium,
+        border = BorderStroke(s.borderWidth, FDColors.Border),
+        modifier = modifier.fillMaxHeight()
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(
+                text = titulo,
+                style = FDType.Heading3.copy(fontWeight = FontWeight.Black, fontSize = 16.sp),
+                color = FDColors.TextPrimary
+            )
+            Spacer(Modifier.height(16.dp))
+            content()
         }
     }
 }
@@ -528,11 +646,132 @@ fun POSDenominationCounter(
 
         // Subtotal visual
         Text(
-            text = "$simbolo " + String.format("%.2f", totalRow),
+            text = "$simbolo " + String.format(Locale.US, "%.2f", totalRow),
             style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
             color = if (cantidad > 0) FDColors.TextPrimary else FDColors.TextDisabled,
             modifier = Modifier.width(90.dp),
             textAlign = TextAlign.End
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FDSearchField(
+    busqueda: String,
+    onBusquedaChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "Buscar...",
+    leadingIcon: ImageVector = Icons.Default.Search,
+    trailingContent: @Composable (RowScope.() -> Unit)? = null
+) {
+    val s = recordarMedidaAdaptativa()
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Surface(
+        color = FDColors.InputBackground,
+        shape = FDShapes.Small,
+        modifier = modifier.height(s.inputMinH)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(leadingIcon, null, tint = FDColors.Primary, modifier = Modifier.size(s.iconSmall))
+            
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                if (busqueda.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = FDType.Body.copy(color = FDColors.TextTertiary, fontSize = s.textBody.value.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                BasicTextField(
+                    value = busqueda,
+                    onValueChange = onBusquedaChange,
+                    interactionSource = interactionSource,
+                    textStyle = FDType.Body.copy(color = FDColors.TextPrimary, fontSize = s.textBody.value.sp),
+                    cursorBrush = SolidColor(FDColors.Primary),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            if (busqueda.isNotEmpty()) {
+                IconButton(onClick = { onBusquedaChange("") }, modifier = Modifier.size(s.iconLarge)) {
+                    Icon(Icons.Default.Close, null, modifier = Modifier.size(s.iconSmall), tint = FDColors.TextTertiary)
+                }
+            }
+            
+            if (trailingContent != null) {
+                VerticalDivider(modifier = Modifier.height(s.gapLarge).padding(horizontal = s.gapTiny))
+                trailingContent()
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FDTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    placeholder: String = "",
+    prefix: @Composable (() -> Unit)? = null,
+    suffix: @Composable (() -> Unit)? = null,
+    leadingIcon: ImageVector? = null,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
+) {
+    val s = recordarMedidaAdaptativa()
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (label != null) {
+            Text(text = label.uppercase(), style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp), color = FDColors.TextTertiary)
+        }
+        
+        Surface(
+            color = FDColors.InputBackground,
+            shape = FDShapes.Small,
+            modifier = Modifier.fillMaxWidth().then(if (singleLine) Modifier.height(s.inputMinH) else Modifier.heightIn(min = s.inputMinH))
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = if (singleLine) 0.dp else 12.dp),
+                verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                leadingIcon?.let { Icon(it, null, tint = FDColors.Primary, modifier = Modifier.size(s.iconSmall).then(if (!singleLine) Modifier.padding(top = 2.dp) else Modifier)) }
+                prefix?.invoke()
+
+                Box(modifier = Modifier.weight(1f), contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart) {
+                    if (value.isEmpty() && placeholder.isNotEmpty()) {
+                        Text(
+                            text = placeholder,
+                            style = FDType.Body.copy(color = FDColors.TextTertiary, fontSize = s.textBody.value.sp)
+                        )
+                    }
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        interactionSource = interactionSource,
+                        textStyle = FDType.Body.copy(color = FDColors.TextPrimary, fontSize = s.textBody.value.sp),
+                        cursorBrush = SolidColor(FDColors.Primary),
+                        singleLine = singleLine,
+                        minLines = minLines,
+                        keyboardOptions = keyboardOptions,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                suffix?.invoke()
+            }
+        }
     }
 }

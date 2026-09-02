@@ -82,6 +82,13 @@ service cloud.firestore {
     match /_health/ping {
       allow read, write: if true;
     }
+    // Sincronización de hora del servidor: la app crea hora_sync/{id} y lo lee
+    // al instante para medir el desfase del reloj de la tablet (sin PII, sin
+    // datos de negocio). Sin esta regla la medición era rechazada y las
+    // alertas de vencimiento dependían del reloj local de la tablet.
+    match /_health/ping/{doc=**} {
+      allow read, write: if true;
+    }
     match /_health/{doc} {
       allow read, write: if false;
     }

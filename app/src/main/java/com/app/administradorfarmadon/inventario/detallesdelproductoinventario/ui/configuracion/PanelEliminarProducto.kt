@@ -149,7 +149,7 @@ fun PanelEliminarProducto(
                         },
                         placeholder = {
                             Text(
-                                "Ej: Prueba creada por error",
+                                "Escribe la razón real por la que se elimina",
                                 style = FDType.Caption.copy(color = FDColors.TextTertiary)
                             )
                         },

@@ -21,11 +21,11 @@ import kotlin.math.pow
 // geométrica preservada en cualquier pantalla, claro/oscuro idéntico.
 //
 
-private const val REFERENCE_WIDTH = 1280f
-private const val REFERENCE_HEIGHT = 800f
-private const val CURVA_FISICA = 0.55
-private const val MIN_SCALE = 0.85f
-private const val MAX_SCALE = 1.18f
+private const val REFERENCE_WIDTH = 1440f
+private const val REFERENCE_HEIGHT = 900f
+private const val CURVA_FISICA = 0.50
+private const val MIN_SCALE = 1.00f
+private const val MAX_SCALE = 1.30f
 
 /**
  * Sistema de escala adaptativo con física.
@@ -57,22 +57,22 @@ class MedidaAdaptativa(
     private val componentScale  get() = scale.toDouble().pow(0.38).toFloat()
 
     // ── Tipografía (legible 13sp mínimo —” nunca romper) ──────
-    val textLabel        get() = (10.5f * typographyScale).sp
-    val textChip         get() = (11f * typographyScale).sp
-    val textBody         get() = (13.5f * typographyScale).sp
-    val textInput        get() = (14f * typographyScale).sp
-    val textSubtitle     get() = (16f * typographyScale).sp
-    val textTitle        get() = (20f * typographyScale).sp
+    val textLabel        get() = (9.5f * typographyScale).sp
+    val textChip         get() = (10f * typographyScale).sp
+    val textBody         get() = (12.5f * typographyScale).sp
+    val textInput        get() = (13f * typographyScale).sp
+    val textSubtitle     get() = (15f * typographyScale).sp
+    val textTitle        get() = (18f * typographyScale).sp
 
 
     // ── Espaciado (proporción áurea Ï†=1.618 entre saltos) ──────
-    val gapTiny   get() = (6f  * spacingScale).dp
-    val gapSmall  get() = (10f * spacingScale).dp
-    val gapMedium get() = (14f * spacingScale).dp
-    val gapLarge  get() = (18f * spacingScale).dp
-    val gapXLarge get() = (24f * spacingScale).dp
-    val gapXXLarge get() = (32f * spacingScale).dp
-    val gapXXXLarge get() = (48f * spacingScale).dp
+    val gapTiny   get() = (4f  * spacingScale).dp
+    val gapSmall  get() = (8f * spacingScale).dp
+    val gapMedium get() = (12f * spacingScale).dp
+    val gapLarge  get() = (16f * spacingScale).dp
+    val gapXLarge get() = (22f * spacingScale).dp
+    val gapXXLarge get() = (28f * spacingScale).dp
+    val gapXXXLarge get() = (40f * spacingScale).dp
 
     val xs get() = gapTiny
     val sm get() = gapSmall
@@ -83,20 +83,20 @@ class MedidaAdaptativa(
     val xxxl get() = gapXXXLarge
 
     // ── Padding geométrico ──────────────────────────────────────
-    val padInputH  get() = (16f * spacingScale).dp
-    val padInputV  get() = (12f * spacingScale).dp
-    val padModule  get() = (22f * spacingScale).dp
-    val padScreenH get() = (22f * spacingScale).dp
-    val padScreenV get() = (18f * spacingScale).dp
-    val padCard    get() = (16f * spacingScale).dp
-    val padCardLarge get() = (20f * spacingScale).dp
+    val padInputH  get() = (14f * spacingScale).dp
+    val padInputV  get() = (10f * spacingScale).dp
+    val padModule  get() = (8f * spacingScale).dp
+    val padScreenH get() = (12f * spacingScale).dp
+    val padScreenV get() = (8f * spacingScale).dp
+    val padCard    get() = (12f * spacingScale).dp
+    val padCardLarge get() = (16f * spacingScale).dp
 
     // ── Alturas (proporción táctil 48dp mínimo) ────────────────
-    val inputMinH  get() = ((52f * componentScale).dp).coerceIn(48.dp, 60.dp)
-    val btnSmallH  get() = ((38f * componentScale).dp).coerceIn(36.dp, 44.dp)
-    val btnMediumH get() = ((48f * componentScale).dp).coerceIn(44.dp, 56.dp)
-    val btnLargeH  get() = ((54f * componentScale).dp).coerceIn(50.dp, 60.dp)
-    val btnHugeH   get() = ((60f * componentScale).dp).coerceIn(56.dp, 68.dp)
+    val inputMinH  get() = ((48f * componentScale).dp).coerceIn(44.dp, 56.dp)
+    val btnSmallH  get() = ((36f * componentScale).dp).coerceIn(34.dp, 42.dp)
+    val btnMediumH get() = ((44f * componentScale).dp).coerceIn(40.dp, 52.dp)
+    val btnLargeH  get() = ((52f * componentScale).dp).coerceIn(48.dp, 60.dp)
+    val btnHugeH   get() = ((58f * componentScale).dp).coerceIn(54.dp, 68.dp)
     val chipH      get() = (36f * componentScale).dp
     val iconTiny   get() = (14f * componentScale).dp
     val iconSmall  get() = (18f * componentScale).dp

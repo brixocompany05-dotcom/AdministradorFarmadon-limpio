@@ -52,7 +52,8 @@ fun WorkspaceRegistrarEntrada(
     isPrivileged: Boolean = false,
     movimientos: List<com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario> = emptyList(),
     onVolver: () -> Unit,
-    onDefinirPrioridad: (String?) -> Unit = {},
+    onDefinirPrioridad: (String?, () -> Unit) -> Unit = { _, _ -> },
+    onCorregirVencimiento: (LoteProducto, String, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _, _ -> },
     onCambiarBloqueo: (LoteProducto, Boolean, Double, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _ -> },
     onRegistrarDevolucion: (LoteProducto, Double, String, String, String, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _, _, _ -> },
     onRegistrarCanje: (LoteProducto, Double, String, String, String, String, (Result<Unit>) -> Unit) -> Unit = { _, _, _, _, _, _, _ -> },
@@ -189,10 +190,10 @@ fun WorkspaceRegistrarEntrada(
                                 direccionInicial = if (grupo == "ENTRADA") "ENTRADA" else "SALIDA",
                                 onDismiss = { ajusteInventarioViewModel.cerrar() },
                                 onRegistrarEntrada = { lote, venc, cant, tipo, motivo ->
-                                    ajusteInventarioViewModel.registrarEntrada(lote, venc, cant, tipo, motivo)
+                                    ajusteInventarioViewModel.registrarEntrada(producto, lote, venc, cant, tipo, motivo)
                                 },
                                 onRegistrarSalida = { lote, cant, tipo, motivo ->
-                                    ajusteInventarioViewModel.registrarSalida(lote, cant, tipo, motivo)
+                                    ajusteInventarioViewModel.registrarSalida(producto, lote, cant, tipo, motivo)
                                 }
                             )
                         }
@@ -250,12 +251,13 @@ fun WorkspaceRegistrarEntrada(
                             onDefinirPrioridad = onDefinirPrioridad,
                             onCambiarBloqueo = onCambiarBloqueo,
                             onAnularIngreso = onAnularIngreso,
+                            onCorregirVencimiento = onCorregirVencimiento,
                             s = s
                         )
-                    }
-                }
             }
         }
+    }
+}
     }
 }
 
@@ -307,9 +309,10 @@ private fun ContenidoEstadoPremium(
     onCambiarVistaLote: (String) -> Unit,
     isPrivileged: Boolean,
     movimientos: List<com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario>,
-    onDefinirPrioridad: (String?) -> Unit,
+    onDefinirPrioridad: (String?, () -> Unit) -> Unit,
     onCambiarBloqueo: (LoteProducto, Boolean, Double, String, (Result<Unit>) -> Unit) -> Unit,
     onAnularIngreso: (LoteProducto, String, (Result<Unit>) -> Unit) -> Unit,
+    onCorregirVencimiento: (LoteProducto, String, String, (Result<Unit>) -> Unit) -> Unit,
     s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 ) {
     val lotesConStock = remember(producto.lotes, producto.lotePrioritarioId, producto.fefoAutomatico) {
@@ -373,6 +376,7 @@ private fun ContenidoEstadoPremium(
                             onDefinirPrioridad = onDefinirPrioridad,
                             onCambiarBloqueo = onCambiarBloqueo,
                             onAnularIngreso = onAnularIngreso,
+                            onCorregirVencimiento = onCorregirVencimiento,
                             s = s
                         )
                     } else {
@@ -399,13 +403,14 @@ private fun ContenidoEstadoPremium(
                     vistaActual = vistaLote,
                     onCambiarVista = onCambiarVistaLote,
                     onCerrar = { onSeleccionarLote(null) }, 
-                    isPrivileged = isPrivileged,
-                    movimientos = movimientos,
-                    onDefinirPrioridad = onDefinirPrioridad,
-                    onCambiarBloqueo = onCambiarBloqueo,
-                    onAnularIngreso = onAnularIngreso,
-                    s = s
-                )
+                            isPrivileged = isPrivileged,
+                            movimientos = movimientos,
+                            onDefinirPrioridad = onDefinirPrioridad,
+                            onCambiarBloqueo = onCambiarBloqueo,
+                            onAnularIngreso = onAnularIngreso,
+                            onCorregirVencimiento = onCorregirVencimiento,
+                            s = s
+                        )
             }
         }
     }
@@ -420,9 +425,10 @@ private fun DetalleDeEstadoLote(
     onCerrar: () -> Unit,
     isPrivileged: Boolean,
     movimientos: List<com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario>,
-    onDefinirPrioridad: (String?) -> Unit,
+    onDefinirPrioridad: (String?, () -> Unit) -> Unit,
     onCambiarBloqueo: (LoteProducto, Boolean, Double, String, (Result<Unit>) -> Unit) -> Unit,
     onAnularIngreso: (LoteProducto, String, (Result<Unit>) -> Unit) -> Unit,
+    onCorregirVencimiento: (LoteProducto, String, String, (Result<Unit>) -> Unit) -> Unit,
     s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 ) {
     when (vistaActual) {
@@ -455,8 +461,11 @@ private fun DetalleDeEstadoLote(
                 fefoAutomatico = producto.fefoAutomatico,
                 esEsteElLotePrioritario = producto.lotePrioritarioId.isNotBlank() &&
                     (producto.lotePrioritarioId.equals(lote.loteId, true) || producto.lotePrioritarioId.equals(lote.numero, true)),
-                onDefinirPrioridad = { marcar ->
-                    onDefinirPrioridad(if (marcar) lote.loteId.ifBlank { lote.numero } else null)
+                onDefinirPrioridad = { marcar, alTerminar ->
+                    onDefinirPrioridad(if (marcar) lote.loteId.ifBlank { lote.numero } else null) { alTerminar() }
+                },
+                onCorregirVencimiento = { nuevo, motivo, alTerminar ->
+                    onCorregirVencimiento(lote, nuevo, motivo, alTerminar)
                 },
                 isPrivileged = isPrivileged,
                 onDismiss = onCerrar,
@@ -504,10 +513,10 @@ private fun ContenidoEntradaPremium(
             onReintentar = onReintentar,
             onDismiss = { /* In-place workspace */ },
             onRegistrarEntrada = { lote, venc, cant, tipo, motivo ->
-                ajusteInventarioViewModel.registrarEntrada(lote, venc, cant, tipo, motivo)
+                ajusteInventarioViewModel.registrarEntrada(producto, lote, venc, cant, tipo, motivo)
             },
             onRegistrarSalida = { lote, cant, tipo, motivo ->
-                ajusteInventarioViewModel.registrarSalida(lote, cant, tipo, motivo)
+                ajusteInventarioViewModel.registrarSalida(producto, lote, cant, tipo, motivo)
             }
         )
     }
@@ -538,10 +547,10 @@ private fun ContenidoSalidaPremium(
             onReintentar = onReintentar,
             onDismiss = { /* In-place workspace */ },
             onRegistrarEntrada = { lote, venc, cant, tipo, motivo ->
-                ajusteInventarioViewModel.registrarEntrada(lote, venc, cant, tipo, motivo)
+                ajusteInventarioViewModel.registrarEntrada(producto, lote, venc, cant, tipo, motivo)
             },
             onRegistrarSalida = { lote, cant, tipo, motivo ->
-                ajusteInventarioViewModel.registrarSalida(lote, cant, tipo, motivo)
+                ajusteInventarioViewModel.registrarSalida(producto, lote, cant, tipo, motivo)
             },
             onMotivoEspecialClick = { tipo, lote ->
                 if (tipo == "DEVOLUCION") onIrADevolucion(lote)

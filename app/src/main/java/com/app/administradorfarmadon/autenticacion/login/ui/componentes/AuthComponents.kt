@@ -167,7 +167,9 @@ fun ExecutiveInput(
                         ),
                         keyboardActions = KeyboardActions(
                             onNext = { onImeAction() },
-                            onDone = { onImeAction() }
+                            onDone = { onImeAction() },
+                            onGo = { onImeAction() },
+                            onSend = { onImeAction() }
                         ),
                         visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
                         cursorBrush = SolidColor(colores.textoPrincipal)

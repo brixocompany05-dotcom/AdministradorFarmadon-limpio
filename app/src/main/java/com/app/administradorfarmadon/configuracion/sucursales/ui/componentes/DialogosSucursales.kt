@@ -16,6 +16,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
+import com.app.administradorfarmadon.configuracion.sucursales.logica.ColaboradorItem
+import com.app.administradorfarmadon.configuracion.sucursales.ui.componentes.dialogos_eliminar.*
 import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 
@@ -96,98 +99,59 @@ fun DialogoLimitePlan(
 }
 
 @Composable
-fun DialogoConfirmarEliminar(
+fun DialogoEliminarSedePasos(
     nombreSucursal: String,
-    colaboradoresAsignados: List<String> = emptyList(),
-    onConfirm: () -> Unit,
+    colaboradores: List<ColaboradorItem>,
+    sedesDisponibles: List<Sucursal>,
+    pasoActual: Int,
+    opcionMacro: String,
+    subOpcionReubicar: String,
+    sedeDestinoTodosId: String,
+    mapaDestinoIndividual: Map<String, String>,
+    onSeleccionarOpcionMacro: (String) -> Unit,
+    onSetSubOpcionReubicar: (String) -> Unit,
+    onSetSedeDestinoTodos: (String) -> Unit,
+    onSetSedeDestinoIndividual: (String, String) -> Unit,
+    onVolverPaso: () -> Unit,
+    onConfirmarEliminar: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val colores = TokensFarmadon.colores
-    val s = recordarMedidaAdaptativa()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(s.radiusCard),
-        containerColor = colores.cardBase,
-        title = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(s.xs)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(s.iconLarge * 1.55f)
-                        .clip(CircleShape)
-                        .background(colores.textoPrincipal.copy(alpha = 0.06f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteOutline,
-                        contentDescription = null,
-                        tint = colores.estadoPeligro,
-                        modifier = Modifier.size(s.iconMedium)
-                    )
-                }
-                Text(
-                    text = "¿Eliminar Sucursal?",
-                    style = TokensFarmadon.tipografia.titulo3.copy(fontSize = s.textSubtitle.value.sp),
-                    color = colores.textoPrincipal,
-                    textAlign = TextAlign.Center
-                )
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(s.xs)) {
-                Text(
-                    text = "¿Confirmas que deseas eliminar la sede \"$nombreSucursal\"? Esta acción liberará un cupo de tu plan.",
-                    style = TokensFarmadon.tipografia.cuerpo.copy(fontSize = s.textBody.value.sp),
-                    color = colores.textoSecundario,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                if (colaboradoresAsignados.isNotEmpty()) {
-                    Surface(
-                        color = colores.cardElevada,
-                        shape = RoundedCornerShape(s.radiusChip),
-                        border = androidx.compose.foundation.BorderStroke(s.borderWidth * 0.8f, colores.cardBorde),
-                        modifier = Modifier.fillMaxWidth().padding(top = s.xs * 0.5f)
-                    ) {
-                        Column(modifier = Modifier.padding(s.sm), verticalArrangement = Arrangement.spacedBy(s.xs * 0.5f)) {
-                            Text(
-                                text = "Personal asignado (${colaboradoresAsignados.size}):",
-                                style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Bold, fontSize = s.textLabel.value.sp),
-                                color = colores.textoPrincipal
-                            )
-                            Text(
-                                text = "${colaboradoresAsignados.joinToString(", ")}. Al eliminar la sede, sus cuentas pasarán automáticamente a Sede Itinerante para que sigan operativos.",
-                                style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = s.textBody.value.sp * 0.92f),
-                                color = colores.textoSecundario
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colores.estadoPeligro,
-                    contentColor = colores.botonPrimarioTexto
-                ),
-                shape = RoundedCornerShape(s.radiusChip)
-            ) {
-                Text("ELIMINAR SEDE", style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Bold, fontSize = s.textLabel.value.sp))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("CANCELAR", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = s.textLabel.value.sp), color = colores.textoSecundario)
-            }
-        }
-    )
+    if (colaboradores.isEmpty() || opcionMacro == "SIN_PERSONAL") {
+        DialogoEliminarSedeSinPersonal(
+            nombreSucursal = nombreSucursal,
+            onConfirmarEliminar = onConfirmarEliminar,
+            onDismiss = onDismiss
+        )
+    } else if (pasoActual == 1) {
+        DialogoEliminarPaso1Macro(
+            nombreSucursal = nombreSucursal,
+            colaboradores = colaboradores,
+            onSeleccionarOpcionMacro = onSeleccionarOpcionMacro,
+            onDismiss = onDismiss
+        )
+    } else if (pasoActual == 2 && opcionMacro == "REUBICAR") {
+        DialogoEliminarReubicarPersonal(
+            nombreSucursal = nombreSucursal,
+            colaboradores = colaboradores,
+            sedesDisponibles = sedesDisponibles,
+            subOpcionReubicar = subOpcionReubicar,
+            sedeDestinoTodosId = sedeDestinoTodosId,
+            mapaDestinoIndividual = mapaDestinoIndividual,
+            onSetSubOpcionReubicar = onSetSubOpcionReubicar,
+            onSetSedeDestinoTodos = onSetSedeDestinoTodos,
+            onSetSedeDestinoIndividual = onSetSedeDestinoIndividual,
+            onVolverPaso = onVolverPaso,
+            onConfirmarEliminar = onConfirmarEliminar,
+            onDismiss = onDismiss
+        )
+    } else if (pasoActual == 2 && opcionMacro == "ELIMINAR_TODOS") {
+        DialogoEliminarAdvertenciaBaja(
+            nombreSucursal = nombreSucursal,
+            colaboradores = colaboradores,
+            onVolverPaso = onVolverPaso,
+            onConfirmarEliminar = onConfirmarEliminar
+        )
+    }
 }
 
 @Composable

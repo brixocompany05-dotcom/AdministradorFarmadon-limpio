@@ -193,6 +193,44 @@ class ProveedorRepository(
                 return Result.failure(Exception("No se pudo identificar el documento del proveedor a eliminar."))
             }
             val docRef = FarmadonPaths.proveedores(db, clienteId, sucursalId).document(provId)
+
+            // Candado preventivo: un proveedor con pedidos EN CAMINO no se puede borrar —
+            // su factura y su recepción necesitan su ficha viva. Se bloquea ANTES con la
+            // verdad completa, jamás a medias.
+            val pedidosVivos = FarmadonPaths.pedidosCompra(db, clienteId, sucursalId)
+                .whereIn("estado", listOf("ENVIADO", "ENTREGA_PARCIAL"))
+                .get().await()
+            val pedidosDeEsteProveedor = pedidosVivos.documents.count { d ->
+                (d.getString("proveedorId") ?: "") == provId ||
+                    (d.getString("proveedorNombre") ?: "").equals(proveedorNombre.trim(), ignoreCase = true)
+            }
+            if (pedidosDeEsteProveedor > 0) {
+                return Result.failure(Exception(
+                    "No puedes eliminar este proveedor: tiene $pedidosDeEsteProveedor pedido(s) esperando mercadería. Recíbelos o cancélalos primero."
+                ))
+            }
+            // Igual para productos afiliados: borrar la ficha dejaría productos apuntando
+            // a un fantasma. El cambio de proveedor se hace producto por producto.
+            val productosAfiliados = FarmadonPaths.inventario(db, clienteId, sucursalId)
+                .whereEqualTo("proveedorId", provId)
+                .limit(1)
+                .get().await()
+            if (!productosAfiliados.isEmpty) {
+                return Result.failure(Exception(
+                    "No puedes eliminar este proveedor: todavía tiene productos afiliados. Primero cambia esos productos a otro proveedor desde su ficha."
+                ))
+            }
+            // Reclamos abiertos al proveedor: eliminarlo dejaría el expediente sin dueño.
+            val reclamosAbiertos = FarmadonPaths.reclamosProveedores(db, clienteId, sucursalId)
+                .whereEqualTo("proveedorId", provId)
+                .whereIn("estado", listOf("EN_REVISION_DROGUERIA", "EN_REVISION"))
+                .limit(1)
+                .get().await()
+            if (!reclamosAbiertos.isEmpty) {
+                return Result.failure(Exception(
+                    "No puedes eliminar este proveedor: tiene un reclamo abierto en revisión. Ciérralo o resuélvelo primero."
+                ))
+            }
             // Transacción: el saldo se relee y se borra en el mismo acto (un cambio de
             // saldo a favor concurrente jamás queda huérfano ni se elimina por error).
             db.runTransaction { tx ->
@@ -229,15 +267,56 @@ class ProveedorRepository(
             return Result.failure(IllegalArgumentException("Selecciona un proveedor real para afiliar el producto."))
         }
         return try {
-            FarmadonPaths.sucursal(db, f, s).collection("inventario").document(productoId)
-                .update(
-                    mapOf(
-                        "proveedor" to proveedorNombre.trim(),
-                        "proveedorNombre" to proveedorNombre.trim(),
-                        "proveedorId" to proveedorId,
-                        "actualizadoEl" to FieldValue.serverTimestamp()
+            val tiendaRef = FarmadonPaths.sucursal(db, f, s)
+            val productRef = tiendaRef.collection("inventario").document(productoId)
+            val auditRef = tiendaRef.collection("auditorias").document("inventario")
+                .collection("productos").document()
+            db.runTransaction { tx ->
+                val snap = tx.get(productRef)
+                if (!snap.exists()) throw IllegalStateException("El producto ya no existe en inventario.")
+
+                // Regla del historial: los lotes, facturas y pedidos YA ocurridos guardan
+                // al proveedor de su momento (inmutable — eso jamás se reescribe). Lo que
+                // cambia es el proveedor de LAS PRÓXIMAS compras. Se conserva el anterior
+                // en la ficha para que mañana nadie pregunte "¿desde cuándo cambió?".
+                val anteriorNombre = (snap.getString("proveedorNombre") ?: snap.getString("proveedor") ?: "").trim()
+                val anteriorId = (snap.getString("proveedorId") ?: "").trim()
+                val actorEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
+
+                @Suppress("UNCHECKED_CAST")
+                val historial = (snap.get("historialProveedores") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+                if (anteriorId.isNotBlank() && anteriorId != proveedorId) {
+                    historial.add(
+                        mapOf(
+                            "proveedorId" to anteriorId,
+                            "proveedorNombre" to anteriorNombre,
+                            "hastaEl" to com.google.firebase.Timestamp.now(),
+                            "cambiadoPorEmail" to actorEmail
+                        )
                     )
-                ).await()
+                }
+                val updates = mutableMapOf<String, Any>(
+                    "proveedor" to proveedorNombre.trim(),
+                    "proveedorNombre" to proveedorNombre.trim(),
+                    "proveedorId" to proveedorId,
+                    "actualizadoEl" to FieldValue.serverTimestamp()
+                )
+                if (historial.isNotEmpty()) updates["historialProveedores"] = historial
+                tx.update(productRef, updates)
+
+                // Auditoría atómica junto al cambio (mismo acto, jamás un cambio sin nombre).
+                tx.set(auditRef, mapOf(
+                    "evento" to "CAMBIO_PROVEEDOR_PRODUCTO",
+                    "productoId" to productoId,
+                    "productoNombre" to (snap.getString("nombre") ?: ""),
+                    "proveedorAnteriorId" to anteriorId,
+                    "proveedorAnteriorNombre" to anteriorNombre,
+                    "proveedorNuevoId" to proveedorId,
+                    "proveedorNuevoNombre" to proveedorNombre.trim(),
+                    "usuarioEmail" to actorEmail,
+                    "fecha" to FieldValue.serverTimestamp()
+                ))
+            }.await()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error vinculando producto $productoId a $proveedorNombre: ${e.message}", e)

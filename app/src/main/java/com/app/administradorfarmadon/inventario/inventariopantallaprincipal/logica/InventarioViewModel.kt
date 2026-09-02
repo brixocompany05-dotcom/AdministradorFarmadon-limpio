@@ -1,5 +1,4 @@
 package com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica
-import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 
 import android.app.Application
 import android.util.Log
@@ -15,7 +14,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -73,15 +71,19 @@ class InventarioViewModel(
     private val _estadoTab = MutableStateFlow("TODOS")
     val estadoTab: StateFlow<String> = _estadoTab.asStateFlow()
 
-    // Cursor paginación silenciosa —” último DocumentSnapshot para startAfter()
+    // Cursor paginación silenciosa — último DocumentSnapshot para startAfter()
     private var ultimoDoc: DocumentSnapshot? = null
     private var finListaAlcanzado = false
+    /** Solo la ÚLTIMA página viva puede mover el cursor: una actualización de la
+     * página 1 jamás hace retroceder el punto de "cargar más" (cero re-lecturas
+     * de páginas ya entregadas). */
+    private var ultimaPaginaViva = 0
     private var jobPagina: Job? = null
     private val jobsPaginaExtra = mutableListOf<Job>()
     private var jobCargarMas: Job? = null
     private var debounceMasJob: Job? = null
 
-    // Búsqueda server-side silenciosa —” cursor y estado honesto
+    // Búsqueda server-side silenciosa — cursor y estado honesto
     private var cursorBusqueda: DocumentSnapshot? = null
     private var finBusqueda = false
     private var jobBusqueda: Job? = null
@@ -116,7 +118,6 @@ class InventarioViewModel(
                     { it.createdAtTimestamp },
                     { it.name.lowercase() })
             )
-
             else -> base.sortedWith(compareByDescending<PharmProduct> { it.createdAtTimestamp }.thenBy { it.name.lowercase() })
         }
     }.flowOn(Dispatchers.Default)
@@ -153,11 +154,9 @@ class InventarioViewModel(
                                 { it.createdAtTimestamp },
                                 { it.name.lowercase() })
                         )
-
                         else -> panelFiltered.sortedWith(compareByDescending<PharmProduct> { it.createdAtTimestamp }.thenBy { it.name.lowercase() })
                     }
                 }
-
                 is InventarioBusquedaEstado.BusquedaVacia, is InventarioBusquedaEstado.BusquedaVaciaAlias -> emptyList()
                 is InventarioBusquedaEstado.Cargando -> emptyList()
                 is InventarioBusquedaEstado.Error -> emptyList()
@@ -171,9 +170,36 @@ class InventarioViewModel(
 
     val filteredProducts: StateFlow<List<PharmProduct>> = _filteredProducts
 
+    /**
+     * Alertas con la verdad COMPLETA de la sede, no solo de las páginas cargadas:
+     * con 1.000+ productos, un "stock bajo" de la página 8 jamás saldría en el
+     * panel si solo miráramos productsList. Se recarga por contrato (entrar,
+     * volver a primer plano, abrir el panel). Mientras no llega la foto completa,
+     * se calcula con lo cargado (mejor que nada, jamás alerta inventada).
+     */
+    private val _productosTodaLaSede = MutableStateFlow<List<PharmProduct>?>(null)
+
     val alertas: StateFlow<List<InventarioAlertasLogic.AlertaProducto>> =
-        _uiState.map { InventarioAlertasLogic.calcularAlertas(it.productsList) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        combine(_productosTodaLaSede, _uiState) { todaLaSede, ui ->
+            InventarioAlertasLogic.calcularAlertas(todaLaSede ?: ui.productsList)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Lee TODA la sede una vez para las alertas. Si la lectura falla se conserva
+     * la última foto buena y se registra el error (R9) — jamás se finge éxito.
+     */
+    fun cargarAlertasTodaLaSede() {
+        val farmaciaId = SessionManager.clienteIdGarantizado
+        val sucursalId = SessionManager.sucursalIdEfectiva
+        if (farmaciaId.isBlank() || sucursalId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                _productosTodaLaSede.value = repository.leerTodosLosProductos(farmaciaId, sucursalId)
+            } catch (e: Exception) {
+                Log.e("InventarioViewModel", "No se pudo leer toda la sede para alertas: ${e.message}", e)
+            }
+        }
+    }
 
     val unreadAlertsCount: StateFlow<Int> = combine(alertas, _readAlerts) { a, r ->
         a.count { al -> val rec = r[AlertPersistenceManager.readKey(al.productId, al.tipo.name)]; rec == null || rec.lastMessage != al.mensaje }
@@ -202,48 +228,23 @@ class InventarioViewModel(
             val busquedaCargando =
                 _uiState.value.busquedaEstado is InventarioBusquedaEstado.Cargando
             if (!enBusqueda || !busquedaCargando) {
-                _uiState.update {
-                    it.copy(
-                        pagedProducts = visible,
-                        filteredProducts = visible,
-                        totalProductsCount = visible.size
-                    )
+                _uiState.update { current ->
+                    if (current.pagedProducts == visible && current.filteredProducts == visible) {
+                        current
+                    } else {
+                        current.copy(
+                            pagedProducts = visible,
+                            filteredProducts = visible,
+                            totalProductsCount = if (current.isEnBusqueda) current.totalProductsCount else visible.size
+                        )
+                    }
                 }
             }
         }.launchIn(viewModelScope)
     }
 
-    /**
-     * Mide el desfase entre el reloj del dispositivo y el reloj de Firestore.
-     * 3 intentos; si todos fallan, se continúa con reloj local (degradación
-     * honesta documentada) —” jamás inventa fecha.
-     */
-    private suspend fun sincronizarHoraServidor(): Boolean {
-        repeat(3) { intento ->
-            try {
-                val docRef = FarmadonFirestore.db
-                    .collection("_health").document("ping")
-                    .collection("hora_fmd").document()
-                val antes = System.currentTimeMillis()
-                com.google.android.gms.tasks.Tasks.await(
-                    docRef.set(mapOf("ts" to com.google.firebase.firestore.FieldValue.serverTimestamp()))
-                )
-                val srv = docRef.get().await().getTimestamp("ts")?.toDate()?.time ?: return@repeat
-                com.app.administradorfarmadon.compartido.logica.HoraServidor.establecerOffset(srv - System.currentTimeMillis())
-                android.util.Log.i(
-                    "InventarioVM",
-                    "HoraServidor offset=${srv - antes}ms (intento ${intento + 1})"
-                )
-                return true
-            } catch (e: Exception) {
-                android.util.Log.w(
-                    "InventarioVM",
-                    "Sincronización de hora falló (intento ${intento + 1}): ${e.message}"
-                )
-            }
-        }
-        return false
-    }
+    // La hora del servidor la sincroniza RelojServidorSincronizador (fuente única
+    // en compartido/logica): aquí no se duplica esa responsabilidad.
 
     // ── Observador de búsqueda server-side con debounce 300ms y estados honestos ──
     private fun observarBusquedaServerSide() {
@@ -274,23 +275,33 @@ class InventarioViewModel(
                     }
                     return@onEach
                 }
-                // Entrar en búsqueda: estado honesto Cargando
-                _uiState.update {
-                    it.copy(
-                        isEnBusqueda = true,
-                        busquedaEstado = InventarioBusquedaEstado.Cargando,
-                        busquedaError = null,
-                        isLoading = true,
-                        isLoadingMore = false,
-                        isNextPageLoading = false,
-                        errorMessage = null,
-                        estadoCarga = InventarioCargaEstado.Cargando
-                    )
-                }
-                jobBusqueda?.cancel()
-                val reqId = ++busquedaRequestId
-                jobBusqueda = viewModelScope.launch {
-                    try {
+                // Entrar en búsqueda: misma ejecución real que el botón "Reintentar"
+                ejecutarBusquedaServer(query)
+            }.launchIn(viewModelScope)
+    }
+
+    /**
+     * Ejecución real de la búsqueda server-side. La usan el pipeline con debounce
+     * y el botón "Reintenta la búsqueda": mismo camino, mismos estados honestos
+     * y misma correlación contra respuestas tardías.
+     */
+    private fun ejecutarBusquedaServer(query: String) {
+        _uiState.update {
+            it.copy(
+                isEnBusqueda = true,
+                busquedaEstado = InventarioBusquedaEstado.Cargando,
+                busquedaError = null,
+                isLoading = true,
+                isLoadingMore = false,
+                isNextPageLoading = false,
+                errorMessage = null,
+                estadoCarga = InventarioCargaEstado.Cargando
+            )
+        }
+        jobBusqueda?.cancel()
+        val reqId = ++busquedaRequestId
+        jobBusqueda = viewModelScope.launch {
+            try {
                         val farmaciaId = SessionManager.clienteIdGarantizado
                         val sucursalId = SessionManager.sucursalIdEfectiva
                         if (farmaciaId.isBlank() || sucursalId.isBlank()) {
@@ -342,7 +353,6 @@ class InventarioViewModel(
                                 it.copy(
                                     busquedaEstado = InventarioBusquedaEstado.Exito(resultados),
                                     resultadosBusqueda = resultados,
-                                    // pagedProducts se actualizará vía _filteredProducts combine, pero también set directo para inmediatez
                                     pagedProducts = resultados,
                                     filteredProducts = resultados,
                                     totalProductsCount = resultados.size,
@@ -358,21 +368,9 @@ class InventarioViewModel(
                     } catch (e: Exception) {
                         Log.e("InventarioViewModel", "Error búsqueda server-side: ${e.message}", e)
                         val msg = when {
-                            e.message?.contains(
-                                "offline",
-                                ignoreCase = true
-                            ) == true -> "Sin conexión. Verifica tu internet."
-
-                            e.message?.contains(
-                                "UNAVAILABLE",
-                                ignoreCase = true
-                            ) == true -> "Sin conexión con inventario. Verifica internet."
-
-                            e.message?.contains(
-                                "PERMISSION_DENIED",
-                                ignoreCase = true
-                            ) == true -> "No tienes permiso para buscar en este inventario."
-
+                            e.message?.contains("offline", ignoreCase = true) == true -> "Sin conexión. Verifica tu internet."
+                            e.message?.contains("UNAVAILABLE", ignoreCase = true) == true -> "Sin conexión con inventario. Verifica internet."
+                            e.message?.contains("PERMISSION_DENIED", ignoreCase = true) == true -> "No tienes permiso para buscar en este inventario."
                             else -> e.message ?: "Error buscando inventario"
                         }
                         _uiState.update {
@@ -388,7 +386,19 @@ class InventarioViewModel(
                         }
                     }
                 }
-            }.launchIn(viewModelScope)
+    }
+
+    /**
+     * Reintento REAL de búsqueda: el pipeline solo reacciona cuando el texto CAMBIA,
+     * así que el botón de error llama aquí y vuelve a pegarle al servidor con el
+     * texto vigente (sin maquillar un no-op como si fuera reintento).
+     */
+    fun reintentarBusqueda() {
+        val query = _uiState.value.searchQuery.trim()
+        if (query.isEmpty()) return
+        cursorBusqueda = null
+        finBusqueda = false
+        ejecutarBusquedaServer(query)
     }
 
     // ── Paginación silenciosa: primera página (limit 50) ──
@@ -409,7 +419,7 @@ class InventarioViewModel(
         val sucursalEsperada = sucursalId
         finListaAlcanzado = false
         ultimoDoc = null
-        // Cerrar radios previos: paginación acumulativa limpia todos los listeners anteriores
+        ultimaPaginaViva = 0
         jobsPaginaExtra.forEach { it.cancel() }
         jobsPaginaExtra.clear()
         jobCargarMas?.cancel()
@@ -426,6 +436,8 @@ class InventarioViewModel(
         }
         jobPagina?.cancel()
         metricasJob?.cancel()
+        // Alertas de TODA la sede: recarga por contrato al entrar/cambiar de sede
+        cargarAlertasTodaLaSede()
         metricasJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val metricas = repository.obtenerMetricasCompletas(farmaciaId, sucursalId)
@@ -463,7 +475,8 @@ class InventarioViewModel(
                     pagina,
                     esInicial = true,
                     generation = currentGen,
-                    sucursalEsperada = sucursalEsperada
+                    sucursalEsperada = sucursalEsperada,
+                    indicePagina = 0
                 )
             }
             .catch { e ->
@@ -480,9 +493,7 @@ class InventarioViewModel(
             }.flowOn(Dispatchers.Default).launchIn(viewModelScope)
     }
 
-    // ── Carga incremental silenciosa: debounce 300ms y soporte búsqueda paginable ──
     fun cargarMas() {
-        // Si está en búsqueda server-side, paginar búsqueda silenciosamente
         if (_uiState.value.isEnBusqueda) {
             cargarMasBusqueda()
             return
@@ -557,8 +568,9 @@ class InventarioViewModel(
         if (_uiState.value.isLoadingMore) return
         val currentGen = cargaSucursalGeneration
         val sucursalEsperada = sucursalId
+        val indicePagina = ++ultimaPaginaViva
         _uiState.update { it.copy(isLoadingMore = true, isNextPageLoading = true) }
-        // Acumulativo: no cancelar job anterior, cada página mantiene su radio vivo (verdad vigente sin recarga total)
+        // Acumulativo: cada página mantiene su radio vivo; solo la última mueve el cursor
         val nuevoJob = repository.observarInventarioPaginado(
             farmaciaId,
             sucursalId,
@@ -570,7 +582,8 @@ class InventarioViewModel(
                     pagina,
                     esInicial = false,
                     generation = currentGen,
-                    sucursalEsperada = sucursalEsperada
+                    sucursalEsperada = sucursalEsperada,
+                    indicePagina = indicePagina
                 )
             }
             .catch { e ->
@@ -584,7 +597,6 @@ class InventarioViewModel(
                 }
             }.flowOn(Dispatchers.Default).launchIn(viewModelScope)
         jobsPaginaExtra.add(nuevoJob)
-        // Mantener referencia legacy para compatibilidad (último job)
         jobCargarMas = nuevoJob
     }
 
@@ -592,14 +604,19 @@ class InventarioViewModel(
         pagina: InventarioFirestoreRepository.PaginaInventario,
         esInicial: Boolean,
         generation: Long,
-        sucursalEsperada: String
+        sucursalEsperada: String,
+        indicePagina: Int
     ) {
         if (generation != cargaSucursalGeneration || sucursalEsperada != SessionManager.sucursalIdEfectiva) {
             // Descartar página de generación o sede obsoleta
             return
         }
-        ultimoDoc = pagina.ultimoDocumento
-        finListaAlcanzado = pagina.esUltimaPagina
+        // Solo la ÚLTIMA página viva mueve el cursor y decide el fin de lista;
+        // las emisiones de páginas antiguas solo refrescan su propio contenido.
+        if (indicePagina >= ultimaPaginaViva) {
+            ultimoDoc = pagina.ultimoDocumento
+            finListaAlcanzado = pagina.esUltimaPagina
+        }
         val actual = _uiState.value.productsList
         val combinada = if (esInicial) {
             pagina.productos
@@ -760,20 +777,29 @@ class InventarioViewModel(
     }
 
     fun markAlertsAsRead() {
-        val cur = alertas.value;
-        val read = _readAlerts.value; if (cur.isEmpty()) return
+        val cur = alertas.value
+        val read = _readAlerts.value
+        if (cur.isEmpty()) return
+        // R1: sin farmacia activa NO se escribe con otro identificador; la alerta
+        // simplemente queda pendiente hasta que la sesión sea válida.
+        val tenant = SessionManager.clienteIdGarantizado
+        if (tenant.isBlank()) {
+            Log.w("InventarioVM", "Sin farmacia activa: alertas no marcadas como vistas.")
+            return
+        }
         viewModelScope.launch {
             var ch = false
             cur.forEach { al ->
                 val key = AlertPersistenceManager.readKey(al.productId, al.tipo.name)
-                val r = read[key]; if (r == null || r.lastMessage != al.mensaje) {
-                AlertPersistenceManager.markAsRead(
-                    SessionManager.clienteIdGarantizado.ifBlank { SessionManager.idCajera },
-                    al.productId,
-                    al.tipo.name,
-                    al.mensaje
-                ); ch = true
-            }
+                val r = read[key]
+                if (r == null || r.lastMessage != al.mensaje) {
+                    try {
+                        AlertPersistenceManager.markAsRead(tenant, al.productId, al.tipo.name, al.mensaje)
+                        ch = true
+                    } catch (e: Exception) {
+                        Log.e("InventarioVM", "No se pudo marcar vista la alerta ${al.productId}: ${e.message}", e)
+                    }
+                }
             }
             if (ch) loadReadAlerts()
         }
@@ -783,29 +809,29 @@ class InventarioViewModel(
         val al = alertas.value.find { it.productId == productId && it.tipo.name == tipo } ?: return
         val key = AlertPersistenceManager.readKey(productId, tipo)
         val rec = _readAlerts.value[key]
+        val tenant = SessionManager.clienteIdGarantizado
+        if (tenant.isBlank()) {
+            Log.w("InventarioVM", "Sin farmacia activa: alerta no marcada como vista.")
+            return
+        }
         if (rec == null || rec.lastMessage != al.mensaje) {
             viewModelScope.launch {
-                AlertPersistenceManager.markAsRead(
-                    SessionManager.clienteIdGarantizado.ifBlank { SessionManager.idCajera },
-                    productId,
-                    tipo,
-                    al.mensaje
-                )
+                try {
+                    AlertPersistenceManager.markAsRead(tenant, productId, tipo, al.mensaje)
+                } catch (e: Exception) {
+                    Log.e("InventarioVM", "No se pudo marcar vista la alerta $productId: ${e.message}", e)
+                }
                 loadReadAlerts()
+
             }
         }
     }
 
-    /**
-     * Contrato de frescura del badge de alertas leídas (dato de baja criticidad:
-     * tolera minutos de vejez). NO lleva listener permanente; se recarga:
-     *   1. al entrar a la pantalla (init),
-     *   2. tras marcar algo como visto,
-     *   3. al volver a primer plano (InventarioScreen → refrescarAlertasLeidas).
-     * Fallo de red: se registra con verdad y se conserva el último estado conocido.
-     */
     fun refrescarAlertasLeidas() {
         viewModelScope.launch { loadReadAlerts() }
+        // Contrato de frescura: al volver a primer plano también se repite la
+        // foto completa de la sede (alertas de stock/vencimiento con verdad total).
+        cargarAlertasTodaLaSede()
     }
 
     private suspend fun loadReadAlerts() {
@@ -829,7 +855,7 @@ class InventarioViewModel(
         }
     }
 
-    fun reloadProductById(productId: String) {}
+
     override fun onCleared() {
         super.onCleared()
         jobsPaginaExtra.forEach { it.cancel() }

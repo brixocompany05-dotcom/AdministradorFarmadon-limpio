@@ -79,4 +79,43 @@ object FarmadonPaths {
 
     fun carritoReposicion(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
         sucursal(db, farmaciaId, sucursalId).collection("carrito_reposicion")
+
+    // ── MÓDULO POS / VENTAS (todo aislado por farmacia + sucursal, R1) ──
+
+    /** Ventas emitidas por la caja de la sucursal. */
+    fun ventas(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
+        sucursal(db, farmaciaId, sucursalId).collection("ventas")
+
+    /** Ventas parqueadas (suspendidas) en vivo; se recuperan desde cualquier terminal de la sede. */
+    fun ventasSuspendidas(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
+        sucursal(db, farmaciaId, sucursalId).collection("ventas_suspendidas")
+
+    /** Turnos de caja (aperturas/cierres). Un solo turno ABIERTO por sucursal,
+     *  garantizado por el puntero atómico [estadoCaja]. */
+    fun cajaSesiones(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
+        sucursal(db, farmaciaId, sucursalId).collection("caja_sesiones")
+
+    /**
+     * Puntero atómico del turno de caja vigente (doc único `actual` en `caja_sesiones`).
+     * Toda venta/devolución/movimiento lo lee DENTRO de su transacción:
+     * solo hay una caja abierta por sede y el dinero esperado siempre cuadra.
+     */
+    fun estadoCaja(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): DocumentReference =
+        sucursal(db, farmaciaId, sucursalId).collection("caja_sesiones").document("actual")
+
+    /** Entradas/salidas de dinero de la caja (ventas, devoluciones, ingresos, retiros). */
+    fun cajaMovimientos(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
+        sucursal(db, farmaciaId, sucursalId).collection("caja_movimientos")
+
+    /** Contadores atómicos de series de comprobantes (doc `ventas`: ultimaBoleta/ultimaFactura). */
+    fun contadores(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
+        sucursal(db, farmaciaId, sucursalId).collection("contadores")
+
+    /** Devoluciones de ventas (notas de crédito internas). */
+    fun devoluciones(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
+        sucursal(db, farmaciaId, sucursalId).collection("devoluciones")
+
+    /** Directorio de clientes de la farmacia (a nivel farmacia: compran en cualquier sede). */
+    fun clientesDirectorio(db: FirebaseFirestore, farmaciaId: String): CollectionReference =
+        farmacia(db, farmaciaId).collection("clientes")
 }

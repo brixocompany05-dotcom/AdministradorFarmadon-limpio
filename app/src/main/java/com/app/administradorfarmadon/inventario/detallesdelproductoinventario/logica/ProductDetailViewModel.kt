@@ -303,6 +303,27 @@ class ProductDetailViewModel(
         }
     }
 
+    private var correccionVencimientoEnCurso = false
+    fun corregirVencimientoLote(productId: String, lote: LoteProducto, nuevoVencimiento: String, motivo: String, onComplete: (Result<Unit>) -> Unit) {
+        if (correccionVencimientoEnCurso) return
+        correccionVencimientoEnCurso = true
+        val clienteId = SessionManager.clienteIdGarantizado
+        if (clienteId.isBlank()) {
+            correccionVencimientoEnCurso = false
+            onComplete(Result.failure(IllegalStateException("No hay una farmacia activa. Vuelve a iniciar sesión.")))
+            return
+        }
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
+        viewModelScope.launch {
+            try {
+                val result = lotesRepo.corregirVencimientoLote(clienteId, productId, lote, nuevoVencimiento, motivo, userEmail)
+                onComplete(result)
+            } finally {
+                correccionVencimientoEnCurso = false
+            }
+        }
+    }
+
     private var anularEnCurso = false
     fun anularIngreso(productId: String, lote: LoteProducto, motivo: String, onComplete: (Result<Unit>) -> Unit) {
         if (anularEnCurso) return

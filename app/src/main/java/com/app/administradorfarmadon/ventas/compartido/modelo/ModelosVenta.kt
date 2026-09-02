@@ -1,0 +1,245 @@
+package com.app.administradorfarmadon.ventas.compartido.modelo
+
+/**
+ * MODELOS REALES DEL PUNTO DE VENTA (R3/R12: cero campos de relleno).
+ *
+ * Todo lo que ve el cajero nace de estos documentos en Firestore:
+ *   - Venta            → sucursal/ventas/{id}          (comprobante con serie y correlativo)
+ *   - CajaSesion       → sucursal/caja_sesiones/{id}   (turno abierto/cerrado)
+ *   - EstadoCaja       → sucursal/caja_sesiones/actual (puntero atómico del turno vigente)
+ *   - MovimientoCaja   → sucursal/caja_movimientos/{id}
+ *   - VentaSuspendida  → sucursal/ventas_suspendidas/{id}
+ *   - DevolucionVenta  → sucursal/devoluciones/{id}
+ */
+
+// ───────────────────────────── CLIENTE EN LA VENTA ─────────────────────────────
+
+data class ClienteDeVenta(
+    /** NINGUNO = Consumidor Final · DNI (8) → Boleta · RUC (11) → Factura */
+    val tipoDocumento: String = "NINGUNO",
+    val numeroDocumento: String = "",
+    val nombre: String = "Consumidor Final",
+    /** Si el cliente ya existe en el directorio de la farmacia, queda enlazado. */
+    val clienteId: String = ""
+) {
+    val esConsumidorFinal: Boolean get() = tipoDocumento == "NINGUNO"
+}
+
+// ───────────────────────────── ÍTEMS DE LA VENTA ─────────────────────────────
+
+/** Qué lote físico salió y cuánto (unidades físicas). Trazabilidad pieza por pieza. */
+data class LoteConsumido(
+    val loteId: String = "",
+    val loteNumero: String = "",
+    val vencimiento: String = "",
+    val cantidadFisica: Double = 0.0
+)
+
+data class ItemVenta(
+    val productoId: String = "",
+    val nombreProducto: String = "",
+    val empaque: String = "",
+    val presentacionId: String = "",
+    val presentacionNombre: String = "",
+    /** Unidades vendidas de ESA presentación (siempre entero: 2 blíster, 1 caja…). */
+    val cantidad: Int = 0,
+    val precioUnitario: Double = 0.0,
+    val subtotal: Double = 0.0,
+    val requiereReceta: Boolean = false,
+    /** Lotes reales que se descontaron para esta línea (FEFO/prioridad del dueño). */
+    val lotesConsumidos: List<LoteConsumido> = emptyList(),
+    /** Cuántas unidades de esta línea ya regresaron por devolución. */
+    val cantidadDevuelta: Int = 0
+) {
+    val cantidadDevolvible: Int get() = (cantidad - cantidadDevuelta).coerceAtLeast(0)
+}
+
+// ───────────────────────────── PAGOS DE LA VENTA ─────────────────────────────
+
+/** Una porción del cobro con un método concreto (pagos mixtos reales). */
+data class PagoVenta(
+    /** Tipo fijo: EFECTIVO, YAPE, PLIN, TRANSFERENCIA, TARJETA_POS, CHEQUE. */
+    val tipoId: String = "",
+    val instanciaId: String = "",
+    val nombreMetodo: String = "",
+    val monto: Double = 0.0,
+    val numeroOperacion: String = ""
+)
+
+// ───────────────────────────── LA VENTA (COMPROBANTE) ─────────────────────────────
+
+/**
+ * Venta cerrada y cobrada. Documento único de verdad del comprobante.
+ * Se escribe dentro de UNA transacción junto con stock, kardex y caja.
+ */
+data class Venta(
+    val id: String = "",
+    /** Número visible en el ticket: B001-000042 (boleta) o F001-000012 (factura). */
+    val numeroCompleto: String = "",
+    val tipoComprobante: String = "BOLETA", // BOLETA | FACTURA
+    val serie: String = "B001",
+    val correlativo: Long = 0L,
+    val cliente: ClienteDeVenta = ClienteDeVenta(),
+    val items: List<ItemVenta> = emptyList(),
+    val totalItems: Int = 0,
+    val subtotal: Double = 0.0,
+    val descuento: Double = 0.0,
+    val total: Double = 0.0,
+    val pagos: List<PagoVenta> = emptyList(),
+    val montoRecibido: Double = 0.0,
+    val vuelto: Double = 0.0,
+    val estado: String = ESTADO_COMPLETADA, // COMPLETADA | DEVOLUCION_PARCIAL | DEVOLUCION_TOTAL
+    val cajaSesionId: String = "",
+    val cajeroId: String = "",
+    val cajeroNombre: String = "",
+    /** ms corregidos por hora de servidor (consultables y ordenables sin depender del reloj local). */
+    val fechaHoraMs: Long = 0L,
+    /** "yyyy-MM-dd" para traer SOLO las ventas del día con un filtro simple. */
+    val diaClave: String = ""
+) {
+    companion object {
+        const val ESTADO_COMPLETADA = "COMPLETADA"
+        const val ESTADO_DEVOLUCION_PARCIAL = "DEVOLUCION_PARCIAL"
+        const val ESTADO_DEVOLUCION_TOTAL = "DEVOLUCION_TOTAL"
+    }
+
+    val totalDevuelto: Double
+        get() = items.sumOf { it.cantidadDevuelta * it.precioUnitario }
+}
+
+// ───────────────────────────── CAJA (TURNO) ─────────────────────────────
+
+/** Turno de caja persistido: apertura, cierre y totales finales. */
+data class CajaSesion(
+    val id: String = "",
+    val estado: String = ESTADO_ABIERTA, // ABIERTA | CERRADA
+    val fondoInicial: Double = 0.0,
+    val aperturaMs: Long = 0L,
+    val aperturaLegible: String = "",
+    val abiertoPorId: String = "",
+    val abiertoPorNombre: String = "",
+    // Datos del cierre (vacíos mientras está abierta)
+    val cierreMs: Long = 0L,
+    val cierreLegible: String = "",
+    val cerradoPorId: String = "",
+    val cerradoPorNombre: String = "",
+    val efectivoContado: Double = 0.0,
+    val efectivoEsperado: Double = 0.0,
+    val diferenciaEfectivo: Double = 0.0,
+    val observaciones: String = ""
+) {
+    companion object {
+        const val ESTADO_ABIERTA = "ABIERTA"
+        const val ESTADO_CERRADA = "CERRADA"
+    }
+}
+
+/**
+ * Puntero atómico del turno vigente (doc único por sucursal).
+ * Acumula en vivo el dinero esperado por método: es lo que el cierre compara
+ * contra el conteo físico. Se actualiza SOLO dentro de transacciones.
+ */
+data class EstadoCaja(
+    val estado: String = CajaSesion.ESTADO_CERRADA,
+    val sesionId: String = "",
+    val fondoInicial: Double = 0.0,
+    val aperturaMs: Long = 0L,
+    val abiertoPorNombre: String = "",
+    /** Acumulado de ventas cobradas por tipo de pago: {EFECTIVO: 120.0, YAPE: 45.0, ...}.
+     *  Va NETO: una devolución resta directamente del método por el que se reembolsó. */
+    val ventasPorMetodo: Map<String, Double> = emptyMap(),
+    val ingresos: Double = 0.0,
+    val retiros: Double = 0.0,
+    /** Informativo para el desglose del cierre: cuánto salió en reembolsos de efectivo.
+     *  NO se resta del esperado (ya está neteado dentro de ventasPorMetodo). */
+    val devolucionesEfectivo: Double = 0.0,
+    val cantidadVentas: Int = 0,
+    val cantidadDevoluciones: Int = 0
+) {
+    val ventasEfectivo: Double get() = ventasPorMetodo["EFECTIVO"] ?: 0.0
+    /** Lo que DEBE haber en el cajón de efectivo en este momento. */
+    val efectivoEsperado: Double
+        get() = fondoInicial + ventasEfectivo + ingresos - retiros
+    val totalVentas: Double get() = ventasPorMetodo.values.sum()
+}
+
+/** Movimiento de dinero de la caja: venta, devolución, ingreso manual o retiro. */
+data class MovimientoCaja(
+    val id: String = "",
+    val tipo: String = "", // VENTA | DEVOLUCION | INGRESO | RETIRO
+    val metodoTipo: String = "",
+    val metodoNombre: String = "",
+    val monto: Double = 0.0,
+    val motivo: String = "",
+    /** Venta/devolución que originó el movimiento (si aplica). */
+    val referenciaId: String = "",
+    val referenciaNumero: String = "",
+    val cajaSesionId: String = "",
+    val usuarioId: String = "",
+    val usuarioNombre: String = "",
+    val fechaMs: Long = 0L
+) {
+    companion object {
+        const val TIPO_VENTA = "VENTA"
+        const val TIPO_DEVOLUCION = "DEVOLUCION"
+        const val TIPO_INGRESO = "INGRESO"
+        const val TIPO_RETIRO = "RETIRO"
+    }
+}
+
+// ───────────────────────────── VENTA SUSPENDIDA (PAUSA) ─────────────────────────────
+
+/** Venta parqueada para seguir atendiendo; vive en la nube y se retoma desde cualquier caja. */
+data class VentaSuspendida(
+    val id: String = "",
+    val items: List<ItemVenta> = emptyList(),
+    val cliente: ClienteDeVenta = ClienteDeVenta(),
+    val total: Double = 0.0,
+    val nota: String = "",
+    val creadoPorId: String = "",
+    val creadoPorNombre: String = "",
+    val fechaMs: Long = 0L
+)
+
+// ───────────────────────────── DEVOLUCIÓN ─────────────────────────────
+
+/** Un ítem devuelto dentro de una devolución. */
+data class ItemDevolucion(
+    val productoId: String = "",
+    val nombreProducto: String = "",
+    val presentacionNombre: String = "",
+    val cantidad: Int = 0,
+    val precioUnitario: Double = 0.0,
+    val monto: Double = 0.0
+)
+
+/** Parámetro de solicitud de devolución para una línea vendida. */
+data class ItemDevolucionParam(
+    val productoId: String = "",
+    val presentacionId: String = "",
+    val cantidad: Int = 0
+)
+
+/** Nota de crédito interna: stock regresa al lote original, dinero sale de la caja. */
+data class DevolucionVenta(
+    val id: String = "",
+    val ventaId: String = "",
+    val numeroVenta: String = "",
+    val items: List<ItemDevolucion> = emptyList(),
+    val montoReembolso: Double = 0.0,
+    /** Método por el que se devolvió el dinero (reembolso real al cliente). */
+    val metodoReembolso: String = "EFECTIVO",
+    val motivo: String = "",
+    val usuarioId: String = "",
+    val usuarioNombre: String = "",
+    val cajaSesionId: String = "",
+    val fechaMs: Long = 0L
+)
+
+/** Datos del emisor que van impresos en el ticket (vienen del documento de la farmacia). */
+data class EmisorComprobante(
+    val nombreFarmacia: String = "",
+    val ruc: String = "",
+    val direccion: String = "",
+    val sucursalNombre: String = ""
+)

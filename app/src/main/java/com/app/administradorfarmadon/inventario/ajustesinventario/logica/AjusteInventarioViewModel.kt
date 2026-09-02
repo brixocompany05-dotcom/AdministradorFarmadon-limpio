@@ -73,6 +73,7 @@ class AjusteInventarioViewModel(
         if (pendiente?.clave == clave) pendiente else OperacionPendiente(UUID.randomUUID().toString(), clave)
 
     fun registrarEntrada(
+        producto: MoldeProductos,
         loteNumero: String,
         vencimiento: String,
         cantidad: Double,
@@ -80,11 +81,17 @@ class AjusteInventarioViewModel(
         motivo: String,
         onSuccess: () -> Unit = {}
     ) {
-        val p = _state.value.producto ?: return
+        // R3: el producto llega por parámetro desde la pantalla que lo tiene en la mano.
+        // Jamás depender de un estado cargado por alguien más: si falta, el error es visible.
+        if (producto.indice.isBlank()) {
+            _state.update { it.copy(mensajeError = "No se pudo identificar el producto. Cierra y vuelve a abrir la ficha.", exito = false) }
+            return
+        }
+        val p = producto
         if (_state.value.procesando) return
         val op = idemPara("E|$loteNumero|$vencimiento|$cantidad|$tipo|$motivo", entradaPendiente)
         entradaPendiente = op
-        reintentoEntrada = { registrarEntrada(loteNumero, vencimiento, cantidad, tipo, motivo) }
+        reintentoEntrada = { registrarEntrada(p, loteNumero, vencimiento, cantidad, tipo, motivo) }
         _state.update { it.copy(procesando = true, mensajeError = null, exito = false) }
         viewModelScope.launch {
             val res = repository.registrarEntradaNoCompra(
@@ -118,17 +125,22 @@ class AjusteInventarioViewModel(
     }
 
     fun registrarSalida(
+        producto: MoldeProductos,
         loteNumero: String,
         cantidad: Double,
         tipo: String,
         motivo: String,
         onSuccess: () -> Unit = {}
     ) {
-        val p = _state.value.producto ?: return
+        if (producto.indice.isBlank()) {
+            _state.update { it.copy(mensajeError = "No se pudo identificar el producto. Cierra y vuelve a abrir la ficha.", exito = false) }
+            return
+        }
+        val p = producto
         if (_state.value.procesando) return
         val op = idemPara("S|$loteNumero|$cantidad|$tipo|$motivo", salidaPendiente)
         salidaPendiente = op
-        reintentoSalida = { registrarSalida(loteNumero, cantidad, tipo, motivo) }
+        reintentoSalida = { registrarSalida(p, loteNumero, cantidad, tipo, motivo) }
         _state.update { it.copy(procesando = true, mensajeError = null, exito = false) }
         viewModelScope.launch {
             val res = repository.registrarSalidaAjuste(

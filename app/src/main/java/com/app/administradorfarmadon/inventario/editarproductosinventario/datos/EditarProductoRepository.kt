@@ -191,6 +191,26 @@ class EditarProductoRepository(
                 val claveFichaAnterior = CodigoBarraHelper.claveFicha(nombreAnterior, empaqueAnterior, medidaAnterior)
                 val claveFichaNueva = CodigoBarraHelper.claveFicha(nombre.trim(), empFinal, medidaConcentracion.trim())
 
+                // INVARIANTE DEL FACTOR DE STOCK (misma regla que al guardar presentaciones):
+                // ninguna presentación puede superar el contenido del envase. Si la edición
+                // achica el contenido por debajo de una presentación existente, el factor de
+                // conversión cambiaría de significado y el stock descontaría fracciones
+                // fantasmas desde ese instante. Se bloquea con la verdad y el paso correcto.
+                val contenidoNuevoInt = cantVal.replace(',', '.').toDoubleOrNull()?.toInt() ?: 0
+                if (contenidoNuevoInt > 1) {
+                    val principalIdTx = (snapshot.get("presentacionPrincipalId") as? String)?.takeIf { it.isNotBlank() } ?: productoId
+                    val mayorOtraPresentacion = (snapshot.get("presentaciones") as? List<*>)
+                        ?.mapNotNull { it as? Map<*, *> }
+                        ?.filter { (it["presentacionId"] as? String) != principalIdTx }
+                        ?.maxOfOrNull { (it["cantidad"] as? Number)?.toInt() ?: 0 } ?: 0
+                    if (mayorOtraPresentacion > contenidoNuevoInt) {
+                        throw IllegalArgumentException(
+                            "El contenido nuevo ($contenidoNuevoInt) queda por debajo de la presentación existente de $mayorOtraPresentacion unidades. " +
+                                "Primero ajusta o elimina esa presentación en la pestaña Precios del producto, y luego edita el contenido."
+                        )
+                    }
+                }
+
                 // BLINDAJE ATÓMICO: si cambia la ficha o el código, verifica que los nuevos no tengan dueño dentro del candado
                 if (claveFichaNueva != claveFichaAnterior) {
                     CodigoBarraHelper.verificarFichaUnicidadEnTransaccion(tx, db, clienteId, claveFichaNueva)
@@ -299,6 +319,16 @@ class EditarProductoRepository(
                             mutable["empaque"] = empFinal
                             mutable["cantidad"] = (cantVal.toIntOrNull() ?: 1).coerceAtLeast(1)
                             mutable["unidadMedida"] = unidadVal.ifBlank { empFinal }
+                            // Regla de identidad física: el código viejo de la presentación
+                            // base queda como alias (sus etiquetas impresas siguen cobrando
+                            // esta presentación al precio actual).
+                            if (codAnterior.isNotBlank() && codAnterior != codNuevoLimpio) {
+                                val anteriores = (mutable["codigosAnteriores"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                                mutable["codigosAnteriores"] = (anteriores + codAnterior)
+                                    .map { CodigoBarraHelper.limpiar(it) }
+                                    .filter { it.isNotBlank() && it != codNuevoLimpio }
+                                    .distinct()
+                            }
                             mutable["codigoBarras"] = codNuevoLimpio
                         }
                         mutable
@@ -315,7 +345,6 @@ class EditarProductoRepository(
                 val codigosNuevosPresentaciones = presentacionesFinal.mapNotNull { item ->
                     item["codigoBarras"] as? String
                 }.map { CodigoBarraHelper.limpiar(it) }.filter { it.isNotBlank() }.toSet()
-                val codigosPresentacionesEliminar = codigosPreviosPresentaciones - codigosNuevosPresentaciones
 
                 for (codigo in codigosNuevosPresentaciones) {
                     CodigoBarraHelper.verificarUnicidadEnTransaccion(tx, db, clienteId, codigo, productoId)
@@ -323,9 +352,9 @@ class EditarProductoRepository(
 
                 tx.update(docRef, updates)
 
-                codigosPresentacionesEliminar.forEach { codigo ->
-                    CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codigo)
-                }
+                // Regla de identidad física: ningún índice de código se borra mientras
+                // el producto viva. Los códigos que ya no son actuales quedan apuntando
+                // a este producto para que las etiquetas físicas viejas nunca queden mudas.
                 codigosNuevosPresentaciones.forEach { codigo ->
                     CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codigo, productoId, nombre.trim())
                 }
@@ -338,10 +367,9 @@ class EditarProductoRepository(
                     CodigoBarraHelper.crearIndiceFichaEnTransaccion(tx, db, clienteId, claveFichaNueva, productoId)
                 }
 
-                // Mantener índice atómico de códigos sincronizado
-                if (codAnterior.isNotBlank() && codAnterior != codNuevoLimpio) {
-                    CodigoBarraHelper.borrarIndiceEnTransaccion(tx, db, clienteId, codAnterior)
-                }
+                // Mantener índice atómico de códigos sincronizado.
+                // Regla de identidad física: el índice del código anterior NUNCA se borra
+                // mientras el producto viva (las etiquetas físicas viejas lo necesitan).
                 if (codNuevoLimpio.isNotBlank() && codNuevoLimpio != codAnterior) {
                     CodigoBarraHelper.crearIndiceEnTransaccion(tx, db, clienteId, codNuevoLimpio, productoId, nombre.trim())
                 } else if (codNuevoLimpio.isNotBlank() && codAnterior.isBlank()) {

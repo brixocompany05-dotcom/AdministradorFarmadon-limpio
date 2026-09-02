@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
@@ -204,9 +205,9 @@ fun InventarioScreen(
 ) {
     val s = recordarMedidaAdaptativa()
 
-    val filterState by viewModel.filterState.collectAsState()
-    val uiState by viewModel.uiState.collectAsState()
-    val estadoTab by viewModel.estadoTab.collectAsState()
+    val filterState by viewModel.filterState.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val estadoTab by viewModel.estadoTab.collectAsStateWithLifecycle()
     val searchQuery = uiState.searchQuery
 
     var selectedProductId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -214,6 +215,7 @@ fun InventarioScreen(
     var mostrarScanner by remember { mutableStateOf(false) }
     var detalleTabInicial by rememberSaveable { mutableIntStateOf(0) }
     val focusRequesterBuscador = remember { FocusRequester() }
+    // previousSelectedProductId eliminado: servía solo a un stub vacío ya retirado.
 
     val closeSidePanels = {
         viewModel.setFilterPanelOpen(false)
@@ -316,9 +318,9 @@ fun InventarioScreen(
             }
     }
 
-    val alertas by viewModel.alertas.collectAsState()
-    val unreadAlertIds by viewModel.unreadAlertIds.collectAsState()
-    val readInfoMap by viewModel.readInfoMap.collectAsState()
+    val alertas by viewModel.alertas.collectAsStateWithLifecycle()
+    val unreadAlertIds by viewModel.unreadAlertIds.collectAsStateWithLifecycle()
+    val readInfoMap by viewModel.readInfoMap.collectAsStateWithLifecycle()
 
     val productsList = uiState.productsList
     val isLoadingProducts = uiState.isLoading
@@ -328,7 +330,6 @@ fun InventarioScreen(
     val nearExpiryCount = uiState.nearExpiryCount
     val isNextPageLoading = uiState.isNextPageLoading
     val pendingNewProductIds = uiState.pendingNewProductIds
-    var previousSelectedProductId by remember { mutableStateOf<String?>(null) }
 
     val activeFiltersCount = remember(filterState, uiState) {
         uiState.selectedCategories.size + uiState.selectedUseCases.size +
@@ -357,12 +358,8 @@ fun InventarioScreen(
         }
     }
 
-    LaunchedEffect(selectedProductId, previousSelectedProductId) {
-        if (selectedProductId == null && previousSelectedProductId != null) {
-            previousSelectedProductId?.let { viewModel.reloadProductById(it) }
-        }
-        previousSelectedProductId = selectedProductId
-    }
+    // Al cerrar el detalle no hace falta "recargar" a mano: la lista vive con
+    // listeners paginados en tiempo real y se refresca sola (verdad vigente R8).
 
     val detailViewModel: com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailViewModel = viewModel()
     val detailState = detailViewModel.uiState
@@ -506,7 +503,12 @@ fun InventarioScreen(
                                     .clip(RoundedCornerShape(s.radiusButton * 0.7f))
                                     .background(FDColors.Glass)
                                     .border(s.borderWidth * 0.6f, FDColors.Border, RoundedCornerShape(s.radiusButton * 0.7f))
-                                    .clickable { isAlertasPanelOpen = true },
+                                    .clickable {
+                                        // Abrir el panel dispara la foto completa de la sede:
+                                        // las alertas jamás se calculan solo con lo visible.
+                                        viewModel.cargarAlertasTodaLaSede()
+                                        isAlertasPanelOpen = true
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -601,7 +603,7 @@ fun InventarioScreen(
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Icon(Icons.Default.ErrorOutline, null, tint = FDColors.Error, modifier = Modifier.size(40.dp))
                                         Text(msg, color = FDColors.TextPrimary, style = FDType.Body, fontSize = 14.sp)
-                                        Text("Reintenta la búsqueda", color = FDColors.Primary, style = FDType.Label, modifier = Modifier.clickable { viewModel.onSearchQueryChanged(uiState.searchQuery) })
+                                        Text("Reintenta la búsqueda", color = FDColors.Primary, style = FDType.Label, modifier = Modifier.clickable { viewModel.reintentarBusqueda() })
                                     }
                                 }
                             }
@@ -655,13 +657,12 @@ fun InventarioScreen(
                         }
                     }
 
-                    // ── 3. FOOTER INFINITO SILENCIOSO ──
-                    // La UI nunca muestra "Página X de Y"; solo "Cargando más..." gestionado por ViewModel (limit 50 interno)
-                    // La paginación es 100% silenciosa: ViewModel acumula lotes, UI solo detecta scroll y pide cargarMas()
-                }
-
                 // PANEL DERECHO: FILTROS
                 if (layoutState.filterWidth > 0.5.dp) {
+                    val laboratoriosList = remember(productsList) { viewModel.getLaboratorios() }
+                    val ubicacionesList = remember(productsList) { viewModel.getUbicaciones() }
+                    val categoriasList = remember(productsList) { viewModel.getCategorias() }
+                    val precioMaxDisponibleVal = remember(productsList) { viewModel.getPrecioMax() }
                     Box(modifier = Modifier.width(layoutState.filterWidth).fillMaxHeight()) {
                         FilterSidePanel(
                             filterState = filterState, products = productsList, modifier = Modifier.fillMaxSize(), onClose = { viewModel.setFilterPanelOpen(false) },
@@ -672,7 +673,7 @@ fun InventarioScreen(
                             onToggleRequiereReceta = { viewModel.updateFilter { copy(requiereReceta = !requiereReceta) } }, onToggleSoloRefrigerados = { viewModel.updateFilter { copy(soloRefrigerados = !soloRefrigerados) } },
                             onToggleStockBajoMinimo = { viewModel.updateFilter { copy(stockBajoMinimo = !stockBajoMinimo) } }, onClearAll = { viewModel.clearAllFilters() },
                             onApply = { viewModel.setFilterPanelOpen(false) }, s = s,
-                            laboratorios = viewModel.getLaboratorios(), ubicaciones = viewModel.getUbicaciones(), categorias = viewModel.getCategorias(), precioMaxDisponible = viewModel.getPrecioMax()
+                            laboratorios = laboratoriosList, ubicaciones = ubicacionesList, categorias = categoriasList, precioMaxDisponible = precioMaxDisponibleVal
                         )
                     }
                 }
@@ -686,10 +687,6 @@ fun InventarioScreen(
                         alertas = alertas, unreadAlertIds = unreadAlertIds, readInfoMap = readInfoMap,
                         modifier = Modifier.width(340.dp).fillMaxHeight(), onClose = { isAlertasPanelOpen = false },
                         onProductClick = { alerta ->
-                            // UX: al actuar sobre una alerta TODO panel se cierra y se abre el
-                            // detalle del producto directamente. La alerta de margen aterriza en
-                            // PRECIOS (donde vive la solución); las demás, en el panorama general.
-                            // Al volver, nada queda abierto.
                             val tabInicial = when (alerta.tipo) {
                                 InventarioAlertasLogic.TipoAlerta.MARGEN_BAJO -> 1
                                 else -> 0
@@ -745,6 +742,7 @@ fun InventarioScreen(
         }
 
     }
+}
 
 
 @Composable

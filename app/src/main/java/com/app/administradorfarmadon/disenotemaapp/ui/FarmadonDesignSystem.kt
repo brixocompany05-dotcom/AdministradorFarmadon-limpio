@@ -100,8 +100,8 @@ object FDType {
     )
 
     val Heading3: TextStyle get() = TextStyle(
-        fontWeight = FontWeight.Medium,   fontSize = 16.sp,
-        lineHeight = 22.sp,
+        fontWeight = FontWeight.Medium,   fontSize = 15.sp,
+        lineHeight = 20.sp,
         color = FDColors.TextPrimary
     )
 
@@ -118,13 +118,13 @@ object FDType {
     )
 
     val Caption: TextStyle get() = TextStyle(
-        fontWeight = FontWeight.Medium,   fontSize = 12.sp,
-        lineHeight = 18.sp,  letterSpacing = 0.3.sp,
+        fontWeight = FontWeight.Medium,   fontSize = 11.sp,
+        lineHeight = 16.sp,  letterSpacing = 0.3.sp,
         color = FDColors.TextTertiary
     )
 
     val Label: TextStyle get() = TextStyle(
-        fontWeight = FontWeight.SemiBold, fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold, fontSize = 11.sp,
         lineHeight = 16.sp,  letterSpacing = 0.8.sp,
         color = FDColors.TextTertiary
     )
@@ -152,17 +152,17 @@ object FDSpacing {
     val xl      = 16.dp
     val xxl     = 24.dp
     val xxxl    = 32.dp
-    val screenH = 16.dp
-    val screenV = 12.dp
+    val screenH = 12.dp
+    val screenV = 8.dp
 }
 
 // ──── TAMAÑOS ──────────────────────────────────────────────────
 
 object FDSizes {
-    val inputHeight       = 52.dp
-    val buttonHeight      = 48.dp
-    val buttonHeightSm    = 38.dp
-    val buttonHeightLg    = 56.dp
+    val inputHeight       = 48.dp
+    val buttonHeight      = 44.dp
+    val buttonHeightSm    = 36.dp
+    val buttonHeightLg    = 52.dp
 
     val iconSm   = 18.dp
     val iconMd   = 22.dp

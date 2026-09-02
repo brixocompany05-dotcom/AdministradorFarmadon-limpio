@@ -64,6 +64,17 @@ object PreciosYFraccionamientoValidator {
             if (pres.cantidad <= 0) {
                 listaErrores.add(ErrorFila(pres.presentacionId, "El contenido debe ser mínimo 1", esBloqueante = true))
                 hayBloqueante = true
+            } else if (limiteContenidoMaestro > 1 && pres.cantidad > limiteContenidoMaestro) {
+                // Candado de la matemática de stock (UnidadVentaHelper): el factor de
+                // conversión ES la presentación mayor; si una presentación supera el
+                // contenido del envase recibido, cada venta descontaría fracciones
+                // fantasmas y el stock físico dejaría de cuadrar. Se bloquea en raíz.
+                listaErrores.add(ErrorFila(
+                    pres.presentacionId,
+                    "'${pres.nombre.ifBlank { "Esta presentación" }}' tiene ${pres.cantidad} y el envase completo trae $limiteContenidoMaestro. Una presentación no puede superar al envase; si vendes packs, registra esa entrada como envases aparte.",
+                    esBloqueante = true
+                ))
+                hayBloqueante = true
             } else if (limiteContenidoMaestro > 1 && pres.cantidad == 1 && (pres.empaque.equals("Caja", ignoreCase = true) || pres.empaque.equals("Frasco", ignoreCase = true))) {
                 listaErrores.add(ErrorFila(
                     pres.presentacionId,

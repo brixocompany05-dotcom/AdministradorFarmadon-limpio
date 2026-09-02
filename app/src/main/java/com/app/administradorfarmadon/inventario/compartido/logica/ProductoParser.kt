@@ -57,7 +57,8 @@ object ProductoParser {
             val principioActivo = docString(doc, "principioActivo")
             val codigoBarras = docString(doc, "codigoBarras", "codigo")
             val categoria = docString(doc, "categoriaNombre", "categoriaPrincipal")
-            val laboratorio = docString(doc, "laboratorio", "proveedorBaseNombre")
+            // R12: el laboratorio JAMÁS se rellena con el proveedor; vacío honesto si no existe.
+            val laboratorio = docString(doc, "laboratorio")
             val empaque = docString(doc, "empaque")
             val medida = docString(doc, "medidaConcentracion", "concentracion")
             val requiereReceta = docBoolean(doc, "requiereReceta", false)
@@ -82,8 +83,9 @@ object ProductoParser {
                     val venc = v["vencimiento"] as? String ?: ""
                     val cant = (v["cantidad"] as? Number)?.toDouble() ?: 0.0
                     val cantBloq = (v["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
-                    val prov = v["proveedor"] as? String ?: ""
-                    val fact = v["factura"] as? String ?: ""
+                    val prov = (v["proveedor"] as? String) ?: (v["proveedorNombre"] as? String) ?: ""
+                    val provId = v["proveedorId"] as? String ?: ""
+                    val fact = (v["factura"] as? String) ?: (v["nroFactura"] as? String) ?: ""
                     val costoComp = (v["costoCompra"] as? Number)?.toDouble() ?: 0.0
                     val costoUnit = (v["costoUnitario"] as? Number)?.toDouble() ?: 0.0
                     // Fecha de nacimiento real del lote (sin mentir): lee Timestamp o String
@@ -101,7 +103,7 @@ object ProductoParser {
                     val loteIdVal = v["loteId"] as? String ?: FechaVencimientoHelper.llaveLote(num)
                     lotesMap[k.toString()] = LoteProducto(
                         numero = num, vencimiento = venc, cantidad = cant, cantidadBloqueada = cantBloq,
-                        proveedorNombre = prov, nroFactura = fact, costoUltimoIngreso = costoComp, costoCompraUnitario = costoUnit,
+                        proveedorNombre = prov, proveedorId = provId, nroFactura = fact, costoUltimoIngreso = costoComp, costoCompraUnitario = costoUnit,
                         fecha = fechaStr, createdAt = createdAtStr, loteId = loteIdVal,
                         ventasRegistradas = (v["ventasRegistradas"] as? Number)?.toDouble() ?: 0.0
                     )
@@ -129,7 +131,8 @@ object ProductoParser {
                     val pUni = item["unidadMedida"] as? String ?: ""
                     val pPre = (item["precioventa"] as? Number)?.toDouble() ?: 0.0
                     val pCod = item["codigoBarras"] as? String ?: ""
-                    presentacionesList.add(PresentacionProducto(pId, pNom, pEmp, pCant, pUni, pPre, pCod))
+                    val pCodigosAnteriores = (item["codigosAnteriores"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                    presentacionesList.add(PresentacionProducto(pId, pNom, pEmp, pCant, pUni, pPre, pCod, pCodigosAnteriores))
                 }
             }
 
@@ -198,7 +201,8 @@ object ProductoParser {
             val principioActivo = docString(doc, "principioActivo")
             val codigoBarras = docString(doc, "codigoBarras", "codigo")
             val categoria = docString(doc, "categoriaNombre", "categoriaPrincipal")
-            val laboratorio = docString(doc, "laboratorio", "proveedorBaseNombre")
+            // R12: el laboratorio JAMÁS se rellena con el proveedor; vacío honesto si no existe.
+            val laboratorio = docString(doc, "laboratorio")
             val empaque = docString(doc, "empaque")
             val medida = docString(doc, "medidaConcentracion", "concentracion")
             val requiereReceta = docBoolean(doc, "requiereReceta", false)

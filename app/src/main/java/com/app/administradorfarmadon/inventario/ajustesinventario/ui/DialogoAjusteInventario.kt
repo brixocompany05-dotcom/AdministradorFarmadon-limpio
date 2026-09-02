@@ -120,6 +120,20 @@ fun DialogoAjusteInventario(
 
     var loteSalidaSeleccionado by remember { mutableStateOf(loteSalidaInicial?.numero) }
 
+    // Tras un guardado exitoso el formulario nace limpio: sin esto, el segundo toque
+    // sobre los datos viejos asienta un AJUSTE DUPLICADO en stock y kardex (R3).
+    LaunchedEffect(exito) {
+        if (exito) {
+            opcionSeleccionada = null
+            loteNumero = ""
+            vencimiento = ""
+            cantidadTexto = ""
+            notasAdicionales = ""
+            loteSalidaSeleccionado = null
+            errorLocal = null
+        }
+    }
+
     val opcion = opcionSeleccionada
     val esEntrada = opcion?.esEntrada == true
     
@@ -1026,7 +1040,7 @@ private fun PanelResumenAjuste(
                         modifier = Modifier.fillMaxWidth(),
                         decorationBox = { innerTextField ->
                             if (notasAdicionales.isEmpty()) {
-                                Text("Ej: Dejado por visitador médico...", style = FDType.BodySmall, color = FDColors.TextTertiary)
+                                Text("Escribe el detalle real de lo que pasó (opcional)", style = FDType.BodySmall, color = FDColors.TextTertiary)
                             }
                             innerTextField()
                         }

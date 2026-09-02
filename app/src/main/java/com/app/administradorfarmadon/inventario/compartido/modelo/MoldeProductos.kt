@@ -390,7 +390,13 @@ data class PresentacionProducto(
     var cantidad: Int = 0,
     var unidadMedida: String = "",
     var precioventa: Double = 0.0,
-    var codigoBarras: String = ""
+    var codigoBarras: String = "",
+    /**
+     * Códigos que ESTA presentación tuvo antes (etiquetas físicas ya impresas en la tienda).
+     * Jamás se borran mientras el producto viva: escanear la etiqueta vieja debe seguir
+     * cobrando ESTA presentación al precio actual, nunca dar "no existe" ni otra presentación.
+     */
+    var codigosAnteriores: List<String> = emptyList()
 )
 
 /**
@@ -425,6 +431,21 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
             nombrePresentacion = coincidenciaDirecta.nombre,
             cantidadUnidades = coincidenciaDirecta.cantidad.coerceAtLeast(1),
             precioVenta = coincidenciaDirecta.precioventa
+        )
+    }
+
+    // 1.5 ETIQUETA VIEJA FÍSICA: el código fue EDITADO pero el papel ya está en el
+    // estante. El alias garantiza que escanear la etiqueta vieja cobra ESA misma
+    // presentación con su precio ACTUAL (nunca el de otra, nunca "no existe").
+    val porAlias = presentaciones.firstOrNull { pres ->
+        pres.codigosAnteriores.any { it.replace(Regex("[^a-zA-Z0-9_-]"), "").uppercase() == codLimpio }
+    }
+    if (porAlias != null) {
+        return ResolvedProductPresentation(
+            presentacionId = porAlias.presentacionId,
+            nombrePresentacion = porAlias.nombre,
+            cantidadUnidades = porAlias.cantidad.coerceAtLeast(1),
+            precioVenta = porAlias.precioventa
         )
     }
 

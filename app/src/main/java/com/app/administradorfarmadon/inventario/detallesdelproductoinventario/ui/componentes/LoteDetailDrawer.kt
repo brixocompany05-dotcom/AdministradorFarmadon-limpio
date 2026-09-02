@@ -13,7 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.AssignmentReturn
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Star
-import kotlinx.coroutines.delay
+
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,7 +50,7 @@ internal fun ContenidoFicha(
     lote: LoteProducto,
     fefoAutomatico: Boolean,
     esEsteElLotePrioritario: Boolean,
-    onDefinirPrioridad: (Boolean) -> Unit,
+    onDefinirPrioridad: (Boolean, () -> Unit) -> Unit,
     isPrivileged: Boolean,
     onDismiss: () -> Unit,
     onAbrirCuarentena: () -> Unit,
@@ -61,19 +61,22 @@ internal fun ContenidoFicha(
     estaEnCuarentena: Boolean,
     esRefrigerado: Boolean,
     esControlado: Boolean,
-    isProcesandoPrioridadExterno: Boolean = false
+    isProcesandoPrioridadExterno: Boolean = false,
+    onCorregirVencimiento: (nuevoVencimiento: String, motivo: String, onComplete: (Result<Unit>) -> Unit) -> Unit = { _, _, _ -> }
 ) {
     var isProcesandoPrioridadLocal by remember { mutableStateOf(false) }
+    // Corrección honesta del vencimiento mal tipeado (la fecha de la verdad física)
+    var editandoVencimiento by remember { mutableStateOf(false) }
+    var vencimientoNuevo by remember(lote.numero, lote.vencimiento) { mutableStateOf(lote.vencimiento) }
+    var motivoCorreccion by remember { mutableStateOf("") }
+    var procesandoCorreccion by remember { mutableStateOf(false) }
+    var errorCorreccion by remember { mutableStateOf<String?>(null) }
     val isProcesandoPrioridad = isProcesandoPrioridadExterno || isProcesandoPrioridadLocal
-    // Se resetea al cambiar de lote FEFO (éxito) o tras timeout si falla — evita spinner pegado
+    // El candado se apaga SOLO con la respuesta real del servidor (éxito o error).
+    // Jamás por reloj: con red lenta un timeout adelantado re-habilitaba el botón
+    // y permitía disparar dos escrituras de prioridad (R3/R11).
     LaunchedEffect(fefoAutomatico, esEsteElLotePrioritario, product.lotePrioritarioId) {
         isProcesandoPrioridadLocal = false
-    }
-    LaunchedEffect(isProcesandoPrioridadLocal) {
-        if (isProcesandoPrioridadLocal) {
-            delay(3500)
-            isProcesandoPrioridadLocal = false
-        }
     }
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -158,7 +161,21 @@ internal fun ContenidoFicha(
                     }
                     Box(modifier = Modifier.height(70.dp).width(1.dp).background(FDColors.Border.copy(alpha = 0.5f)))
                     Column(modifier = Modifier.weight(0.9f).padding(start = 16.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("VENCIMIENTO", style = FDType.Label.copy(fontSize = 10.sp, letterSpacing = 0.9.sp, color = FDColors.TextTertiary, fontWeight = FontWeight.Black))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("VENCIMIENTO", style = FDType.Label.copy(fontSize = 10.sp, letterSpacing = 0.9.sp, color = FDColors.TextTertiary, fontWeight = FontWeight.Black))
+                            // Corrección de verdad: si al recibir se tipeó mal la fecha,
+                            // no queda mintiendo para siempre ni obliga a anular el lote.
+                            if (isPrivileged && !editandoVencimiento) {
+                                Icon(
+                                    Icons.Outlined.Edit, "Corregir vencimiento",
+                                    tint = FDColors.TextTertiary,
+                                    modifier = Modifier
+                                        .size(15.dp)
+                                        .clip(CircleShape)
+                                        .clickable { editandoVencimiento = true; vencimientoNuevo = lote.vencimiento; motivoCorreccion = ""; errorCorreccion = null }
+                                )
+                            }
+                        }
                         Text(lote.vencimiento.ifBlank { "—”" }, style = FDType.Body.copy(fontSize = 16.sp, fontWeight = FontWeight.Black, color = colorVencimiento, fontFamily = FontFamily.Monospace))
                         Surface(color = colorVencimiento.copy(alpha = 0.12f), shape = RoundedCornerShape(100.dp), border = BorderStroke(1.dp, colorVencimiento.copy(alpha = 0.35f))) {
                             Text(
@@ -172,6 +189,74 @@ internal fun ContenidoFicha(
                                 style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Black, color = colorVencimiento),
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
+                        }
+                    }
+                }
+            }
+
+            // ── Editor en línea: corregir vencimiento mal tipeado (con motivo real) ──
+            if (editandoVencimiento) {
+                Surface(
+                    color = FDColors.Surface,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.35f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "CORREGIR VENCIMIENTO DEL LOTE ${lote.numero}",
+                            style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 0.6.sp),
+                            color = FDColors.Primary
+                        )
+                        com.app.administradorfarmadon.inventario.compartido.ui.SelectorVencimiento(
+                            vencimiento = vencimientoNuevo,
+                            onVencimientoChange = { vencimientoNuevo = it },
+                            label = "Fecha correcta que dice el empaque"
+                        )
+                        EnterpriseInputField(
+                            value = motivoCorreccion,
+                            onValueChange = { motivoCorreccion = it; errorCorreccion = null },
+                            enabled = !procesandoCorreccion,
+                            label = "¿Por qué se corrige? *",
+                            placeholder = "Escribe la razón real (me equivoqué al recibir, etc.)",
+                            minLines = 2,
+                            singleLine = false
+                        )
+                        errorCorreccion?.let {
+                            Text(it, style = FDType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold), color = FDColors.Error)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = { if (!procesandoCorreccion) { editandoVencimiento = false; errorCorreccion = null } },
+                                enabled = !procesandoCorreccion,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, FDColors.Border),
+                                modifier = Modifier.weight(1f).height(42.dp)
+                            ) { Text("CANCELAR", style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold), color = FDColors.TextSecondary) }
+                            Button(
+                                onClick = {
+                                    if (!procesandoCorreccion && motivoCorreccion.trim().length >= 5) {
+                                        procesandoCorreccion = true
+                                        onCorregirVencimiento(vencimientoNuevo, motivoCorreccion) { result ->
+                                            procesandoCorreccion = false
+                                            if (result.isSuccess) {
+                                                editandoVencimiento = false
+                                                errorCorreccion = null
+                                            } else {
+                                                errorCorreccion = result.exceptionOrNull()?.message ?: "No se pudo corregir. Intenta de nuevo."
+                                            }
+                                        }
+                                    } else if (motivoCorreccion.trim().length < 5) {
+                                        errorCorreccion = "El motivo es obligatorio (mínimo 5 letras): toda corrección queda en el kardex."
+                                    }
+                                },
+                                enabled = !procesandoCorreccion,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary, contentColor = FDColors.PrimaryText),
+                                modifier = Modifier.weight(1f).height(42.dp)
+                            ) {
+                                Text(if (procesandoCorreccion) "GUARDANDO..." else "GUARDAR CORRECCIÓN", style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold), color = FDColors.PrimaryText)
+                            }
                         }
                     }
                 }
@@ -251,7 +336,7 @@ internal fun ContenidoFicha(
                         onClick = {
                             if (!isProcesandoPrioridad) {
                                 isProcesandoPrioridadLocal = true
-                                onDefinirPrioridad(true)
+                                onDefinirPrioridad(true) { isProcesandoPrioridadLocal = false }
                             }
                         },
                         enabled = isPrivileged && !isProcesandoPrioridad,
@@ -272,7 +357,7 @@ internal fun ContenidoFicha(
                     TextButton(onClick = {
                         if (!isProcesandoPrioridad) {
                             isProcesandoPrioridadLocal = true
-                            onDefinirPrioridad(false)
+                            onDefinirPrioridad(false) { isProcesandoPrioridadLocal = false }
                         }
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text("Restaurar orden automático (FEFO)", style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold), color = FDColors.Warning)
@@ -675,7 +760,7 @@ internal fun ContenidoAnulacionInline(
                 }
             }
 
-            EnterpriseInputField(value = motivo, onValueChange = { motivo = it; mensajeError = null }, enabled = !isProcesando, label = "¿Por qué lo anulas? *", placeholder = "Ej: factura duplicada", minLines = 3, singleLine = false)
+            EnterpriseInputField(value = motivo, onValueChange = { motivo = it; mensajeError = null }, enabled = !isProcesando, label = "¿Por qué lo anulas? *", placeholder = "Escribe el motivo real de la anulación", minLines = 3, singleLine = false)
             Text("Borra el lote y ajusta la factura.", style = FDType.Caption.copy(color = FDColors.TextSecondary, fontSize = 11.sp))
         }
 

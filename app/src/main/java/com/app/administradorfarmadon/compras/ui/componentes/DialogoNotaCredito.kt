@@ -326,7 +326,12 @@ fun DialogoNotaCredito(
                                     )
                                     Text(
                                         "Total del papel ${String.format(Locale.US, "%.2f", totalPapel)} → total ajustado ${String.format(Locale.US, "%.2f", totalDespues)}. " +
-                                            if (quedaraSaldada) "La factura quedará SALDADA." else "Quedará un saldo de ${String.format(Locale.US, "%.2f", saldoDespues)}.",
+                                            if (quedaraSaldada) {
+                                                val excesoVista = (totalAbonado - totalDespues).coerceAtLeast(0.0)
+                                                if (excesoVista > 0.01)
+                                                    "La factura quedará SALDADA y los ${String.format(Locale.US, "%.2f", excesoVista)} que ya pagaste de más nacerán como SALDO A FAVOR del proveedor (aparecerá para cobrarlo o usarlo en otra compra)."
+                                                else "La factura quedará SALDADA."
+                                            } else "Quedará un saldo de ${String.format(Locale.US, "%.2f", saldoDespues)}.",
                                         style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
                                         color = FDColors.TextPrimary
                                     )

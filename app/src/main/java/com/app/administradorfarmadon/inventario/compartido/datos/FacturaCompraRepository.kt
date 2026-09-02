@@ -424,6 +424,28 @@ class FacturaCompraRepository(
                     )
                 }
 
+                val nuevoTotalEfectivo = (fact.totalPapel - totalAjustesActual - monto).coerceAtLeast(0.0)
+                val totalAbonado = fact.totalAbonadoReal
+
+                // ══ CERO PLATA QUE SE EVAPORA (R3) ══
+                // Si ya pagamos MÁS de lo que la factura vale tras la nota de crédito,
+                // la diferencia es plata que el proveedor nos debe: nace como saldo a
+                // favor del proveedor en la MISMA transacción, jamás se aplana a cero.
+                val excesoPagado = (totalAbonado - nuevoTotalEfectivo).coerceAtLeast(0.0)
+                var provRefNc: com.google.firebase.firestore.DocumentReference? = null
+                var provSnapNc: com.google.firebase.firestore.DocumentSnapshot? = null
+                if (excesoPagado > 0.01) {
+                    val proveedorIdNc = fact.proveedorId
+                    if (proveedorIdNc.isBlank()) {
+                        throw IllegalStateException(
+                            "La nota de crédito deja plata pagada de más y esta factura no tiene proveedor vinculado; " +
+                            "esa plata quedaría sin dueño. Vincula el proveedor en la ficha de la factura y reintenta."
+                        )
+                    }
+                    provRefNc = FarmadonPaths.sucursal(db, clienteId, sucursalId).collection("proveedores").document(proveedorIdNc)
+                    provSnapNc = tx.get(provRefNc!!)
+                }
+
                 val ajustesActualizados = fact.ajustesFactura.map { a ->
                     mapOf(
                         "id" to a.id,
@@ -439,8 +461,6 @@ class FacturaCompraRepository(
                 }.toMutableList()
                 ajustesActualizados.add(nuevoAjusteMap)
 
-                val nuevoTotalEfectivo = (fact.totalPapel - totalAjustesActual - monto).coerceAtLeast(0.0)
-                val totalAbonado = fact.totalAbonadoReal
                 val saldoRestante = (nuevoTotalEfectivo - totalAbonado).coerceAtLeast(0.0)
                 val nuevoEstado = when {
                     saldoRestante <= 0.01 -> "PAGADA"
@@ -456,6 +476,47 @@ class FacturaCompraRepository(
                         "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
                     )
                 )
+
+                if (provRefNc != null && provSnapNc != null) {
+                    val entradaSaldo = mapOf(
+                        "id" to idAjuste,
+                        "tipo" to "SALDO_A_FAVOR_NOTA_CREDITO",
+                        "monto" to excesoPagado,
+                        "facturaId" to facturaId,
+                        "facturaNumero" to fact.numeroFactura,
+                        "motivo" to "Exceso pagado sobre la factura ${fact.numeroFactura} tras la nota de crédito $numDoc",
+                        "fechaLegible" to fechaLegible,
+                        "fechaMs" to ahoraMs,
+                        "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
+                        "usuarioEmail" to usuarioEmail
+                    )
+                    if (provSnapNc.exists()) {
+                        val saldoActual = provSnapNc.getDouble("saldoAFavor") ?: 0.0
+                        @Suppress("UNCHECKED_CAST")
+                        val historial = (provSnapNc.get("historialSaldoAFavor") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+                        historial.add(entradaSaldo)
+                        tx.update(
+                            provRefNc,
+                            mapOf(
+                                "saldoAFavor" to saldoActual + excesoPagado,
+                                "historialSaldoAFavor" to historial,
+                                "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                            )
+                        )
+                    } else {
+                        tx.set(
+                            provRefNc,
+                            mapOf(
+                                "id" to fact.proveedorId,
+                                "nombre" to fact.proveedorNombre,
+                                "saldoAFavor" to excesoPagado,
+                                "historialSaldoAFavor" to listOf(entradaSaldo),
+                                "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                            ),
+                            com.google.firebase.firestore.SetOptions.merge()
+                        )
+                    }
+                }
             }.await()
 
             Result.success(Unit)

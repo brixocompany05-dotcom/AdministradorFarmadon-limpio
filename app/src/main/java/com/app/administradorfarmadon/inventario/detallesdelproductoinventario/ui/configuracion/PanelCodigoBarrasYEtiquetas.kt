@@ -394,8 +394,13 @@ fun PanelCodigoBarrasYEtiquetas(
                                 style = FDType.Heading3.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FDColors.TextPrimary),
                                 maxLines = 1
                             )
+                            // R12: la etiqueta solo imprime datos reales; si no hay
+                            // concentración ni ubicación, muestra el envase (siempre real).
                             Text(
-                                text = "${producto.concentracion.ifBlank { "Unidad" }} · Ubic: ${producto.ubicacion.ifBlank { "Mostrador" }}",
+                                text = listOfNotNull(
+                                    producto.concentracion.ifBlank { null },
+                                    producto.ubicacion.ifBlank { null }?.let { "Ubic: $it" }
+                                ).joinToString(" · ").ifBlank { producto.empaque.ifBlank { "Producto" } },
                                 style = FDType.Caption.copy(fontSize = 10.5.sp, color = FDColors.TextSecondary),
                                 maxLines = 1
                             )

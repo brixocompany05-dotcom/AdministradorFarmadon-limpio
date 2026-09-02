@@ -146,8 +146,9 @@ fun ProductDetailScreen(
                         loteInicial = loteInicialEntrada,
                         isPrivileged = uiState.isPrivileged,
                         onVolver = { salirDeEntrada() },
-                        onDefinirPrioridad = { loteId ->
+                        onDefinirPrioridad = { loteId, alTerminar ->
                             viewModel.definirLotePrioritario(uiState.product.indice, loteId) { result ->
+                                alTerminar()
                                 if (result.isFailure) {
                                     enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
                                 } else {
@@ -192,6 +193,16 @@ fun ProductDetailScreen(
                                     enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
                                 } else {
                                     enterpriseMsg = "Lote anulado" to false
+                                }
+                            }
+                        },
+                        onCorregirVencimiento = { lote, nuevoVenc, motivo, onComplete ->
+                            viewModel.corregirVencimientoLote(uiState.product.indice, lote, nuevoVenc, motivo) { result ->
+                                onComplete(result)
+                                if (result.isFailure) {
+                                    enterpriseMsg = "Error: ${result.exceptionOrNull()?.message}" to true
+                                } else {
+                                    enterpriseMsg = "Vencimiento corregido a $nuevoVenc" to false
                                 }
                             }
                         }

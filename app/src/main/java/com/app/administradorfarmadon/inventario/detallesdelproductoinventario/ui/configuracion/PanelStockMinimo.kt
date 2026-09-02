@@ -282,7 +282,7 @@ fun PanelStockMinimo(
                 val limpio = if (partes.size > 2) partes[0] + "." + partes.drop(1).joinToString("") else filtrado
                 inputTexto = limpio.take(7)
             },
-            placeholder = if (esFraccionable) "Ej: 50" else "5",
+            placeholder = "Cantidad mínima",
             keyboardType = KeyboardType.Decimal,
             leadingIcon = Icons.Outlined.NotificationsActive
         )

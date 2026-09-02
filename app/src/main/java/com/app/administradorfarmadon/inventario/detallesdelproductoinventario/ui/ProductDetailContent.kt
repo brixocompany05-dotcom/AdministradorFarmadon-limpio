@@ -263,7 +263,12 @@ fun ProductDetailContent(
                         Button(
                             onClick = {
                                 val itemsToPrint = if (p.etiquetasPendientesLista.isNotEmpty()) {
-                                    p.etiquetasPendientesLista
+                                    // Solo presentaciones que SIGUEN existiendo en la ficha:
+                                    // una etiqueta pendiente de una presentación eliminada
+                                    // jamás se imprime (imprimiría nombre y precio muertos).
+                                    p.etiquetasPendientesLista.filter { item ->
+                                        p.presentaciones.any { it.presentacionId == item.presentacionId }
+                                    }
                                 } else {
                                     val pres = p.presentaciones.firstOrNull { it.presentacionId == p.etiquetaPendientePresentacionId }
                                         ?: p.presentaciones.firstOrNull()

@@ -14,7 +14,6 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques
 import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto
-import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailMapper
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -73,27 +72,72 @@ class LotesDevolucionCanjeRepository(
             val reclamoRef = tiendaRef.collection("reclamos_proveedores").document(UUID.randomUUID().toString())
             val cleanKey = FechaVencimientoHelper.llaveLote(lote.numero)
 
-            val cleanFacturaId = if (lote.nroFactura.isNotBlank()) {
-                lote.nroFactura.trim().uppercase().replace("/", "-").replace(" ", "_")
+            val numeroFacturaLimpio = lote.nroFactura.trim().uppercase()
+            val cleanFacturaId = if (numeroFacturaLimpio.isNotBlank()) {
+                numeroFacturaLimpio.replace("/", "-").replace(" ", "_")
             } else null
-            val facturaRef = cleanFacturaId?.let { tiendaRef.collection("compras_facturas").document(it) }
 
             db.runTransaction { tx ->
                 val snap = tx.get(productRef)
                 if (!snap.exists()) throw Exception("El producto no existe.")
                 if (tx.get(movimientoRef).exists()) return@runTransaction
 
-                // ══ FASE DE LECTURAS (Firestore: TODAS las lecturas antes de cualquier
-                // escritura — un get posterior abortaría la devolución completa) ══
-                val snapFacturaPrevio = facturaRef?.let { tx.get(it) }
-                val provRefDev = if (snapFacturaPrevio != null && snapFacturaPrevio.exists() && lote.proveedorId.isNotBlank())
-                    tiendaRef.collection("proveedores").document(lote.proveedorId) else null
-                val provSnapDev = provRefDev?.let { tx.get(it) }
-
                 val lotesMap = (snap.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()
                 val res2 = FechaVencimientoHelper.resolverLote(lotesMap, lote.numero) ?: throw Exception("El lote no se encuentra en el inventario.")
                 val (cleanKeyReal, loteData) = res2
-                val cleanKey = cleanKeyReal
+                // Verdad del lote FRESCA (leída dentro del candado, no del objeto en memoria):
+                // sin proveedorId real la nota de crédito y el saldo a favor no tienen dueño.
+                val proveedorIdLote = (loteData["proveedorId"] as? String)?.trim().orEmpty()
+                val proveedorNombreLote = ((loteData["proveedor"] as? String) ?: (loteData["proveedorNombre"] as? String) ?: "").trim()
+
+                // ══ FASE DE LECTURAS (Firestore: TODAS las lecturas antes de cualquier
+                // escritura — un get posterior abortaría la devolución completa) ══
+                // La factura vive con ID compuesto proveedor__numero (así la crea el ingreso).
+                // Se busca con la MISMA llave y con el formato legado; si la factura formal
+                // no aparece por ninguna llave, se ABORTA con la verdad: asentar la devolución
+                // sin tocar la deuda dejaría la plata partida en dos (R3: jamás en silencio).
+                var facturaRefEfectiva: com.google.firebase.firestore.DocumentReference? = null
+                var snapFacturaPrevio: com.google.firebase.firestore.DocumentSnapshot? = null
+                // Solo un comprobante FORMAL toca Cuentas por Pagar. Un lote nacido de
+                // ajuste (muestra/donación/sobrante: "AJUSTE") o sin comprobante ("S/C")
+                // no tiene deuda que ajustar: la devolución solo baja stock + reclamo.
+                val esComprobanteFormal = cleanFacturaId != null &&
+                    numeroFacturaLimpio != "AJUSTE" && !numeroFacturaLimpio.startsWith("S/C")
+                if (cleanFacturaId != null && esComprobanteFormal) {
+                    val provKey = when {
+                        proveedorIdLote.isNotBlank() -> proveedorIdLote
+                        proveedorNombreLote.isNotBlank() -> proveedorNombreLote.uppercase().replace("/", "-").replace(" ", "_").replace(".", "__DOT__")
+                        else -> ""
+                    }
+                    val candidatas = buildList {
+                        if (provKey.isNotBlank()) add(tiendaRef.collection("compras_facturas").document("${provKey}__${cleanFacturaId}"))
+                        add(tiendaRef.collection("compras_facturas").document(cleanFacturaId))
+                    }.distinctBy { it.id }
+                    for (ref in candidatas) {
+                        val c = tx.get(ref)
+                        if (!c.exists()) continue
+                        // ID legado (solo número) que resulta ser de OTRO proveedor: no es esta factura.
+                        if (ref.id == cleanFacturaId && provKey.isNotBlank()) {
+                            val provDeLaFactura = (c.getString("proveedorNombre") ?: "").trim()
+                            val idProvFactura = (c.getString("proveedorId") ?: "").trim()
+                            val mismoProveedor = (proveedorIdLote.isNotBlank() && idProvFactura == proveedorIdLote) ||
+                                (provDeLaFactura.isNotBlank() && provDeLaFactura.equals(proveedorNombreLote, ignoreCase = true))
+                            if (!mismoProveedor) continue
+                        }
+                        snapFacturaPrevio = c
+                        facturaRefEfectiva = ref
+                        break
+                    }
+                    if (snapFacturaPrevio == null) {
+                        throw IllegalStateException(
+                            "La factura ${lote.nroFactura.trim()} no existe en Cuentas por Pagar; registrar la devolución sin tocar esa deuda dejaría la plata partida. No se asentó nada: revisa la factura primero."
+                        )
+                    }
+                }
+                val provRefDev = if (snapFacturaPrevio != null && proveedorIdLote.isNotBlank())
+                    tiendaRef.collection("proveedores").document(proveedorIdLote) else null
+                val provSnapDev = provRefDev?.let { tx.get(it) }
+
                 val cantDisponible = (loteData["cantidad"] as? Number)?.toDouble() ?: 0.0
                 val cantBloqueada = (loteData["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
                 val totalLote = cantDisponible + cantBloqueada
@@ -115,7 +159,7 @@ class LotesDevolucionCanjeRepository(
                 loteData["ultimaDevolucion"] = FieldValue.serverTimestamp()
                 lotesMap[cleanKeyReal] = loteData
 
-                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = calcularResumenStockYFefo(lotesMap)
+                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = FechaVencimientoHelper.resumenStockYFefo(lotesMap)
 
                 val updatesProducto = mutableMapOf<String, Any>(
                     "lotes" to lotesMap,
@@ -150,7 +194,7 @@ class LotesDevolucionCanjeRepository(
                     "cantidad" to -cantidadDevuelta,
                     "costoTotal" to montoTotalReclamo,
                     "costoUnitario" to costoUnitarioLote,
-                    "proveedorNombre" to lote.proveedorNombre,
+                    "proveedorNombre" to proveedorNombreLote.ifBlank { lote.proveedorNombre },
                     "facturaNumero" to lote.nroFactura,
                     "guiaRetiro" to guiaRetiro.trim().uppercase(),
                     "notaCredito" to notaCredito.trim().uppercase(),
@@ -172,8 +216,8 @@ class LotesDevolucionCanjeRepository(
                     "cantidadDevuelta" to cantidadDevuelta,
                     "costoUnitario" to costoUnitarioLote,
                     "montoTotal" to montoTotalReclamo,
-                    "proveedorId" to lote.proveedorId,
-                    "proveedorNombre" to lote.proveedorNombre,
+                    "proveedorId" to proveedorIdLote.ifBlank { lote.proveedorId },
+                    "proveedorNombre" to proveedorNombreLote.ifBlank { lote.proveedorNombre },
                     "facturaOrigen" to lote.nroFactura,
                     "guiaRetiro" to guiaRetiro.trim().uppercase(),
                     "notaCredito" to notaCredito.trim().uppercase(),
@@ -188,7 +232,7 @@ class LotesDevolucionCanjeRepository(
                 // 5. La nota de crédito es información CONTABLE: reduce la deuda real de la factura
                 //    (ajustesFactura, que Cuentas por Pagar lee) y suma el "saldo a favor" del proveedor
                 //    (plata que la droguería nos debe). Todo en la misma transacción, jamás en silencio.
-                if (facturaRef != null) {
+                if (facturaRefEfectiva != null) {
                     // La foto de la factura se tomó en la fase de lecturas (jamás se lee tras escribir).
                     val snapFactura = snapFacturaPrevio
                         ?: throw IllegalStateException("No se pudo leer la factura de origen dentro de la operación. Intenta de nuevo.")
@@ -224,7 +268,10 @@ class LotesDevolucionCanjeRepository(
                         )
                         val nuevoTotalEfectivo = (totalPapel - totalAjustesActual - montoTotalReclamo).coerceAtLeast(0.0)
                         @Suppress("UNCHECKED_CAST")
-                        val totalAbonado = (snapFactura.get("abonos") as? List<Map<String, Any>>)?.sumOf { (it["monto"] as? Number)?.toDouble() ?: 0.0 }
+                        // Misma regla que FacturaCompra (totalAbonadoReal): solo abonos VIGENTES cuentan.
+                        val totalAbonado = (snapFactura.get("abonos") as? List<Map<String, Any>>)
+                            ?.filterNot { it["anulado"] == true }
+                            ?.sumOf { (it["monto"] as? Number)?.toDouble() ?: 0.0 }
                             ?: (snapFactura.getDouble("montoPagado") ?: 0.0)
                         val saldoRestante = (nuevoTotalEfectivo - totalAbonado).coerceAtLeast(0.0)
                         val nuevoEstadoPago = when {
@@ -233,7 +280,7 @@ class LotesDevolucionCanjeRepository(
                             else -> "PENDIENTE"
                         }
                         tx.update(
-                            facturaRef,
+                            facturaRefEfectiva,
                             mapOf(
                                 "ajustesFactura" to ajustesExistentes,
                                 "estadoPago" to nuevoEstadoPago,
@@ -246,17 +293,17 @@ class LotesDevolucionCanjeRepository(
                         // Si la factura aún no estaba pagada, la nota solo reduce lo que debemos:
                         // no se inventa un saldo a favor.
                         val excesoPagado = (totalAbonado - nuevoTotalEfectivo).coerceAtLeast(0.0)
-                        if (lote.proveedorId.isNotBlank() && excesoPagado > 0.0) {
+                        if (proveedorIdLote.isNotBlank() && excesoPagado > 0.0) {
                             // La foto del proveedor se tomó en la fase de lecturas.
                             val provRef = provRefDev
-                                ?: tiendaRef.collection("proveedores").document(lote.proveedorId)
+                                ?: tiendaRef.collection("proveedores").document(proveedorIdLote)
                             val provSnap = provSnapDev
                                 ?: throw IllegalStateException("No se pudo leer el proveedor dentro de la operación. Intenta de nuevo.")
                             val entradaSaldo = mapOf(
                                 "id" to reclamoRef.id,
                                 "tipo" to "SALDO_A_FAVOR_NOTA_CREDITO",
                                 "monto" to excesoPagado,
-                                "facturaId" to facturaRef.id,
+                                "facturaId" to facturaRefEfectiva.id,
                                 "facturaNumero" to lote.nroFactura,
                                 "motivo" to motivo,
                                 "fechaLegible" to fechaLegible,
@@ -281,8 +328,8 @@ class LotesDevolucionCanjeRepository(
                                 tx.set(
                                     provRef,
                                     mapOf(
-                                        "id" to lote.proveedorId,
-                                        "nombre" to (snapFactura.getString("proveedorNombre") ?: lote.proveedorNombre),
+                                        "id" to proveedorIdLote,
+                                        "nombre" to (snapFactura.getString("proveedorNombre") ?: proveedorNombreLote.ifBlank { lote.proveedorNombre }),
                                         "saldoAFavor" to excesoPagado,
                                         "historialSaldoAFavor" to listOf<Map<String, Any>>(entradaSaldo),
                                         "actualizadoEl" to FieldValue.serverTimestamp()
@@ -371,7 +418,21 @@ class LotesDevolucionCanjeRepository(
                 // 2. Acreditar en el lote nuevo
                 val costoUnitarioHistorico = CostoRealLote.costoUnitario(loteDataOrigen)
 
-                val loteDataNuevo = (lotesMap[cleanKeyNuevo] as? Map<String, Any?>)?.toMutableMap() ?: mutableMapOf<String, Any?>()
+                // Proveedor/factura FRESCOS del lote origen (leídos dentro del candado):
+                // el lote nuevo hereda la cadena de trazabilidad completa, nunca vacía.
+                val proveedorOrigenId = (loteDataOrigen["proveedorId"] as? String)?.trim().orEmpty()
+                    .ifBlank { loteOrigen.proveedorId.trim() }
+                val proveedorOrigenNombre = ((loteDataOrigen["proveedor"] as? String)
+                    ?: (loteDataOrigen["proveedorNombre"] as? String)
+                    ?: "").trim().ifBlank { loteOrigen.proveedorNombre.trim() }
+                val facturaOrigenTxt = (loteDataOrigen["factura"] as? String)?.trim().orEmpty()
+                    .ifBlank { loteOrigen.nroFactura.trim() }
+
+                // El lote nuevo puede existir bajo llave moderna, legada o con otra capitalización:
+                // resolverLote lo encuentra en los 3 casos y jamás crea una llave duplicada.
+                val resNuevo = FechaVencimientoHelper.resolverLote(lotesMap, nuevoLoteNumero)
+                val keyLoteNuevo = resNuevo?.first ?: cleanKeyNuevo
+                val loteDataNuevo = resNuevo?.second ?: mutableMapOf<String, Any>()
                 val cantNuevoActual = (loteDataNuevo["cantidad"] as? Number)?.toDouble() ?: 0.0
                 val vtoExistenteNuevo = (loteDataNuevo["vencimiento"] as? String)?.takeIf { it.isNotBlank() }?.let { FechaVencimientoHelper.normalizar(it) }
                 val vtoNuevoNorm = FechaVencimientoHelper.normalizar(nuevoVencimiento.trim()) ?: nuevoVencimiento.trim()
@@ -384,15 +445,15 @@ class LotesDevolucionCanjeRepository(
                 loteDataNuevo["cantidad"] = (cantNuevoActual + cantidadCanjeada).coerceAtLeast(0.0)
                 loteDataNuevo["costoCompraUnitario"] = costoUnitarioHistorico
                 loteDataNuevo["costoUnitario"] = costoUnitarioHistorico
-                loteDataNuevo["proveedor"] = loteOrigen.proveedorNombre
-                loteDataNuevo["proveedorId"] = loteOrigen.proveedorId
-                loteDataNuevo["factura"] = loteOrigen.nroFactura
+                loteDataNuevo["proveedor"] = proveedorOrigenNombre
+                loteDataNuevo["proveedorId"] = proveedorOrigenId
+                loteDataNuevo["factura"] = facturaOrigenTxt
                 // Compatibilidad: también deja llaves lectoras antiguas por si cliente viejo lee nroFactura
-                loteDataNuevo["proveedorNombre"] = loteOrigen.proveedorNombre
-                loteDataNuevo["nroFactura"] = loteOrigen.nroFactura
+                loteDataNuevo["proveedorNombre"] = proveedorOrigenNombre
+                loteDataNuevo["nroFactura"] = facturaOrigenTxt
                 loteDataNuevo["esCanje"] = true
                 loteDataNuevo["actualizadoEl"] = FieldValue.serverTimestamp()
-                lotesMap[cleanKeyNuevo] = loteDataNuevo
+                lotesMap[keyLoteNuevo] = loteDataNuevo
 
                 // Si el lote origen quedó en 0 (y la reposición NO es el mismo lote),
                 // desaparece del stock activo; su historial queda en el kardex.
@@ -404,7 +465,7 @@ class LotesDevolucionCanjeRepository(
                 }
 
                 // 3. Sincronizar stock disponible, stock total y vencimiento FEFO tras el canje
-                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = calcularResumenStockYFefo(lotesMap)
+                val (nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano) = FechaVencimientoHelper.resumenStockYFefo(lotesMap)
 
                 val updatesProducto = mutableMapOf<String, Any>(
                     "lotes" to lotesMap,
@@ -438,8 +499,8 @@ class LotesDevolucionCanjeRepository(
                     "loteNumero" to loteOrigen.numero,
                     "cantidad" to -cantidadCanjeada,
                     "costoTotal" to (cantidadCanjeada * costoUnitarioHistorico),
-                    "proveedorNombre" to loteOrigen.proveedorNombre,
-                    "facturaNumero" to loteOrigen.nroFactura,
+                    "proveedorNombre" to proveedorOrigenNombre,
+                    "facturaNumero" to facturaOrigenTxt,
                     "guiaCanje" to guiaCanje.trim().uppercase(),
                     "motivo" to motivo,
                     "usuarioEmail" to usuarioEmail,
@@ -458,7 +519,7 @@ class LotesDevolucionCanjeRepository(
                     "cantidad" to cantidadCanjeada,
                     "costoTotal" to (cantidadCanjeada * costoUnitarioHistorico),
                     "costoUnitario" to costoUnitarioHistorico,
-                    "proveedorNombre" to loteOrigen.proveedorNombre,
+                    "proveedorNombre" to proveedorOrigenNombre,
                     "guiaCanje" to guiaCanje.trim().uppercase(),
                     "motivo" to "Reposición física por canje ($motivo)",
                     "usuarioEmail" to usuarioEmail,
@@ -476,7 +537,7 @@ class LotesDevolucionCanjeRepository(
                     "loteNuevo" to nuevoLoteNumero.trim().uppercase(),
                     "vencimientoNuevo" to nuevoVencimiento.trim(),
                     "cantidad" to cantidadCanjeada,
-                    "proveedorNombre" to loteOrigen.proveedorNombre,
+                    "proveedorNombre" to proveedorOrigenNombre,
                     "guiaCanje" to guiaCanje.trim().uppercase(),
                     "motivo" to motivo,
                     "estado" to "CANJE_COMPLETADO_MANO_A_MANO",
@@ -491,32 +552,5 @@ class LotesDevolucionCanjeRepository(
             Log.e(TAG, "Error registrando canje directo: ${e.message}", e)
             Result.failure(e)
         }
-    }
-
-
-
-    private fun calcularResumenStockYFefo(lotesMap: Map<*, *>): Triple<Double, Double, String> {
-        val nuevoStockDisponible = lotesMap.values.sumOf { 
-            val data = it as? Map<*, *>
-            (data?.get("cantidad") as? Number)?.toDouble() ?: 0.0 
-        }
-        val nuevoStockTotal = lotesMap.values.sumOf { 
-            val data = it as? Map<*, *>
-            val cDisp = (data?.get("cantidad") as? Number)?.toDouble() ?: 0.0
-            val cBloq = (data?.get("cantidadBloqueada") as? Number)?.toDouble() ?: 0.0
-            cDisp + cBloq
-        }
-        val nuevoVencimientoMasCercano = lotesMap.values
-            .mapNotNull { it as? Map<*, *> }
-            .filter { 
-                val cDisp = (it["cantidad"] as? Number)?.toDouble() ?: 0.0
-                cDisp > 0.0 && (it["vencimiento"] as? String)?.isNotBlank() == true
-            }
-            .minByOrNull { 
-                val v = it["vencimiento"] as? String ?: ""
-                ProductDetailMapper.diasHastaVencer(v) ?: Int.MAX_VALUE 
-            }?.get("vencimiento") as? String ?: ""
-
-        return Triple(nuevoStockDisponible, nuevoStockTotal, nuevoVencimientoMasCercano)
     }
 }

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -94,7 +95,10 @@ fun FarmadonSidebar(
                 onCambiarSucursal = onCambiarSucursal
             )
 
-            HorizontalDivider(color = SidebarTheme.Border.copy(alpha = 0.32f), thickness = s.separatorH)
+            HorizontalDivider(
+                color = SidebarTheme.Border.copy(alpha = 0.32f),
+                thickness = s.separatorH
+            )
 
             if (isLoading) {
                 Column(
@@ -124,12 +128,19 @@ fun FarmadonSidebar(
                         .padding(vertical = s.xs),
                     verticalArrangement = Arrangement.spacedBy(s.xs * 0.3f)
                 ) {
-                    val categorias = items.groupBy { it.categoria }
-                        .toList()
-                        .sortedBy { (_, items) -> items.minOfOrNull { it.orden } ?: 0 }
+                    val categorias: List<Pair<String, List<SidebarItemData>>> = remember(items) {
+                        items.groupBy { it.categoria }
+                            .toList()
+                            .sortedBy { (_, list) -> list.minOfOrNull { it.orden } ?: 0 }
+                    }
 
                     // Grupos OPERACIÓN / GESTIÓN etc —” quiet
-                    val (sistemaGrupos, restoGrupos) = categorias.partition { it.first.equals("SISTEMA", ignoreCase = true) }
+                    val (sistemaGrupos, restoGrupos) = categorias.partition {
+                        it.first.equals(
+                            "SISTEMA",
+                            ignoreCase = true
+                        )
+                    }
                     restoGrupos.forEach { (categoria, itemsModulo) ->
                         SidebarGrupo(
                             label = categoria.uppercase(),
@@ -151,27 +162,48 @@ fun FarmadonSidebar(
                         // Separador premium antes de SISTEMA
                         Spacer(Modifier.height(s.gapMedium))
                         androidx.compose.foundation.layout.Box(
-                            modifier = Modifier.fillMaxWidth().height(s.separatorH).background(SidebarTheme.Border.copy(alpha = 0.18f)).padding(horizontal = s.padCard)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(s.separatorH)
+                                .background(SidebarTheme.Border.copy(alpha = 0.18f))
+                                .padding(horizontal = s.padCard)
                         )
                         androidx.compose.material3.Surface(
                             color = SidebarTheme.ActiveBg.copy(alpha = 0.06f),
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(s.radiusCard * 0.7f),
-                            border = androidx.compose.foundation.BorderStroke(s.borderWidth * 0.7f, SidebarTheme.Border.copy(alpha = 0.22f)),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = s.xs, vertical = s.xs)
+                            border = androidx.compose.foundation.BorderStroke(
+                                s.borderWidth * 0.7f,
+                                SidebarTheme.Border.copy(alpha = 0.22f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = s.xs, vertical = s.xs)
                         ) {
                             Column(Modifier.padding(vertical = s.xs * 0.6f)) {
                                 Row(
-                                    Modifier.fillMaxWidth().padding(horizontal = s.sm, vertical = s.xs * 0.7f),
-                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.xs * 0.6f)
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = s.sm, vertical = s.xs * 0.7f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(s.xs * 0.6f)
                                 ) {
                                     androidx.compose.foundation.layout.Box(
-                                        Modifier.size(14.dp).clip(androidx.compose.foundation.shape.CircleShape).background(SidebarTheme.Accent.copy(alpha = 0.13f)),
+                                        Modifier
+                                            .size(14.dp)
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(SidebarTheme.Accent.copy(alpha = 0.13f)),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        androidx.compose.foundation.layout.Box(Modifier.size(6.dp).clip(androidx.compose.foundation.shape.CircleShape).background(SidebarTheme.Accent))
+                                        androidx.compose.foundation.layout.Box(
+                                            Modifier
+                                                .size(6.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(SidebarTheme.Accent)
+                                        )
                                     }
                                     androidx.compose.material3.Text(
-                                        "SISTEMA", style = com.app.administradorfarmadon.disenotemaapp.ui.FDType.Label.copy(
+                                        "SISTEMA",
+                                        style = com.app.administradorfarmadon.disenotemaapp.ui.FDType.Label.copy(
                                             color = SidebarTheme.TextSecondary.copy(alpha = 0.62f),
                                             fontFamily = com.app.administradorfarmadon.disenotemaapp.ui.tokens.InterPremium,
                                             fontSize = s.textLabel.value.sp * 0.74f,

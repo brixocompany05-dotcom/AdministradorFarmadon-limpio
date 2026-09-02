@@ -98,7 +98,7 @@ internal fun TarjetaEditorFormulario(
                     nombreState = it
                     onUpdate(nombreState, empaqueState, cNum, unidadState, pNum)
                 },
-                placeholder = "Ej: Blíster x 10",
+                placeholder = "Nombre de esta presentación",
                 enabled = editable,
                 modifier = Modifier.weight(1f)
             )

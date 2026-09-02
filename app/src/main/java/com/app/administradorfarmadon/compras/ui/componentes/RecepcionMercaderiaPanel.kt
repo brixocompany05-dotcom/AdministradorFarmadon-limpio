@@ -89,7 +89,11 @@ fun RecepcionMercaderiaPanel(
 ) {
     val colores = TokensFarmadon.colores
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
-    val estado = remember(pedido.id, facturaExistente?.id, saldoAFavorDisponible, metodosPago) { RecepcionMercaderiaEstado(pedido, indiceLotes, facturaExistente, saldoAFavorDisponible, metodosPago) }
+    // El formulario NO se recrea por cambios en vivo del saldo: si eso pasara,
+    // se borraría a medias lo que la persona ya escribió (lotes, vencimientos).
+    // La verdad del saldo se re-verifica dentro de la transacción al guardar —
+    // si otro lo usó mientras tanto, la operación aborta con la cifra real.
+    val estado = remember(pedido.id, facturaExistente?.id) { RecepcionMercaderiaEstado(pedido, indiceLotes, facturaExistente, saldoAFavorDisponible, metodosPago) }
 
     var indexFilaEnFoco by remember { mutableIntStateOf(-1) }
     var yFilaSeleccionada by remember { mutableFloatStateOf(0f) }

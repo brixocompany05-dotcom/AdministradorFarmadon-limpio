@@ -2,6 +2,12 @@
 
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 
+data class ColaboradorItem(
+    val id: String = "",
+    val nombre: String = "",
+    val rol: String = ""
+)
+
 data class SucursalesUiState(
     val sucursales: List<Sucursal> = emptyList(),
     val sucursalSeleccionada: Sucursal? = null,
@@ -19,7 +25,17 @@ data class SucursalesUiState(
     val mostrarDialogoLimite: Boolean = false,
     val mostrarDialogoEliminar: Boolean = false,
     val mostrarDialogoDescartar: Boolean = false,
+    val colaboradoresAsignados: List<ColaboradorItem> = emptyList(),
     val colaboradoresAsignadosNombres: List<String> = emptyList(),
+
+    // Pasos secuenciales para eliminar sede con personal (Cero competencia visual)
+    // 0: Cerrado, 1: Elección Macro ("REUBICAR" / "ELIMINAR_TODOS"), 2: Configuración o Advertencia
+    val pasoEliminarSede: Int = 0,
+    val opcionMacroEliminarPersonal: String = "", // "REUBICAR", "ELIMINAR_TODOS"
+    val subOpcionReubicar: String = "TODOS_IGUAL", // "TODOS_IGUAL", "INDIVIDUAL"
+    val sedeDestinoTodosId: String = "",
+    val mapaDestinoIndividual: Map<String, String> = emptyMap(),
+
     val mensajeExito: String? = null,
     val mensajeError: String? = null,
     val accesoRestringido: Boolean = false,

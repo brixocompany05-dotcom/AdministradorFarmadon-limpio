@@ -182,7 +182,7 @@ fun PanelUbicacionAlmacen(
                     Text("+ Agregar otra ubicación para este producto", style = FDType.Caption.copy(fontSize = s.textLabel.value.sp, fontWeight = FontWeight.SemiBold, fontFamily = InterPremium, color = FDColors.Primary))
                 }
                 Text(
-                    "Ej: 20 en depósito y 2 en mostrador para venta rápida",
+                    "Sirve cuando el mismo producto vive en dos puntos (depósito y mostrador)",
                     style = FDType.Caption.copy(fontSize = s.textLabel.value.sp * 0.85f, fontFamily = InterPremium, color = FDColors.TextTertiary),
                     textAlign = TextAlign.Center
                 )
@@ -230,7 +230,7 @@ fun PanelUbicacionAlmacen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = ubicacionSecundaria.ifBlank { "Ej: Vitrina 2" },
+                            text = ubicacionSecundaria.ifBlank { "Elige la segunda ubicación" },
                             style = FDType.Body.copy(fontSize = s.textBody.value.sp, color = if (ubicacionSecundaria.isBlank()) FDColors.TextTertiary else FDColors.TextPrimary, fontFamily = InterPremium),
                             maxLines = 1
                         )

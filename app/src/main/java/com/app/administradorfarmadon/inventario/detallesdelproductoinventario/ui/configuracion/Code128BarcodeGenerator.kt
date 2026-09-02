@@ -199,12 +199,18 @@ object LabelPdfExporter {
                 val tituloProtegido = truncarTextoAlAncho(paintText, tituloRaw, anchoPt - 12f)
                 canvas.drawText(tituloProtegido, 6f, 11f, paintText)
 
-                // 2. Concentración y Ubicación
+                // 2. Concentración y Ubicación — solo datos reales (R12): jamás
+                //    "Mostrador" o "Unidad" inventados en una etiqueta física.
                 paintText.textSize = 5.5f
                 paintText.isFakeBoldText = false
-                val infoExtraRaw = "${producto.concentracion.ifBlank { "Unidad" }} · Ubic: ${producto.ubicacion.ifBlank { "Mostrador" }}"
-                val infoExtraProtegida = truncarTextoAlAncho(paintText, infoExtraRaw, anchoPt - 12f)
-                canvas.drawText(infoExtraProtegida, 6f, 19f, paintText)
+                val infoExtraRaw = listOfNotNull(
+                    producto.concentracion.ifBlank { null },
+                    producto.ubicacion.ifBlank { null }?.let { "Ubic: $it" }
+                ).joinToString(" · ").ifBlank { producto.empaque.ifBlank { "" } }
+                if (infoExtraRaw.isNotBlank()) {
+                    val infoExtraProtegida = truncarTextoAlAncho(paintText, infoExtraRaw, anchoPt - 12f)
+                    canvas.drawText(infoExtraProtegida, 6f, 19f, paintText)
+                }
 
                 // 3. Código de barras (Canvas) con zona intocable
                 if (bitSequence.isNotEmpty()) {
@@ -346,9 +352,14 @@ object LabelPdfExporter {
 
                 paintText.textSize = 5.5f
                 paintText.isFakeBoldText = false
-                val infoExtraRaw = "${producto.concentracion.ifBlank { "Unidad" }} · Ubic: ${producto.ubicacion.ifBlank { "Mostrador" }}"
-                val infoExtraProtegida = truncarTextoAlAncho(paintText, infoExtraRaw, anchoPt - 12f)
-                canvas.drawText(infoExtraProtegida, 6f, 19f, paintText)
+                val infoExtraRaw = listOfNotNull(
+                    producto.concentracion.ifBlank { null },
+                    producto.ubicacion.ifBlank { null }?.let { "Ubic: $it" }
+                ).joinToString(" · ").ifBlank { producto.empaque.ifBlank { "" } }
+                if (infoExtraRaw.isNotBlank()) {
+                    val infoExtraProtegida = truncarTextoAlAncho(paintText, infoExtraRaw, anchoPt - 12f)
+                    canvas.drawText(infoExtraProtegida, 6f, 19f, paintText)
+                }
 
                 if (bitSequence.isNotEmpty()) {
                     val barWidth = (anchoPt - 16f) / bitSequence.length.toFloat()

@@ -231,7 +231,7 @@ fun EditarFormularioPanel(
                         label = "Principio Activo (Fórmula Genérica / DCI)",
                         value = state.principioActivo,
                         onValueChange = onPrincipioActivoChange,
-                        placeholder = "Ej: Amoxicilina Trihidrato, Paracetamol, Ibuprofeno...",
+                        placeholder = "Principio activo del medicamento (DCI)",
                         leadingIcon = Icons.Outlined.Science,
                         isModified = orig != null && state.principioActivo.trim() != orig.principioActivo.trim()
                     )

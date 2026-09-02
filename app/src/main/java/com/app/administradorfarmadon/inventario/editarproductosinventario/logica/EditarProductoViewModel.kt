@@ -95,7 +95,7 @@ class EditarProductoViewModel(
                             tipoProducto = tipoProd,
                             principioActivo = p.principioActivo,
                             categoriaNombre = catNombre,
-                            laboratorio = p.laboratorio.ifBlank { p.proveedorBaseNombre },
+                            laboratorio = p.laboratorio,
                             empaque = empFinal,
                             cantidadContenido = cant,
                             unidadMedida = unidad,
@@ -214,24 +214,30 @@ class EditarProductoViewModel(
         verificarCodigoJob?.cancel()
         if (limpio.length >= 6) {
             verificarCodigoJob = viewModelScope.launch {
-                delay(300)
-                val existente = repository.buscarProductoPorCodigoBarras(cid, limpio, s.productoId)
-                _uiState.update { state ->
-                    if (existente != null) {
-                        val errors = state.fieldErrors.toMutableMap().apply {
-                            put("codigoBarras", "Este código ya pertenece a '${existente.second}'.")
+                try {
+                    delay(300)
+                    val existente = repository.buscarProductoPorCodigoBarras(cid, limpio, s.productoId)
+                    _uiState.update { state ->
+                        if (existente != null) {
+                            val errors = state.fieldErrors.toMutableMap().apply {
+                                put("codigoBarras", "Este código ya pertenece a '${existente.second}'.")
+                            }
+                            state.copy(
+                                productoExistenteDuplicado = existente,
+                                fieldErrors = errors
+                            )
+                        } else {
+                            val errors = state.fieldErrors.toMutableMap().apply { remove("codigoBarras") }
+                            state.copy(
+                                productoExistenteDuplicado = null,
+                                fieldErrors = errors
+                            )
                         }
-                        state.copy(
-                            productoExistenteDuplicado = existente,
-                            fieldErrors = errors
-                        )
-                    } else {
-                        val errors = state.fieldErrors.toMutableMap().apply { remove("codigoBarras") }
-                        state.copy(
-                            productoExistenteDuplicado = null,
-                            fieldErrors = errors
-                        )
                     }
+                } catch (e: Exception) {
+                    // El aviso previo falla por red: el candado atómico del guardado
+                    // sigue protegiendo la unicidad. Log real, cero maquillaje (R9).
+                    android.util.Log.w("EditarProductoVM", "Verificación previa de código no disponible (se re-verifica al guardar): ${e.message}")
                 }
             }
         }

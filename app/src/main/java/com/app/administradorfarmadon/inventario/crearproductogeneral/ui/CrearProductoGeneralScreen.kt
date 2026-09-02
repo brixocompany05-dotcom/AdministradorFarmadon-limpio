@@ -380,7 +380,7 @@ fun CrearProductoGeneralScreen(
                                         value = state.nombre,
                                         onValueChange = viewModel::onNombreChanged,
                                         onSearch = { viewModel.ejecutarAnalisisIa() },
-                                        placeholder = "Ej: Amoxicilina 500mg cápsulas, Coca Cola 1.5L..."
+                                        placeholder = "Escribe el nombre del producto tal como lo pide el cliente"
                                     )
                                 }
 
