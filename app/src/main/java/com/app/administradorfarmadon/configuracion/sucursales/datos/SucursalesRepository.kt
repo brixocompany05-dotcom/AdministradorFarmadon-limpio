@@ -6,6 +6,8 @@ import android.util.Log
 import com.app.administradorfarmadon.compartido.datos.EcosistemaPaths
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
@@ -16,7 +18,37 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import java.util.Locale
 import java.util.UUID
+
+/**
+ * Series fiscales únicas por sucursal derivadas de forma determinista.
+ * SUNAT UBL 2.1: Boletas inician con 'B' (B001), Facturas con 'F' (F001),
+ * Notas de Crédito de Boleta inician con 'B' (BC01) y de Factura con 'F' (FC01).
+ */
+data class SeriesFiscalesSede(
+    val serieBoleta: String,
+    val serieFactura: String,
+    val serieNotaCreditoBoleta: String,
+    val serieNotaCreditoFactura: String
+)
+
+/**
+ * Regla de derivación determinista (única fuente de verdad para toda la app):
+ * indice 1 -> B001 / F001 / BC01 / FC01
+ * indice 2 -> B002 / F002 / BC02 / FC02
+ */
+fun derivarSeriesPorIndice(indice: Long): SeriesFiscalesSede {
+    val idx = indice.coerceAtLeast(1L)
+    val num3 = String.format(Locale.US, "%03d", idx)
+    val num2 = String.format(Locale.US, "%02d", idx)
+    return SeriesFiscalesSede(
+        serieBoleta = "B$num3",
+        serieFactura = "F$num3",
+        serieNotaCreditoBoleta = "BC$num2",
+        serieNotaCreditoFactura = "FC$num2"
+    )
+}
 
 data class InfoPlanCliente(
     val planId: String = "",
@@ -139,7 +171,11 @@ class SucursalesRepository(
                             activa = doc.getBoolean("activa") ?: true,
                             responsable = doc.getString("responsable") ?: "",
                             codigoInterno = doc.getString("codigoInterno") ?: "",
-                            fechaCreacion = doc.get("fechaCreacion")
+                            fechaCreacion = doc.get("fechaCreacion"),
+                            serieBoleta = doc.getString("serieBoleta") ?: "",
+                            serieFactura = doc.getString("serieFactura") ?: "",
+                            serieNotaCreditoBoleta = doc.getString("serieNotaCreditoBoleta") ?: "",
+                            serieNotaCreditoFactura = doc.getString("serieNotaCreditoFactura") ?: ""
                         )
                     } catch (e: Exception) {
                         // R3: cero fallas silenciosas. No descartamos la sede ni la ocultamos;
@@ -250,6 +286,31 @@ class SucursalesRepository(
                     "SEDE-0$siguiente"
                 }
 
+                // Validar que el emisor fiscal esté completo y verificado (FASE F2)
+                val emisorRef = FarmadonPaths.facturacionEmisor(db, clienteId)
+                val emisorSnap = tx.get(emisorRef)
+                val emisorRuc = emisorSnap.getString("ruc")?.trim().orEmpty()
+                val emisorVerificado = emisorSnap.getBoolean("verificadoOk") == true
+                val emisorToken = emisorSnap.getString("personaToken")?.trim().orEmpty()
+                val emisorPersonaId = emisorSnap.getString("personaId")?.trim().orEmpty()
+                val emisorRazon = emisorSnap.getString("razonSocial")?.trim().orEmpty()
+                val emisorDireccion = emisorSnap.getString("direccionFiscal")?.trim().orEmpty()
+
+                val emisorCompleto = emisorVerificado &&
+                    emisorRuc.length == 11 && emisorRuc.all { it.isDigit() } &&
+                    emisorToken.isNotBlank() && emisorPersonaId.isNotBlank() &&
+                    emisorRazon.isNotBlank() && emisorDireccion.isNotBlank()
+
+                if (!emisorCompleto) {
+                    throw IllegalStateException("EMISOR_INCOMPLETO: Debes configurar y verificar la Facturación Electrónica en la Sede Principal antes de crear nuevas sedes.")
+                }
+
+                // Asignar series fiscales únicas atómicamente (FASE F0)
+                val seriesRef = FarmadonPaths.facturacionSeries(db, clienteId)
+                val seriesSnap = tx.get(seriesRef)
+                val proximoIndice = (seriesSnap.getLong("proximoIndice") ?: 1L).coerceAtLeast(1L)
+                val seriesNuevas = derivarSeriesPorIndice(proximoIndice)
+
                 val data = mutableMapOf<String, Any?>(
                     "id" to sucursalId,
                     "clienteId" to clienteId,
@@ -262,6 +323,10 @@ class SucursalesRepository(
                     "activa" to sucursal.activa,
                     "responsable" to sucursal.responsable.trim(),
                     "codigoInterno" to codigoSecuencial,
+                    "serieBoleta" to seriesNuevas.serieBoleta,
+                    "serieFactura" to seriesNuevas.serieFactura,
+                    "serieNotaCreditoBoleta" to seriesNuevas.serieNotaCreditoBoleta,
+                    "serieNotaCreditoFactura" to seriesNuevas.serieNotaCreditoFactura,
                     "fechaCreacion" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
@@ -298,6 +363,9 @@ class SucursalesRepository(
                         )
                     }
                 }
+
+                // 1c. Incrementar atómicamente el contador de series fiscales de la farmacia
+                tx.set(seriesRef, mapOf("proximoIndice" to proximoIndice + 1L), SetOptions.merge())
 
                 // 2. Array resumen = ESPEJO de la subcolección real (mismo tamaño, mismo id).
                 //    Fuente de verdad: la subcolección. El array nunca miente porque
@@ -437,6 +505,61 @@ class SucursalesRepository(
                 tx.set(auditGlobalRef, auditData)
                 tx.set(auditLocalRef, auditData)
             }
+        }.await()
+    }
+
+    /**
+     * Backfill determinista de series fiscales para sucursales preexistentes que no cuenten con ellas.
+     * Asigna la siguiente libre en orden determinista: la principal primero, luego por fecha de creación o ID.
+     * Todo dentro de una sola transacción atómica, garantizando que ninguna sede comparta serie.
+     */
+    suspend fun asegurarSeriesFaltantes(clienteId: String) {
+        if (clienteId.isBlank()) return
+        val sucursalesSnap = SucursalesPaths.sucursales(db, clienteId).get().await()
+        if (sucursalesSnap.isEmpty) return
+
+        val seriesRef = FarmadonPaths.facturacionSeries(db, clienteId)
+
+        db.runTransaction { tx ->
+            // 1. Todas las lecturas antes de escrituras
+            val seriesSnap = tx.get(seriesRef)
+            var proximoIndice = (seriesSnap.getLong("proximoIndice") ?: 1L).coerceAtLeast(1L)
+
+            val docsFrescos = sucursalesSnap.documents.map { doc ->
+                doc.id to tx.get(doc.reference)
+            }
+
+            val faltantes = docsFrescos.filter { (_, snap) ->
+                snap.getString("serieBoleta").isNullOrBlank()
+            }
+
+            if (faltantes.isEmpty()) {
+                return@runTransaction
+            }
+
+            val ordenadas = faltantes.sortedWith(
+                compareByDescending<Pair<String, DocumentSnapshot>> { it.second.getBoolean("esPrincipal") ?: false }
+                    .thenBy { (it.second.get("fechaCreacion") as? Timestamp)?.toDate()?.time ?: 0L }
+                    .thenBy { it.first }
+            )
+
+            // 2. Todas las escrituras
+            for ((_, snap) in ordenadas) {
+                val series = derivarSeriesPorIndice(proximoIndice)
+                tx.update(
+                    snap.reference,
+                    mapOf(
+                        "serieBoleta" to series.serieBoleta,
+                        "serieFactura" to series.serieFactura,
+                        "serieNotaCreditoBoleta" to series.serieNotaCreditoBoleta,
+                        "serieNotaCreditoFactura" to series.serieNotaCreditoFactura,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                proximoIndice++
+            }
+
+            tx.set(seriesRef, mapOf("proximoIndice" to proximoIndice), SetOptions.merge())
         }.await()
     }
 

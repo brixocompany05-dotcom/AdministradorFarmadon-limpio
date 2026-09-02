@@ -25,6 +25,7 @@ import com.app.administradorfarmadon.ventas.compartido.modelo.ItemVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.PagoVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
 import com.app.administradorfarmadon.ventas.compartido.modelo.VentaSuspendida
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,11 +34,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.UUID
 
 import com.app.administradorfarmadon.clientes.datos.ClientesRepository
 import com.app.administradorfarmadon.clientes.modelo.ClienteFarmacia
+import com.app.administradorfarmadon.facturacion.configuracion.datos.FacturacionConfigRepository
+import com.app.administradorfarmadon.ventas.compartido.datos.BorradorVentaLocal
+import com.app.administradorfarmadon.ventas.compartido.datos.VentaBorradorLocalStore
 
 /**
  * Estado UI completo para Nueva Venta / POS (R1/R3/R8/R10).
@@ -48,6 +53,8 @@ data class NuevaVentaUiState(
     val directorioClientes: List<ClienteFarmacia> = emptyList(),
     val descuento: Double = 0.0,
     val confirmoReceta: Boolean = false,
+    // Facturación Electrónica SUNAT (FASE F2)
+    val emisorCompleto: Boolean = false,
     // Búsqueda y Resultados
     val busquedaTexto: String = "",
     val buscando: Boolean = false,
@@ -112,6 +119,7 @@ data class NuevaVentaUiState(
 
     val puedeCobrar: Boolean
         get() = cajaAbierta &&
+            emisorCompleto &&
             carrito.isNotEmpty() &&
             (!requiereReceta || confirmoReceta) &&
             sumaPagos >= total - 0.009 &&
@@ -128,7 +136,8 @@ class NuevaVentaViewModel(
     private val inventarioRepository: InventarioFirestoreRepository = InventarioFirestoreRepository(),
     private val cajaRepository: CajaRepository = CajaRepository(),
     private val metodosPagoRepository: MetodosPagoRepository = MetodosPagoRepository(),
-    private val clientesRepository: ClientesRepository = ClientesRepository()
+    private val clientesRepository: ClientesRepository = ClientesRepository(),
+    private val facturacionConfigRepository: FacturacionConfigRepository = FacturacionConfigRepository()
 ) : ViewModel() {
 
     companion object {
@@ -142,6 +151,7 @@ class NuevaVentaViewModel(
 
     init {
         iniciarObservadores()
+        verificarYRecuperarBorrador()
     }
 
     private fun iniciarObservadores() {
@@ -185,6 +195,90 @@ class NuevaVentaViewModel(
                     _uiState.update { it.copy(directorioClientes = clientes) }
                 }
         }
+
+        // 5. Escuchar Estado de Facturación Electrónica (F2 - Regla de Oro POS)
+        val farmaciaId = SessionManager.clienteIdGarantizado
+        if (farmaciaId.isNotBlank()) {
+            viewModelScope.launch {
+                facturacionConfigRepository.observarEmisor(farmaciaId)
+                    .catch { Log.e(TAG, "Error escuchando emisor fiscal: ${it.message}", it) }
+                    .collect { emisor ->
+                        val completo = emisor?.estaCompleta == true
+                        _uiState.update { it.copy(emisorCompleto = completo) }
+                    }
+            }
+        }
+    }
+
+    /**
+     * Recupera el borrador persistente local tras caída de app o reinicio (FASE 11 H1).
+     * Si la venta ya se había grabado en Firestore antes del cierre, informa al cajero y limpia.
+     */
+    private fun verificarYRecuperarBorrador() {
+        val farmaciaId = SessionManager.clienteIdGarantizado
+        val sucursalId = SessionManager.sucursalIdEfectiva
+        if (farmaciaId.isBlank() || sucursalId.isBlank()) return
+
+        viewModelScope.launch {
+            val borrador = VentaBorradorLocalStore.obtenerBorrador(farmaciaId = farmaciaId, sucursalId = sucursalId)
+            if (borrador != null && borrador.items.isNotEmpty()) {
+                val ventaExistente = if (borrador.idempotenciaId.isNotBlank()) {
+                    ventasRepository.consultarVentaPorIdempotencia(borrador.idempotenciaId)
+                } else null
+
+                if (ventaExistente != null) {
+                    VentaBorradorLocalStore.limpiarBorrador(farmaciaId = farmaciaId, sucursalId = sucursalId)
+                    _uiState.update {
+                        it.copy(
+                            carrito = emptyList(),
+                            mensajeExito = "La venta anterior ya fue registrada con éxito: ${ventaExistente.tipoComprobante} ${ventaExistente.numeroCompleto}."
+                        )
+                    }
+                } else {
+                    val idRestaurado = borrador.idempotenciaId.ifBlank { "v_${UUID.randomUUID()}" }
+                    _uiState.update {
+                        it.copy(
+                            carrito = borrador.items,
+                            cliente = borrador.cliente,
+                            descuento = borrador.descuento,
+                            confirmoReceta = borrador.confirmoReceta,
+                            idempotenciaIdActual = idRestaurado,
+                            mensajeExito = "Se restauró la venta en curso de la sesión anterior."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun persistirBorradorActual() {
+        val farmaciaId = SessionManager.clienteIdGarantizado
+        val sucursalId = SessionManager.sucursalIdEfectiva
+        val state = _uiState.value
+        if (farmaciaId.isNotBlank() && sucursalId.isNotBlank()) {
+            if (state.carrito.isNotEmpty()) {
+                val idActual = state.idempotenciaIdActual.ifBlank { "v_${UUID.randomUUID()}" }
+                if (state.idempotenciaIdActual.isBlank()) {
+                    _uiState.update { it.copy(idempotenciaIdActual = idActual) }
+                }
+                val tipoComp = if (state.cliente.tipoDocumento == "RUC" && state.cliente.numeroDocumento.length == 11) "FACTURA" else "BOLETA"
+                VentaBorradorLocalStore.guardarBorrador(
+                    farmaciaId = farmaciaId,
+                    sucursalId = sucursalId,
+                    borrador = BorradorVentaLocal(
+                        idempotenciaId = idActual,
+                        items = state.carrito,
+                        cliente = state.cliente,
+                        tipoComprobante = tipoComp,
+                        descuento = state.descuento,
+                        confirmoReceta = state.confirmoReceta,
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                VentaBorradorLocalStore.limpiarBorrador(farmaciaId = farmaciaId, sucursalId = sucursalId)
+            }
+        }
     }
 
     // ───────────────────────────── BÚSQUEDA DE PRODUCTOS (Debounce 300ms) ─────────────────────────────
@@ -216,6 +310,44 @@ class NuevaVentaViewModel(
                 val unicoProd = pagina.productosMolde.first()
                 val presResuelta = unicoProd.resolverPresentacionPorCodigo(texto)
                 agregarItemResuelto(unicoProd, presResuelta)
+                _uiState.update { it.copy(busquedaTexto = "", buscando = false, resultadosBusqueda = emptyList()) }
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    buscando = false,
+                    resultadosBusqueda = pagina.productosMolde
+                )
+            }
+        }
+    }
+
+    /**
+     * Ejecución inmediata de búsqueda al recibir Enter o escaneo de pistola rápida.
+     * Cancela el debounce y procesa el código o término al instante.
+     */
+    fun ejecutarBusquedaInmediata() {
+        val texto = _uiState.value.busquedaTexto.trim()
+        if (texto.isBlank()) return
+        jobBusqueda?.cancel()
+
+        jobBusqueda = viewModelScope.launch {
+            _uiState.update { it.copy(buscando = true) }
+            val farmaciaId = SessionManager.clienteIdGarantizado
+            val sucursalId = SessionManager.sucursalIdEfectiva
+            val pagina = inventarioRepository.buscarInventarioPaginado(
+                farmaciaId = farmaciaId,
+                sucursalId = sucursalId,
+                texto = texto,
+                limit = 20
+            )
+
+            // Auto-agregar si hay match exacto de código
+            val matchExacto = pagina.productosMolde.firstOrNull { esCoincidenciaExactaCodigo(it, texto) }
+            if (matchExacto != null) {
+                val presResuelta = matchExacto.resolverPresentacionPorCodigo(texto)
+                agregarItemResuelto(matchExacto, presResuelta)
                 _uiState.update { it.copy(busquedaTexto = "", buscando = false, resultadosBusqueda = emptyList()) }
                 return@launch
             }
@@ -264,47 +396,47 @@ class NuevaVentaViewModel(
     // ───────────────────────────── CARRITO DE VENTAS ─────────────────────────────
 
     fun agregarAlCarrito(producto: MoldeProductos, presentacion: PresentacionProducto, cantidadInicial: Int = 1) {
-        // CRÍTICO 6: Bloquear productos con precio <= 0.00
-        if (presentacion.precioventa <= 0.0) {
-            _uiState.update { it.copy(error = "La presentación '${presentacion.nombre}' tiene precio S/ 0.00 y no puede ser agregada.") }
-            return
-        }
+        val res = ResolvedProductPresentation(
+            presentacionId = presentacion.presentacionId,
+            nombrePresentacion = presentacion.nombre,
+            cantidadUnidades = presentacion.cantidad,
+            precioVenta = presentacion.precioventa
+        )
+        agregarItemResuelto(producto, res, cantidadInicial)
+    }
 
-        val carritoActual = _uiState.value.carrito.toMutableList()
-        val indexExistente = carritoActual.indexOfFirst {
-            it.productoId == producto.indice && it.presentacionId == presentacion.presentacionId
-        }
+    private fun calcularStockMaximoPresentacion(producto: MoldeProductos, presentacionId: String): Int {
+        val pres = producto.presentaciones.firstOrNull { it.presentacionId == presentacionId } ?: return Int.MAX_VALUE
+        val factor = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper.factorContenido(producto.contenido, producto.presentaciones)
+        val unidadProducto = producto.contenidoUnidad.ifBlank { producto.empaque }
+        val cantUnidadProd = com.app.administradorfarmadon.inventario.compartido.logica.PerfilUnidades.normalizarA(
+            pres.cantidad.toDouble(),
+            pres.unidadMedida,
+            unidadProducto
+        )
+        val fisicoPorUnidad = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper.stockFisicoParaVender(cantUnidadProd, factor)
+        if (fisicoPorUnidad <= 0.0) return Int.MAX_VALUE
 
-        if (indexExistente >= 0) {
-            val itemExistente = carritoActual[indexExistente]
-            val nuevaCant = itemExistente.cantidad + cantidadInicial
-            carritoActual[indexExistente] = itemExistente.copy(
-                cantidad = nuevaCant,
-                subtotal = kotlin.math.round(itemExistente.precioUnitario * nuevaCant * 100.0) / 100.0
-            )
-        } else {
-            val nuevoItem = ItemVenta(
-                productoId = producto.indice,
-                nombreProducto = producto.nombre,
-                empaque = producto.empaque,
-                presentacionId = presentacion.presentacionId,
-                presentacionNombre = presentacion.nombre,
-                cantidad = cantidadInicial,
-                precioUnitario = presentacion.precioventa,
-                subtotal = kotlin.math.round(presentacion.precioventa * cantidadInicial * 100.0) / 100.0,
-                requiereReceta = producto.requiereReceta,
-                cantidadDevuelta = 0
-            )
-            carritoActual.add(nuevoItem)
-        }
+        val stockFisicoDisponible = producto.lotes.values
+            .filter {
+                val dias = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.diasHastaVencer(it.vencimiento)
+                (dias == null || dias > 0) && it.cantidad > 0.0
+            }
+            .sumOf { it.cantidad }
 
-        _uiState.update { it.copy(carrito = carritoActual, error = null) }
+        return (stockFisicoDisponible / fisicoPorUnidad).toInt().coerceAtLeast(0)
     }
 
     private fun agregarItemResuelto(producto: MoldeProductos, res: ResolvedProductPresentation, cantidadInicial: Int = 1) {
         // CRÍTICO 6: Bloquear productos resueltos con precio <= 0.00
         if (res.precioVenta <= 0.0) {
             _uiState.update { it.copy(error = "La presentación '${res.nombrePresentacion}' tiene precio S/ 0.00 y no puede ser agregada.") }
+            return
+        }
+
+        val maxDisponible = calcularStockMaximoPresentacion(producto, res.presentacionId)
+        if (maxDisponible <= 0) {
+            _uiState.update { it.copy(error = "El producto '${producto.nombre}' no cuenta con stock disponible en lotes vigentes.") }
             return
         }
 
@@ -316,11 +448,36 @@ class NuevaVentaViewModel(
         if (indexExistente >= 0) {
             val itemExistente = carritoActual[indexExistente]
             val nuevaCant = itemExistente.cantidad + cantidadInicial
+            if (nuevaCant > maxDisponible) {
+                _uiState.update { it.copy(error = "Solo quedan $maxDisponible ${res.nombrePresentacion} disponibles en stock.") }
+                return
+            }
             carritoActual[indexExistente] = itemExistente.copy(
                 cantidad = nuevaCant,
                 subtotal = kotlin.math.round(itemExistente.precioUnitario * nuevaCant * 100.0) / 100.0
             )
         } else {
+            if (cantidadInicial > maxDisponible) {
+                _uiState.update { it.copy(error = "Solo quedan $maxDisponible ${res.nombrePresentacion} disponibles en stock.") }
+                return
+            }
+
+            // FASE 11 H2: Trazabilidad del lote físico y ubicación de anaquel
+            val presParaFefo = producto.presentaciones.firstOrNull { it.presentacionId == res.presentacionId }
+                ?: PresentacionProducto(
+                    presentacionId = res.presentacionId,
+                    nombre = res.nombrePresentacion,
+                    cantidad = res.cantidadUnidades,
+                    precioventa = res.precioVenta
+                )
+            val fefoSim = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper
+                .calcularDescuentoFEFO(producto, presParaFefo)
+            val primerLote = fefoSim.getOrNull()?.firstOrNull()
+            val loteSugerido = primerLote?.loteNumero ?: ""
+            val loteObj = producto.lotes.values.firstOrNull { it.loteId == primerLote?.loteId || it.numero == primerLote?.loteNumero }
+            val loteVencimientoSugerido = loteObj?.vencimiento ?: ""
+            val ubicacionAnaquel = producto.ubicacion.ifBlank { "" }
+
             val nuevoItem = ItemVenta(
                 productoId = producto.indice,
                 nombreProducto = producto.nombre,
@@ -331,12 +488,16 @@ class NuevaVentaViewModel(
                 precioUnitario = res.precioVenta,
                 subtotal = kotlin.math.round(res.precioVenta * cantidadInicial * 100.0) / 100.0,
                 requiereReceta = producto.requiereReceta,
+                loteSugerido = loteSugerido,
+                loteVencimientoSugerido = loteVencimientoSugerido,
+                ubicacionAnaquel = ubicacionAnaquel,
                 cantidadDevuelta = 0
             )
             carritoActual.add(nuevoItem)
         }
 
         _uiState.update { it.copy(carrito = carritoActual, error = null) }
+        persistirBorradorActual()
     }
 
     fun cambiarCantidadItem(productoId: String, presentacionId: String, delta: Int) {
@@ -348,12 +509,52 @@ class NuevaVentaViewModel(
             if (nuevaCant <= 0) {
                 carritoActual.removeAt(index)
             } else {
+                if (delta > 0) {
+                    val producto = _uiState.value.resultadosBusqueda.firstOrNull { it.indice == productoId }
+                    if (producto != null) {
+                        val maxDisponible = calcularStockMaximoPresentacion(producto, presentacionId)
+                        if (nuevaCant > maxDisponible) {
+                            _uiState.update { it.copy(error = "Solo quedan $maxDisponible ${item.presentacionNombre} disponibles en inventario.") }
+                            return
+                        }
+                    }
+                }
                 carritoActual[index] = item.copy(
                     cantidad = nuevaCant,
                     subtotal = kotlin.math.round(item.precioUnitario * nuevaCant * 100.0) / 100.0
                 )
             }
             _uiState.update { it.copy(carrito = carritoActual) }
+            persistirBorradorActual()
+        }
+    }
+
+    /**
+     * Establece directamente la cantidad de un producto en el carrito (FASE 10 velocidad de mostrador).
+     */
+    fun setCantidadItem(productoId: String, presentacionId: String, cantidadDeseada: Int) {
+        if (cantidadDeseada <= 0) {
+            eliminarItemCarrito(productoId, presentacionId)
+            return
+        }
+        val carritoActual = _uiState.value.carrito.toMutableList()
+        val index = carritoActual.indexOfFirst { it.productoId == productoId && it.presentacionId == presentacionId }
+        if (index >= 0) {
+            val item = carritoActual[index]
+            val producto = _uiState.value.resultadosBusqueda.firstOrNull { it.indice == productoId }
+            if (producto != null) {
+                val maxDisponible = calcularStockMaximoPresentacion(producto, presentacionId)
+                if (cantidadDeseada > maxDisponible) {
+                    _uiState.update { it.copy(error = "Solo quedan $maxDisponible ${item.presentacionNombre} disponibles en inventario.") }
+                    return
+                }
+            }
+            carritoActual[index] = item.copy(
+                cantidad = cantidadDeseada,
+                subtotal = kotlin.math.round(item.precioUnitario * cantidadDeseada * 100.0) / 100.0
+            )
+            _uiState.update { it.copy(carrito = carritoActual, error = null) }
+            persistirBorradorActual()
         }
     }
 
@@ -362,27 +563,32 @@ class NuevaVentaViewModel(
             it.productoId == productoId && it.presentacionId == presentacionId
         }
         _uiState.update { it.copy(carrito = carritoActual) }
+        persistirBorradorActual()
     }
 
     fun vaciarCarrito() {
         _uiState.update {
             it.copy(
                 carrito = emptyList(),
+                cliente = ClienteDeVenta(),
                 descuento = 0.0,
                 confirmoReceta = false,
                 lineasPago = emptyList(),
                 error = null
             )
         }
+        persistirBorradorActual()
     }
 
     fun setDescuento(monto: Double) {
         val d = kotlin.math.round(monto.coerceAtLeast(0.0) * 100.0) / 100.0
         _uiState.update { it.copy(descuento = d) }
+        persistirBorradorActual()
     }
 
     fun setConfirmoReceta(confirmo: Boolean) {
         _uiState.update { it.copy(confirmoReceta = confirmo) }
+        persistirBorradorActual()
     }
 
     // ───────────────────────────── CLIENTE Y CONSULTAS ─────────────────────────────
@@ -402,6 +608,7 @@ class NuevaVentaViewModel(
         } else ""
 
         _uiState.update { it.copy(cliente = cliente.copy(clienteId = idEnlazado), mostrarDialogoCliente = false) }
+        persistirBorradorActual()
     }
 
     fun guardarClienteYEstablecer(cliente: ClienteDeVenta, guardarEnDirectorio: Boolean) {
@@ -425,6 +632,7 @@ class NuevaVentaViewModel(
             } else ""
 
             _uiState.update { it.copy(cliente = cliente.copy(clienteId = idEnlazado), mostrarDialogoCliente = false) }
+            persistirBorradorActual()
         }
     }
 
@@ -449,6 +657,7 @@ class NuevaVentaViewModel(
                     mensajeExito = "Cliente del directorio: ${existente.nombre}"
                 )
             }
+            persistirBorradorActual()
             return
         }
 
@@ -471,6 +680,7 @@ class NuevaVentaViewModel(
                             mensajeExito = "Cliente identificado: ${res.nombreCompleto}"
                         )
                     }
+                    persistirBorradorActual()
                 }
                 is ResultadoConsultaDoc.NoEncontrado -> {
                     _uiState.update {
@@ -530,6 +740,7 @@ class NuevaVentaViewModel(
                 error = null
             )
         }
+        persistirBorradorActual()
     }
 
     fun cerrarOverlayCobro() {
@@ -573,6 +784,9 @@ class NuevaVentaViewModel(
             )
 
             res.onSuccess { ventaCompletada ->
+                val farmaciaId = SessionManager.clienteIdGarantizado
+                val sucursalId = SessionManager.sucursalIdEfectiva
+                VentaBorradorLocalStore.limpiarBorrador(farmaciaId = farmaciaId, sucursalId = sucursalId)
                 _uiState.update {
                     it.copy(
                         procesandoCobro = false,
@@ -602,18 +816,20 @@ class NuevaVentaViewModel(
         _uiState.update { it.copy(ventaExitosa = null, error = null, mensajeExito = null) }
     }
 
-    // MENOR M2 & M3: Sin datos suplentes y manejo de error de impresión honesto
+    // MENOR M2 & M3 & MEDIO 6: Sin datos suplentes, manejo de error honesto y ejecución en Dispatchers.IO
     fun imprimirComprobante(context: Context) {
         val venta = _uiState.value.ventaExitosa ?: return
         viewModelScope.launch {
-            val emisorRes = ventasRepository.obtenerEmisor()
+            val emisorRes = withContext(Dispatchers.IO) { ventasRepository.obtenerEmisor() }
             val emisor = emisorRes.getOrNull()
             if (emisor == null) {
                 _uiState.update { it.copy(error = "No se pudieron obtener los datos de la farmacia para imprimir el comprobante: ${emisorRes.exceptionOrNull()?.message}") }
                 return@launch
             }
 
-            val resImpresion = TicketComprobantePdf.imprimirTicket(context, venta, emisor)
+            val resImpresion = withContext(Dispatchers.IO) {
+                TicketComprobantePdf.imprimirTicket(context, venta, emisor)
+            }
             resImpresion.onFailure { err ->
                 _uiState.update { it.copy(error = "No se pudo imprimir el comprobante: ${err.message}") }
             }
@@ -641,6 +857,7 @@ class NuevaVentaViewModel(
             val res = ventasRepository.suspenderVenta(
                 items = estado.carrito,
                 cliente = estado.cliente,
+                descuento = estado.descuento,
                 nota = nota
             )
             res.onSuccess {
@@ -662,22 +879,23 @@ class NuevaVentaViewModel(
         _uiState.update { it.copy(mostrarSheetSuspendidas = false) }
     }
 
-    // MENOR M1: Solo cargar al carrito si la eliminación en Firestore tuvo éxito
+    // ALTO 3 & MEDIO 7: Reanudar venta suspendida atómica con transacción y restauración de descuento
     fun reanudarVentaSuspendida(v: VentaSuspendida) {
         viewModelScope.launch {
-            val res = ventasRepository.eliminarSuspendida(v.id)
-            res.onSuccess {
+            val res = ventasRepository.reanudarVentaSuspendida(v.id)
+            res.onSuccess { ventaRecuperada ->
                 _uiState.update {
                     it.copy(
-                        carrito = v.items,
-                        cliente = v.cliente,
+                        carrito = ventaRecuperada.items,
+                        cliente = ventaRecuperada.cliente,
+                        descuento = ventaRecuperada.descuento,
                         mostrarSheetSuspendidas = false,
                         mensajeExito = "Venta reanudada en el carrito."
                     )
                 }
             }.onFailure { err ->
                 _uiState.update {
-                    it.copy(error = "No se pudo reanudar la venta suspendida: ${err.message}")
+                    it.copy(error = err.message ?: "No se pudo reanudar la venta suspendida.")
                 }
             }
         }

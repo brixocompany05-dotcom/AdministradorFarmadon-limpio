@@ -647,7 +647,8 @@ private fun DialogoApertura(
     onConfirmar: (Double) -> Unit
 ) {
     var fondoTexto by remember { mutableStateOf("0.00") }
-    val fondoValido = fondoTexto.toDoubleOrNull()?.let { it >= 0.0 } == true
+    val fondoParsed = com.app.administradorfarmadon.ventas.compartido.logica.MontoFormateador.normalizarMontoPositivo(fondoTexto)
+    val fondoValido = fondoParsed != null
 
     Dialog(onDismissRequest = { if (!procesando) onDismiss() }) {
         Surface(
@@ -691,7 +692,7 @@ private fun DialogoApertura(
                     }
                     Button(
                         onClick = {
-                            val fondo = fondoTexto.toDoubleOrNull() ?: 0.0
+                            val fondo = com.app.administradorfarmadon.ventas.compartido.logica.MontoFormateador.normalizarMontoPositivo(fondoTexto) ?: 0.0
                             onConfirmar(fondo)
                         },
                         enabled = !procesando && fondoValido,
@@ -724,6 +725,8 @@ private fun DialogoMovimientoManual(
     var motivoTexto by remember { mutableStateOf("") }
     val esIngreso = tipo == MovimientoCaja.TIPO_INGRESO
     val titulo = if (esIngreso) "Registrar Ingreso de Efectivo" else "Registrar Retiro de Efectivo"
+    val montoParsed = com.app.administradorfarmadon.ventas.compartido.logica.MontoFormateador.normalizarMontoEstricto(montoTexto)
+    val montoValido = montoParsed != null
 
     Dialog(onDismissRequest = { if (!procesando) onDismiss() }) {
         Surface(
@@ -771,10 +774,10 @@ private fun DialogoMovimientoManual(
                     }
                     Button(
                         onClick = {
-                            val monto = montoTexto.toDoubleOrNull() ?: 0.0
+                            val monto = com.app.administradorfarmadon.ventas.compartido.logica.MontoFormateador.normalizarMontoEstricto(montoTexto) ?: 0.0
                             onConfirmar(monto, motivoTexto)
                         },
-                        enabled = !procesando && (montoTexto.toDoubleOrNull() ?: 0.0) > 0.0 && motivoTexto.trim().length >= 4,
+                        enabled = !procesando && montoValido && motivoTexto.trim().length >= 4,
                         modifier = Modifier.weight(1.5f).height(44.dp),
                         shape = FDShapes.Small,
                         colors = ButtonDefaults.buttonColors(containerColor = if (esIngreso) FDColors.Success else FDColors.Error)

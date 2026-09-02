@@ -1,4 +1,4 @@
-﻿package com.app.administradorfarmadon.configuracion.sucursales.ui.componentes
+package com.app.administradorfarmadon.configuracion.sucursales.ui.componentes
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -137,6 +137,19 @@ fun SucursalItemCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                if (sucursal.serieBoleta.isNotBlank()) {
+                    Text(
+                        text = "Serie ${sucursal.serieBoleta} · ${sucursal.serieFactura} · ${sucursal.serieNotaCreditoBoleta} · ${sucursal.serieNotaCreditoFactura}",
+                        style = TokensFarmadon.tipografia.etiqueta.copy(
+                            fontSize = s.textLabel.value.sp * 0.75f,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = colores.textoSecundario,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             Icon(

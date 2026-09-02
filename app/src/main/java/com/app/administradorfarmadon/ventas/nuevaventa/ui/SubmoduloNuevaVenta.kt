@@ -18,9 +18,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.configuracion.metodospago.modelo.InstanciaPago
 import com.app.administradorfarmadon.configuracion.metodospago.modelo.TIPOS_PAGO_FIJOS
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
@@ -35,6 +40,7 @@ import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDBotonPrimario
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.TipoEstadoFarmadon
+import com.app.administradorfarmadon.facturacion.envio.worker.FacturacionEnvioWorker
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto
 import com.app.administradorfarmadon.inventario.compartido.modelo.stockDisponibleFisico
@@ -63,7 +69,38 @@ fun SubmoduloNuevaVenta(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val focusRequesterBuscador = remember { FocusRequester() }
     var mostrarCamaraEscaneo by remember { mutableStateOf(false) }
+    var itemParaEditarCantidad by remember { mutableStateOf<ItemVenta?>(null) }
+
+    // FASE 10: Foco permanente en el buscador al entrar a la pantalla
+    LaunchedEffect(Unit) {
+        delay(150)
+        try { focusRequesterBuscador.requestFocus() } catch (_: Exception) {}
+    }
+
+    // FASE 10: Devolver el foco al buscador tras cerrar cualquier diálogo o finalizar venta
+    LaunchedEffect(
+        uiState.mostrarOverlayCobro,
+        uiState.mostrarDialogoCliente,
+        uiState.mostrarDialogoSuspender,
+        uiState.mostrarSheetSuspendidas,
+        uiState.ventaExitosa,
+        mostrarCamaraEscaneo,
+        itemParaEditarCantidad
+    ) {
+        if (!uiState.mostrarOverlayCobro &&
+            !uiState.mostrarDialogoCliente &&
+            !uiState.mostrarDialogoSuspender &&
+            !uiState.mostrarSheetSuspendidas &&
+            uiState.ventaExitosa == null &&
+            !mostrarCamaraEscaneo &&
+            itemParaEditarCantidad == null
+        ) {
+            delay(100)
+            try { focusRequesterBuscador.requestFocus() } catch (_: Exception) {}
+        }
+    }
 
     // Auto-limpieza de mensajes temporales
     LaunchedEffect(uiState.mensajeExito, uiState.error) {
@@ -80,12 +117,18 @@ fun SubmoduloNuevaVenta(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Notificaciones de advertencia de caja cerrada o errores
+            // Notificaciones de advertencia de caja cerrada, facturación pendiente o errores
             if (!uiState.cajaAbierta) {
                 POSNotificationBar(
                     mensaje = "LA CAJA SE ENCUENTRA CERRADA. ABRE EL TURNO EN 'CIERRE DE CAJA' PARA PODER COBRAR.",
                     tipo = TipoEstadoFarmadon.PELIGRO,
                     icono = Icons.Default.Lock
+                )
+            } else if (!uiState.emisorCompleto) {
+                POSNotificationBar(
+                    mensaje = "FACTURACIÓN ELECTRÓNICA PENDIENTE — El administrador debe completar y verificar el emisor en Configuración → Facturación Electrónica. Hasta entonces no se puede cobrar.",
+                    tipo = TipoEstadoFarmadon.PELIGRO,
+                    icono = Icons.Default.WarningAmber
                 )
             } else if (uiState.error != null) {
                 POSNotificationBar(
@@ -117,11 +160,19 @@ fun SubmoduloNuevaVenta(
                         .fillMaxHeight()
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        // Buscador de Productos
+                        // Buscador de Productos con Foco Permanente y Enter Inmediato (FASE 10)
                         FDSearchField(
                             busqueda = uiState.busquedaTexto,
                             onBusquedaChange = { viewModel.onBusquedaChange(it) },
-                            placeholder = "Buscar producto por nombre, código de barras o lote...",
+                            placeholder = "Buscar producto por nombre o código de barras...",
+                            focusRequester = focusRequesterBuscador,
+                            onEnterPressed = {
+                                if (uiState.busquedaTexto.isNotBlank()) {
+                                    viewModel.ejecutarBusquedaInmediata()
+                                } else if (uiState.cajaAbierta && uiState.emisorCompleto && uiState.carrito.isNotEmpty() && (!uiState.requiereReceta || uiState.confirmoReceta)) {
+                                    viewModel.abrirOverlayCobro()
+                                }
+                            },
                             modifier = Modifier.padding(14.dp),
                             trailingContent = {
                                 if (uiState.buscando) {
@@ -185,6 +236,7 @@ fun SubmoduloNuevaVenta(
                                             simbolo = simboloMoneda,
                                             onSumar = { viewModel.cambiarCantidadItem(item.productoId, item.presentacionId, 1) },
                                             onRestar = { viewModel.cambiarCantidadItem(item.productoId, item.presentacionId, -1) },
+                                            onClickCantidad = { itemParaEditarCantidad = item },
                                             onEliminar = { viewModel.eliminarItemCarrito(item.productoId, item.presentacionId) }
                                         )
                                     }
@@ -417,11 +469,16 @@ fun SubmoduloNuevaVenta(
                                 .background(FDColors.SurfaceElevated)
                                 .padding(18.dp)
                         ) {
+                            val textoBoton = when {
+                                !uiState.cajaAbierta -> "CAJA CERRADA"
+                                !uiState.emisorCompleto -> "FACTURACIÓN ELECTRÓNICA PENDIENTE"
+                                else -> "COBRAR AHORA ($simboloMoneda ${String.format(Locale.US, "%.2f", uiState.total)})"
+                            }
                             FDBotonPrimario(
-                                texto = if (uiState.cajaAbierta) "COBRAR AHORA ($simboloMoneda ${String.format(Locale.US, "%.2f", uiState.total)})" else "CAJA CERRADA",
+                                texto = textoBoton,
                                 onClick = { viewModel.abrirOverlayCobro() },
-                                icono = Icons.Default.Payments,
-                                habilitado = uiState.cajaAbierta && uiState.carrito.isNotEmpty() && (!uiState.requiereReceta || uiState.confirmoReceta),
+                                icono = if (!uiState.emisorCompleto) Icons.Default.WarningAmber else Icons.Default.Payments,
+                                habilitado = uiState.cajaAbierta && uiState.emisorCompleto && uiState.carrito.isNotEmpty() && (!uiState.requiereReceta || uiState.confirmoReceta),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(56.dp)
@@ -443,6 +500,19 @@ fun SubmoduloNuevaVenta(
             )
         }
 
+        // Diálogo para Modificar Cantidad Directa (FASE 10)
+        itemParaEditarCantidad?.let { item ->
+            DialogoModificarCantidad(
+                item = item,
+                simboloMoneda = simboloMoneda,
+                onDismiss = { itemParaEditarCantidad = null },
+                onConfirmar = { nuevaCant ->
+                    viewModel.setCantidadItem(item.productoId, item.presentacionId, nuevaCant)
+                    itemParaEditarCantidad = null
+                }
+            )
+        }
+
         // ───────────────────────────── OVERLAYS Y DIÁLOGOS ─────────────────────────────
 
         // Overlay de Cobro con Métodos Reales y Vuelto
@@ -458,6 +528,10 @@ fun SubmoduloNuevaVenta(
 
         // Diálogo de Venta Exitosa e Impresión de Ticket
         uiState.ventaExitosa?.let { venta ->
+            LaunchedEffect(venta.id) {
+                val farmaciaId = SessionManager.clienteIdGarantizado
+                FacturacionEnvioWorker.encolarReintento(context, farmaciaId)
+            }
             DialogoVentaExitosa(
                 venta = venta,
                 simboloMoneda = simboloMoneda,
@@ -553,11 +627,94 @@ fun SubmoduloNuevaVenta(
 // ───────────────────────────── COMPONENTES AUXILIARES ─────────────────────────────
 
 @Composable
+private fun DialogoModificarCantidad(
+    item: ItemVenta,
+    simboloMoneda: String,
+    onDismiss: () -> Unit,
+    onConfirmar: (Int) -> Unit
+) {
+    var cantidadTexto by remember { mutableStateOf("${item.cantidad}") }
+    val focusRequester = remember { FocusRequester() }
+    val cantidadValida = cantidadTexto.trim().toIntOrNull()?.let { it > 0 } == true
+
+    LaunchedEffect(Unit) {
+        delay(100)
+        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = FDShapes.Medium,
+            color = FDColors.Surface,
+            border = BorderStroke(1.dp, FDColors.Border),
+            modifier = Modifier.width(360.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    "Modificar Cantidad",
+                    style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 18.sp),
+                    color = FDColors.TextPrimary
+                )
+                Text(
+                    "${item.nombreProducto} (${item.presentacionNombre})",
+                    style = FDType.Body.copy(fontSize = 12.sp),
+                    color = FDColors.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                FDTextField(
+                    value = cantidadTexto,
+                    onValueChange = { if (it.all { c -> c.isDigit() }) cantidadTexto = it },
+                    label = "CANTIDAD",
+                    placeholder = "1",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                    modifier = Modifier
+                        .focusRequester(focusRequester)
+                        .onKeyEvent { keyEvent ->
+                            if (keyEvent.type == KeyEventType.KeyDown && (keyEvent.key == Key.Enter || keyEvent.key == Key.NumPadEnter)) {
+                                val cant = cantidadTexto.trim().toIntOrNull() ?: 1
+                                if (cant > 0) {
+                                    onConfirmar(cant)
+                                    true
+                                } else false
+                            } else false
+                        }
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(40.dp),
+                        shape = FDShapes.Small
+                    ) {
+                        Text("Cancelar", color = FDColors.TextSecondary)
+                    }
+                    Button(
+                        onClick = {
+                            val cant = cantidadTexto.trim().toIntOrNull() ?: 1
+                            if (cant > 0) onConfirmar(cant)
+                        },
+                        enabled = cantidadValida,
+                        modifier = Modifier.weight(1.3f).height(40.dp),
+                        shape = FDShapes.Small,
+                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary)
+                    ) {
+                        Text("ACEPTAR", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FilaCarritoItem(
     item: ItemVenta,
     simbolo: String,
     onSumar: () -> Unit,
     onRestar: () -> Unit,
+    onClickCantidad: () -> Unit,
     onEliminar: () -> Unit
 ) {
     Surface(
@@ -568,10 +725,10 @@ private fun FilaCarritoItem(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Stepper de Cantidad
+            // Stepper de Cantidad con número clickeable editable (FASE 10)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Surface(
                     onClick = onRestar,
@@ -583,13 +740,21 @@ private fun FilaCarritoItem(
                         Icon(Icons.Default.Remove, null, modifier = Modifier.size(14.dp), tint = FDColors.TextPrimary)
                     }
                 }
-                Text(
-                    text = "${item.cantidad}",
-                    style = FDType.Numeric.copy(fontSize = 16.sp, fontWeight = FontWeight.Black),
-                    color = FDColors.Primary,
-                    modifier = Modifier.widthIn(min = 24.dp),
-                    textAlign = TextAlign.Center
-                )
+                Surface(
+                    onClick = onClickCantidad,
+                    color = FDColors.Primary.copy(alpha = 0.08f),
+                    shape = FDShapes.Small,
+                    modifier = Modifier.height(28.dp).widthIn(min = 34.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
+                        Text(
+                            text = "${item.cantidad}",
+                            style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Black),
+                            color = FDColors.Primary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
                 Surface(
                     onClick = onSumar,
                     color = FDColors.Primary.copy(alpha = 0.08f),
@@ -624,6 +789,26 @@ private fun FilaCarritoItem(
                     style = FDType.Caption.copy(fontSize = 11.sp),
                     color = FDColors.TextTertiary
                 )
+
+                // FASE 11 H2: Trazabilidad física de lote y anaquel
+                val loteInfo = buildString {
+                    if (item.loteSugerido.isNotBlank()) {
+                        append("Sale: Lote ${item.loteSugerido}")
+                        if (item.loteVencimientoSugerido.isNotBlank()) {
+                            append(" · Vence: ${item.loteVencimientoSugerido}")
+                        }
+                    }
+                    if (item.ubicacionAnaquel.isNotBlank()) {
+                        if (isNotEmpty()) append(" · ")
+                        append(if (item.ubicacionAnaquel.startsWith("Anaquel", ignoreCase = true)) item.ubicacionAnaquel else "Anaquel: ${item.ubicacionAnaquel}")
+                    }
+                }
+                if (loteInfo.isNotBlank()) {
+                    Text(
+                        text = loteInfo,
+                        style = FDType.Caption.copy(fontSize = 10.5.sp, color = FDColors.Primary.copy(alpha = 0.9f), fontWeight = FontWeight.SemiBold)
+                    )
+                }
             }
 
             Spacer(Modifier.width(12.dp))
@@ -836,6 +1021,68 @@ private fun OverlayCobro(
                         }
                     }
 
+                    // FASE 10: Chips de billetes rápidos (solo EFECTIVO)
+                    if (instanciaActual?.tipoId == "EFECTIVO") {
+                        val faltante = uiState.montoFaltante.takeIf { it > 0 } ?: uiState.total
+                        val billetes = listOf(
+                            "Exacto" to String.format(Locale.US, "%.2f", faltante),
+                            "S/ 10" to "10.00",
+                            "S/ 20" to "20.00",
+                            "S/ 50" to "50.00",
+                            "S/ 100" to "100.00",
+                            "S/ 200" to "200.00"
+                        )
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(billetes) { (label, valor) ->
+                                val esSeleccionado = montoInput.trim() == valor
+                                Surface(
+                                    onClick = { montoInput = valor },
+                                    color = if (esSeleccionado) FDColors.Primary.copy(alpha = 0.15f) else FDColors.InputBackground,
+                                    shape = FDShapes.Small,
+                                    border = BorderStroke(1.dp, if (esSeleccionado) FDColors.Primary else FDColors.Border.copy(alpha = 0.5f)),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                        Text(
+                                            text = if (label == "Exacto") "Exacto ($simboloMoneda ${String.format(Locale.US, "%.2f", faltante)})" else label,
+                                            style = FDType.Caption.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
+                                            color = if (esSeleccionado) FDColors.Primary else FDColors.TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    val montoParsed = com.app.administradorfarmadon.ventas.compartido.logica.MontoFormateador.normalizarMontoEstricto(montoInput)
+                    val montoValido = montoParsed != null
+                    val opValida = !requiereOperacion || opInput.trim().isNotBlank()
+
+                    val onAgregarLineaPago = {
+                        val m = com.app.administradorfarmadon.ventas.compartido.logica.MontoFormateador.normalizarMontoEstricto(montoInput) ?: 0.0
+                        if (m > 0.0 && opValida && instanciaActual != null) {
+                            val tipo = TIPOS_PAGO_FIJOS.firstOrNull { it.id == instanciaActual.tipoId }
+                            val nombreMetodo = tipo?.nombre ?: instanciaActual.tipoId
+                            val nuevaLista = uiState.lineasPago.toMutableList().apply {
+                                add(
+                                    PagoVenta(
+                                        tipoId = instanciaActual.tipoId,
+                                        instanciaId = instanciaActual.id,
+                                        nombreMetodo = nombreMetodo,
+                                        monto = m,
+                                        numeroOperacion = opInput.trim()
+                                    )
+                                )
+                            }
+                            onActualizarLineas(nuevaLista)
+                            montoInput = ""
+                            opInput = ""
+                        }
+                    }
+
                     // Inputs para añadir línea de pago
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -847,8 +1094,23 @@ private fun OverlayCobro(
                             onValueChange = { montoInput = it },
                             label = "Monto ($simboloMoneda)",
                             placeholder = "0.00",
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.weight(1.1f)
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal,
+                                imeAction = if (instanciaActual?.tipoId == "EFECTIVO") ImeAction.Done else ImeAction.Next
+                            ),
+                            modifier = Modifier
+                                .weight(1.1f)
+                                .onKeyEvent { keyEvent ->
+                                    if (keyEvent.type == KeyEventType.KeyDown && (keyEvent.key == Key.Enter || keyEvent.key == Key.NumPadEnter)) {
+                                        if (montoValido && opValida) {
+                                            onAgregarLineaPago()
+                                            true
+                                        } else if (montoInput.isBlank() && uiState.puedeCobrar && !uiState.procesandoCobro) {
+                                            onConfirmar()
+                                            true
+                                        } else false
+                                    } else false
+                                }
                         )
 
                         // CRÍTICO 2: N° Operación obligatorio u opcional según tipoInfo
@@ -858,35 +1120,22 @@ private fun OverlayCobro(
                                 onValueChange = { opInput = it },
                                 label = if (requiereOperacion) "N° Operación *" else "N° Operación",
                                 placeholder = if (requiereOperacion) "Obligatorio" else "Opcional",
-                                modifier = Modifier.weight(1.2f)
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Done),
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .onKeyEvent { keyEvent ->
+                                        if (keyEvent.type == KeyEventType.KeyDown && (keyEvent.key == Key.Enter || keyEvent.key == Key.NumPadEnter)) {
+                                            if (montoValido && opValida) {
+                                                onAgregarLineaPago()
+                                                true
+                                            } else false
+                                        } else false
+                                    }
                             )
                         }
 
-                        val montoValido = (montoInput.toDoubleOrNull() ?: 0.0) > 0.0
-                        val opValida = !requiereOperacion || opInput.trim().isNotBlank()
-
                         Button(
-                            onClick = {
-                                val m = montoInput.toDoubleOrNull() ?: 0.0
-                                if (m > 0.0 && opValida && instanciaActual != null) {
-                                    val tipo = TIPOS_PAGO_FIJOS.firstOrNull { it.id == instanciaActual.tipoId }
-                                    val nombreMetodo = tipo?.nombre ?: instanciaActual.tipoId
-                                    val nuevaLista = uiState.lineasPago.toMutableList().apply {
-                                        add(
-                                            PagoVenta(
-                                                tipoId = instanciaActual.tipoId,
-                                                instanciaId = instanciaActual.id,
-                                                nombreMetodo = nombreMetodo,
-                                                monto = m,
-                                                numeroOperacion = opInput.trim()
-                                            )
-                                        )
-                                    }
-                                    onActualizarLineas(nuevaLista)
-                                    montoInput = ""
-                                    opInput = ""
-                                }
-                            },
+                            onClick = onAgregarLineaPago,
                             enabled = montoValido && opValida && instanciaActual != null,
                             shape = FDShapes.Small,
                             modifier = Modifier.padding(top = 18.dp).height(44.dp),
@@ -970,12 +1219,27 @@ private fun DialogoVentaExitosa(
     onImprimir: () -> Unit,
     onNuevaVenta: () -> Unit
 ) {
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        delay(100)
+        try { focusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
     Dialog(onDismissRequest = onNuevaVenta) {
         Surface(
             shape = FDShapes.Large,
             color = FDColors.Surface,
             border = BorderStroke(1.dp, FDColors.Border),
-            modifier = Modifier.width(440.dp)
+            modifier = Modifier
+                .width(440.dp)
+                .focusRequester(focusRequester)
+                .onKeyEvent { keyEvent ->
+                    if (keyEvent.type == KeyEventType.KeyDown && (keyEvent.key == Key.Enter || keyEvent.key == Key.NumPadEnter || keyEvent.key == Key.Spacebar)) {
+                        onNuevaVenta()
+                        true
+                    } else false
+                }
         ) {
             Column(
                 modifier = Modifier.padding(28.dp),

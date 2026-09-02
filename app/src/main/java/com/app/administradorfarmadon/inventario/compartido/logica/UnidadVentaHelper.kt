@@ -148,31 +148,41 @@ object UnidadVentaHelper {
 
         val fisicoTotal = stockFisicoParaVender(cantidadEnUnidadProducto, factor)
 
-        // 2. Validar stock suficiente
-        val stockDisponible = producto.lotes.values.sumOf { it.cantidad.coerceAtLeast(0.0) }
+        // 2. Validar stock suficiente en lotes VIGENTES (R3/Sanitaria: lotes vencidos nunca se venden)
+        val vendibles = producto.lotes.values.filter { lote ->
+            val dias = FechaVencimientoHelper.diasHastaVencer(lote.vencimiento)
+            lote.cantidad > 0.0 && (dias == null || dias > 0)
+        }
+        val stockDisponible = vendibles.sumOf { it.cantidad.coerceAtLeast(0.0) }
+        val stockVencido = producto.lotes.values.filter { lote ->
+            val dias = FechaVencimientoHelper.diasHastaVencer(lote.vencimiento)
+            dias != null && dias <= 0 && lote.cantidad > 0.0
+        }.sumOf { it.cantidad }
+
         if (stockDisponible < fisicoTotal) {
             val disponibleContenido = (stockDisponible * factor).toLong()
             val unidad = producto.contenidoUnidad.ifBlank { producto.empaque.ifBlank { "unidades" } }
-            return Result.failure(
-                Exception(
-                    if (stockDisponible <= 0.0) "Producto agotado."
-                    else "Stock insuficiente: quedan $disponibleContenido $unidad disponibles."
-                )
-            )
+            val mensaje = if (stockDisponible <= 0.0 && stockVencido > 0.0) {
+                "El stock de '${producto.nombre}' está vencido. Retíralo del anaquel (Inventario → Merma)."
+            } else if (stockDisponible <= 0.0) {
+                "Producto agotado."
+            } else {
+                "Stock insuficiente: quedan $disponibleContenido $unidad disponibles."
+            }
+            return Result.failure(Exception(mensaje))
         }
 
         // 3. ORDEN DE CONSUMO — CONTRATO PARA EL POS:
-        //    a) PRIORIDAD DEL DUEÑO: si marcó un lote prioritario (con existencia), sale primero.
+        //    a) PRIORIDAD DEL DUEÑO: si marcó un lote prioritario (con existencia y vigente), sale primero.
         //    b) Resto y sin prioridad: FEFO (primero vence, primero sale).
         //    El dueño decide su estrategia; el sistema la ejecuta sin preguntar en caja.
         val lotesEnOrden = run {
-            val vendibles = producto.lotes.values.filter { it.cantidad > 0.0 }
-                .sortedBy { FechaVencimientoHelper.diasHastaVencer(it.vencimiento) ?: Int.MAX_VALUE }
+            val ordenados = vendibles.sortedBy { FechaVencimientoHelper.diasHastaVencer(it.vencimiento) ?: Int.MAX_VALUE }
             val prioId = producto.lotePrioritarioId.trim()
-            val prioritario = vendibles.firstOrNull {
+            val prioritario = ordenados.firstOrNull {
                 it.loteId.equals(prioId, ignoreCase = true) || it.numero.equals(prioId, ignoreCase = true)
             }
-            if (prioritario != null) listOf(prioritario) + vendibles.filter { it != prioritario } else vendibles
+            if (prioritario != null) listOf(prioritario) + ordenados.filter { it != prioritario } else ordenados
         }
 
         var restaPorDescontar = fisicoTotal

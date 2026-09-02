@@ -46,7 +46,7 @@ data class ClientesUiState(
 
     val totalComprasCliente: Double
         get() = kotlin.math.round(
-            historialVentas.filter { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL }
+            historialVentas.filter { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL && it.estado != Venta.ESTADO_ANULADA }
                 .sumOf { v ->
                     if (v.estado == Venta.ESTADO_DEVOLUCION_PARCIAL) (v.total - v.totalDevuelto).coerceAtLeast(0.0)
                     else v.total
@@ -54,7 +54,7 @@ data class ClientesUiState(
         ) / 100.0
 
     val totalOperacionesCliente: Int
-        get() = historialVentas.size
+        get() = historialVentas.count { it.estado != Venta.ESTADO_ANULADA }
 }
 
 /**

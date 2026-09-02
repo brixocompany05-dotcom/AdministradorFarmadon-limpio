@@ -1,4 +1,4 @@
-﻿package com.app.administradorfarmadon.configuracion.sucursales.logica
+package com.app.administradorfarmadon.configuracion.sucursales.logica
 
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 
@@ -22,6 +22,8 @@ data class SucursalesUiState(
 
     val cargando: Boolean = true,
     val guardando: Boolean = false,
+    val emisorFiscalCompleto: Boolean = false,
+    val mostrarDialogoEmisorIncompleto: Boolean = false,
     val mostrarDialogoLimite: Boolean = false,
     val mostrarDialogoEliminar: Boolean = false,
     val mostrarDialogoDescartar: Boolean = false,

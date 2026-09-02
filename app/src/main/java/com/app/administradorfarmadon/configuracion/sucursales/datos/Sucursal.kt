@@ -14,5 +14,9 @@ data class Sucursal(
     val activa: Boolean = true,
     val responsable: String = "",
     val codigoInterno: String = "",
-    val fechaCreacion: Any? = null
+    val fechaCreacion: Any? = null,
+    val serieBoleta: String = "",
+    val serieFactura: String = "",
+    val serieNotaCreditoBoleta: String = "",
+    val serieNotaCreditoFactura: String = ""
 )

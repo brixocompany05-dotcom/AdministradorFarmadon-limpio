@@ -55,6 +55,7 @@ import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 fun SucursalesScreen(
     viewModel: SucursalesViewModel,
     onVolver: () -> Unit,
+    onIrAConfiguracionFiscal: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -104,13 +105,22 @@ fun SucursalesScreen(
             isKeyboardVisibleSuc -> { keyboardControllerSuc?.hide(); focusManagerSuc.clearFocus(force = true) }
             mostrarSelectorMapa -> mostrarSelectorMapa = false
             state.mostrarDialogoDescartar -> viewModel.seguirEditando()
-            state.mostrarDialogoEliminar || state.mostrarDialogoLimite -> viewModel.cerrarDialogos()
+            state.mostrarDialogoEliminar || state.mostrarDialogoLimite || state.mostrarDialogoEmisorIncompleto -> viewModel.cerrarDialogos()
             panelAbierto -> viewModel.solicitarCerrarPanel()
             else -> viewModel.solicitarVolver(onVolver)
         }
     }
 
     // Manejo de diálogos
+    if (state.mostrarDialogoEmisorIncompleto) {
+        DialogoEmisorFiscalIncompleto(
+            onIrAConfiguracionFiscal = {
+                viewModel.cerrarDialogoEmisorIncompleto()
+                onIrAConfiguracionFiscal()
+            },
+            onDismiss = { viewModel.cerrarDialogoEmisorIncompleto() }
+        )
+    }
     if (state.mostrarDialogoLimite) {
         DialogoLimitePlan(state.planNombre, state.maxSucursales) { viewModel.cerrarDialogos() }
     }
@@ -415,4 +425,55 @@ private fun EmptyDetailPlaceholder(colores: com.app.administradorfarmadon.diseno
             Text("Selecciona una sede para ver su configuración", style = FDType.Body.copy(fontSize = s.textBody.value.sp), color = colores.textoTerciario)
         }
     }
+}
+
+@Composable
+fun DialogoEmisorFiscalIncompleto(
+    onIrAConfiguracionFiscal: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.WarningAmber, null, tint = FDColors.Warning)
+                Text(
+                    "Facturación Electrónica Requerida",
+                    style = FDType.Heading2.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Antes de abrir una nueva sucursal, la farmacia debe tener su Emisor Fiscal (RUC, datos y credenciales de APISUNAT) configurado y verificado desde la Sede Principal.",
+                    style = FDType.Body,
+                    color = FDColors.TextPrimary
+                )
+                Text(
+                    "Esto garantiza que la nueva sede nazca con sus series fiscales oficiales (B00n, F00n, BC0n, FC0n) y pueda operar legalmente ante SUNAT.",
+                    style = FDType.Caption,
+                    color = FDColors.TextSecondary
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onIrAConfiguracionFiscal,
+                colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary)
+            ) {
+                Text("Configurar Facturación")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Entendido", color = FDColors.TextSecondary)
+            }
+        },
+        containerColor = FDColors.Surface,
+        shape = FDShapes.Medium
+    )
 }

@@ -118,4 +118,20 @@ object FarmadonPaths {
     /** Directorio de clientes de la farmacia (a nivel farmacia: compran en cualquier sede). */
     fun clientesDirectorio(db: FirebaseFirestore, farmaciaId: String): CollectionReference =
         farmacia(db, farmaciaId).collection("clientes")
+
+    /** Bandeja e índice fiscal de comprobantes electrónicos (FASE 12). */
+    fun facturacionDocumentos(db: FirebaseFirestore, farmaciaId: String): CollectionReference =
+        farmacia(db, farmaciaId).collection("facturacion_documentos")
+
+    /** Configuración fiscal a nivel farmacia (emisor, series, credenciales). */
+    fun facturacionConfig(db: FirebaseFirestore, farmaciaId: String): CollectionReference =
+        farmacia(db, farmaciaId).collection("facturacion_config")
+
+    /** Documento asignador de índices secuenciales de series de sucursales. */
+    fun facturacionSeries(db: FirebaseFirestore, farmaciaId: String): DocumentReference =
+        facturacionConfig(db, farmaciaId).document("series")
+
+    /** Documento único del emisor fiscal APISUNAT de la farmacia. */
+    fun facturacionEmisor(db: FirebaseFirestore, farmaciaId: String): DocumentReference =
+        facturacionConfig(db, farmaciaId).document("emisor")
 }

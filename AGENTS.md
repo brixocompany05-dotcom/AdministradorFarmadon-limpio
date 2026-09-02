@@ -210,6 +210,7 @@ mantiene pequeño y cada skill se activa por el trabajo que realmente necesita.
 
 ### Skills vigentes
 
+- `00-ejecucion-autonoma` — **MASTER SKILL**: Protocolo de ingeniería de producto autónoma. Rige la ejecución corrida de extremo a extremo, análisis de consecuencias, cierre de todos los caminos, blindaje UX y definición real de DONE.
 - `cerebro-pensamiento` — cuestiona el plan y razona la funcionalidad como un sistema
   dentro del mundo real: intención, trabajo humano, estados, tiempo, consecuencias,
   usuarios, datos y caminos alternativos.
@@ -227,8 +228,10 @@ mantiene pequeño y cada skill se activa por el trabajo que realmente necesita.
 
 ### Cómo se activan
 
-No se cargan todas las skills para cada tarea. Se carga la skill cuyo criterio aplica:
+`00-ejecucion-autonoma` rige siempre la metodología de trabajo de principio a fin.
+Para el dominio específico de la tarea se activan las skills correspondientes:
 
+- ejecución corrida, análisis de consecuencias y cierre de tarea → `00-ejecucion-autonoma` (MASTER);
 - pantalla, UI o experiencia Enterprise → `06-cerebro-diseno`;
 - plan, funcionalidad o decisión de producto → `cerebro-pensamiento`;
 - prevención, validaciones o recuperación → `prevencion-errores`;

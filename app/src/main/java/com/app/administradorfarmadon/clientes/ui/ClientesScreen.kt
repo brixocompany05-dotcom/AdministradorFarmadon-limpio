@@ -368,6 +368,7 @@ fun ClientesScreen(
                                             Venta.ESTADO_COMPLETADA -> TipoEstadoFarmadon.EXITO to "COMPLETADA"
                                             Venta.ESTADO_DEVOLUCION_PARCIAL -> TipoEstadoFarmadon.ALERTA to "DEV. PARCIAL"
                                             Venta.ESTADO_DEVOLUCION_TOTAL -> TipoEstadoFarmadon.PELIGRO to "DEV. TOTAL"
+                                            Venta.ESTADO_ANULADA -> TipoEstadoFarmadon.PELIGRO to "ANULADA"
                                             else -> TipoEstadoFarmadon.NEUTRO to venta.estado
                                         }
 
@@ -389,7 +390,11 @@ fun ClientesScreen(
                                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                     Text(
                                                         "$simboloMoneda ${String.format(Locale.US, "%.2f", venta.total)}",
-                                                        style = FDType.Numeric.copy(fontSize = 12.5.sp, fontWeight = FontWeight.Black)
+                                                        style = FDType.Numeric.copy(
+                                                            fontSize = 12.5.sp,
+                                                            fontWeight = FontWeight.Black,
+                                                            color = if (venta.estado == Venta.ESTADO_ANULADA) FDColors.TextTertiary else FDColors.TextPrimary
+                                                        )
                                                     )
                                                     POSBadge(texto = textoBadge, tipo = tipoBadge)
                                                 }

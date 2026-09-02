@@ -128,7 +128,16 @@ object TicketComprobantePdf {
             val subtotalStr = String.format(Locale.US, "%.2f", item.subtotal)
             drawFilaDosColumnas("${item.cantidad}x $desc", subtotalStr)
             val puStr = "P.U. S/ ${String.format(Locale.US, "%.2f", item.precioUnitario)}"
-            canvas.drawText("    $puStr", 14f, y, paintText)
+
+            // FASE 11 H2: Trazabilidad lote + vencimiento para el cliente
+            val loteStr = if (item.lotesConsumidos.isNotEmpty()) {
+                item.lotesConsumidos.joinToString(", ") { "Lot: ${it.loteNumero} Venc: ${it.vencimiento}" }
+            } else if (item.loteSugerido.isNotBlank()) {
+                "Lot: ${item.loteSugerido} Venc: ${item.loteVencimientoSugerido}"
+            } else ""
+
+            val infoDetalle = if (loteStr.isNotBlank()) "$puStr | $loteStr" else puStr
+            canvas.drawText("    $infoDetalle", 14f, y, paintText)
             y += paintText.textSize + 3f
         }
 

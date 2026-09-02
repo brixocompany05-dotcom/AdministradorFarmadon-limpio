@@ -707,6 +707,25 @@ fun SucursalFormularioPanel(
                                                 ),
                                                 color = colores.textoTerciario
                                             )
+
+                                            val selSede = state.sucursalSeleccionada
+                                            if (selSede != null && selSede.serieBoleta.isNotBlank()) {
+                                                Surface(
+                                                    color = colores.textoPrincipal.copy(alpha = 0.06f),
+                                                    shape = RoundedCornerShape(s.radiusChip * 0.4f),
+                                                    border = BorderStroke(s.borderWidth * 0.6f, colores.cardBorde)
+                                                ) {
+                                                    Text(
+                                                        text = "Serie ${selSede.serieBoleta} · ${selSede.serieFactura} · ${selSede.serieNotaCreditoBoleta} · ${selSede.serieNotaCreditoFactura}",
+                                                        style = TokensFarmadon.tipografia.etiqueta.copy(
+                                                            fontSize = s.textLabel.value.sp * 0.78f,
+                                                            fontWeight = FontWeight.Bold
+                                                        ),
+                                                        color = colores.textoPrincipal,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
 

@@ -46,6 +46,10 @@ data class ItemVenta(
     val precioUnitario: Double = 0.0,
     val subtotal: Double = 0.0,
     val requiereReceta: Boolean = false,
+    /** Trazabilidad de anaquel y lote sugerido por FEFO (FASE 11 H2). */
+    val loteSugerido: String = "",
+    val loteVencimientoSugerido: String = "",
+    val ubicacionAnaquel: String = "",
     /** Lotes reales que se descontaron para esta línea (FEFO/prioridad del dueño). */
     val lotesConsumidos: List<LoteConsumido> = emptyList(),
     /** Cuántas unidades de esta línea ya regresaron por devolución. */
@@ -88,19 +92,28 @@ data class Venta(
     val pagos: List<PagoVenta> = emptyList(),
     val montoRecibido: Double = 0.0,
     val vuelto: Double = 0.0,
-    val estado: String = ESTADO_COMPLETADA, // COMPLETADA | DEVOLUCION_PARCIAL | DEVOLUCION_TOTAL
+    val estado: String = ESTADO_COMPLETADA, // COMPLETADA | DEVOLUCION_PARCIAL | DEVOLUCION_TOTAL | ANULADA
     val cajaSesionId: String = "",
     val cajeroId: String = "",
     val cajeroNombre: String = "",
     /** ms corregidos por hora de servidor (consultables y ordenables sin depender del reloj local). */
     val fechaHoraMs: Long = 0L,
     /** "yyyy-MM-dd" para traer SOLO las ventas del día con un filtro simple. */
-    val diaClave: String = ""
+    val diaClave: String = "",
+    // FASE 12: Contrato fiscal y trazabilidad de anulación
+    val estadoFiscal: String = "PENDIENTE",
+    val moduloOrigen: String = "POS",
+    val anuladaPorId: String = "",
+    val anuladaPorNombre: String = "",
+    val anulacionMotivo: String = "",
+    val anuladaEnMs: Long = 0L,
+    val numeroNotaCredito: String = ""
 ) {
     companion object {
         const val ESTADO_COMPLETADA = "COMPLETADA"
         const val ESTADO_DEVOLUCION_PARCIAL = "DEVOLUCION_PARCIAL"
         const val ESTADO_DEVOLUCION_TOTAL = "DEVOLUCION_TOTAL"
+        const val ESTADO_ANULADA = "ANULADA"
     }
 
     val totalDevuelto: Double
@@ -163,10 +176,10 @@ data class EstadoCaja(
     val totalVentas: Double get() = ventasPorMetodo.values.sum()
 }
 
-/** Movimiento de dinero de la caja: venta, devolución, ingreso manual o retiro. */
+/** Movimiento de dinero de la caja: venta, devolución, ingreso manual, retiro o anulación. */
 data class MovimientoCaja(
     val id: String = "",
-    val tipo: String = "", // VENTA | DEVOLUCION | INGRESO | RETIRO
+    val tipo: String = "", // VENTA | DEVOLUCION | INGRESO | RETIRO | ANULACION
     val metodoTipo: String = "",
     val metodoNombre: String = "",
     val monto: Double = 0.0,
@@ -184,6 +197,7 @@ data class MovimientoCaja(
         const val TIPO_DEVOLUCION = "DEVOLUCION"
         const val TIPO_INGRESO = "INGRESO"
         const val TIPO_RETIRO = "RETIRO"
+        const val TIPO_ANULACION = "ANULACION"
     }
 }
 
@@ -194,6 +208,8 @@ data class VentaSuspendida(
     val id: String = "",
     val items: List<ItemVenta> = emptyList(),
     val cliente: ClienteDeVenta = ClienteDeVenta(),
+    val subtotal: Double = 0.0,
+    val descuento: Double = 0.0,
     val total: Double = 0.0,
     val nota: String = "",
     val creadoPorId: String = "",
@@ -225,6 +241,11 @@ data class DevolucionVenta(
     val id: String = "",
     val ventaId: String = "",
     val numeroVenta: String = "",
+    val tipoDocumento: String = "NOTA_CREDITO",
+    val serie: String = "NC01",
+    val correlativo: Long = 0L,
+    val numeroCompleto: String = "",
+    val estadoFiscal: String = "PENDIENTE",
     val items: List<ItemDevolucion> = emptyList(),
     val montoReembolso: Double = 0.0,
     /** Método por el que se devolvió el dinero (reembolso real al cliente). */
@@ -243,3 +264,46 @@ data class EmisorComprobante(
     val direccion: String = "",
     val sucursalNombre: String = ""
 )
+
+// ───────────────────────────── ÍNDICE FISCAL (CONTRATO FACTURACIÓN FASE 12) ─────────────────────────────
+
+/**
+ * Índice liviano de comprobantes emitidos en POS para el módulo de Facturación Electrónica.
+ * Vive en `farmacias/{f}/facturacion_documentos/{id}`.
+ */
+data class FacturacionDocumento(
+    val id: String = "",
+    val tipo: String = "BOLETA", // BOLETA | FACTURA | NOTA_CREDITO | COMUNICACION_BAJA
+    val serie: String = "B001",
+    val correlativo: Long = 0L,
+    val numeroCompleto: String = "",
+    val clienteTipoDoc: String = "NINGUNO",
+    val clienteNumeroDoc: String = "",
+    val clienteNombre: String = "Consumidor Final",
+    val ventaId: String = "",
+    val devolucionId: String = "",
+    val sucursalId: String = "",
+    val total: Double = 0.0,
+    val estadoEnvio: String = ESTADO_PENDIENTE, // PENDIENTE | ENVIADO | ACEPTADO | RECHAZADO | ANULADO
+    val fechaMs: Long = 0L,
+    val motivo: String = "",
+    val moduloOrigen: String = "POS",
+    // ── CAMPOS DE FASE F4 (Motor APISUNAT) ──
+    val documentIdProveedor: String = "",
+    val xmlUrl: String = "",
+    val cdrUrl: String = "",
+    val pdfUrl: String = "",
+    val numeroQuemado: Boolean = false,
+    val ultimoError: String = "",
+    val responseTimeMs: Long = 0L,
+    val reintentos: Int = 0,
+    val historialIntentos: List<Map<String, Any?>> = emptyList()
+) {
+    companion object {
+        const val ESTADO_PENDIENTE = "PENDIENTE"
+        const val ESTADO_ENVIADO = "ENVIADO"
+        const val ESTADO_ACEPTADO = "ACEPTADO"
+        const val ESTADO_RECHAZADO = "RECHAZADO"
+        const val ESTADO_ANULADO = "ANULADO"
+    }
+}

@@ -9,6 +9,7 @@ import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.configuracion.sucursales.datos.ManejoPersonalEliminacion
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 import com.app.administradorfarmadon.configuracion.sucursales.datos.SucursalesRepository
+import com.app.administradorfarmadon.facturacion.configuracion.datos.FacturacionConfigRepository
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,8 @@ import kotlinx.coroutines.tasks.await
 
 class SucursalesViewModel @JvmOverloads constructor(
     application: Application,
-    private val repository: SucursalesRepository = SucursalesRepository()
+    private val repository: SucursalesRepository = SucursalesRepository(),
+    private val facturacionRepository: FacturacionConfigRepository = FacturacionConfigRepository()
 ) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(SucursalesUiState())
@@ -101,6 +103,18 @@ class SucursalesViewModel @JvmOverloads constructor(
                                 limiteNoConfigurado = infoPlan.limiteNoConfigurado
                             )
                         }
+                    }
+            }
+
+            // Observar Emisor Fiscal (FASE F2: candado de orden)
+            jobsObservacion += launch {
+                facturacionRepository.observarEmisor(clienteId)
+                    .catch { e ->
+                        Log.e("SucursalesViewModel", "Error observando emisor fiscal: ${e.message}", e)
+                    }
+                    .collect { emisor ->
+                        val completo = emisor?.estaCompleta == true
+                        _uiState.update { it.copy(emisorFiscalCompleto = completo) }
                     }
             }
 
@@ -276,6 +290,13 @@ class SucursalesViewModel @JvmOverloads constructor(
 
     fun iniciarNuevaSucursal() {
         val s = _uiState.value
+
+        // FASE F2: Candado de orden - NO se puede crear sede sin emisor fiscal completo y verificado
+        if (!s.emisorFiscalCompleto) {
+            _uiState.update { it.copy(mostrarDialogoEmisorIncompleto = true) }
+            return
+        }
+
         // Verdad honesta: si BRIXO no configuró el límite, no se simula un cupo falso.
         if (s.limiteNoConfigurado) {
             _uiState.update { it.copy(mensajeError = "El límite de sedes de tu plan no está configurado por BRIXO. Contacta a soporte para habilitarlo.") }
@@ -412,6 +433,16 @@ class SucursalesViewModel @JvmOverloads constructor(
 
         if (errores.isNotEmpty()) {
             _uiState.update { it.copy(formErrores = errores) }
+            return
+        }
+
+        if (s.esModoCreacion && !s.emisorFiscalCompleto) {
+            _uiState.update {
+                it.copy(
+                    mensajeError = "Debes configurar y verificar la Facturación Electrónica en la Sede Principal antes de crear nuevas sedes.",
+                    mostrarDialogoEmisorIncompleto = true
+                )
+            }
             return
         }
 
@@ -642,9 +673,14 @@ class SucursalesViewModel @JvmOverloads constructor(
             it.copy(
                 mostrarDialogoLimite = false,
                 mostrarDialogoEliminar = false,
-                mostrarDialogoDescartar = false
+                mostrarDialogoDescartar = false,
+                mostrarDialogoEmisorIncompleto = false
             )
         }
+    }
+
+    fun cerrarDialogoEmisorIncompleto() {
+        _uiState.update { it.copy(mostrarDialogoEmisorIncompleto = false) }
     }
 
     fun limpiarMensajes() {

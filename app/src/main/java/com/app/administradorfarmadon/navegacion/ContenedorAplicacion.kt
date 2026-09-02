@@ -29,6 +29,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.camera.core.ExperimentalGetImage
+import com.app.administradorfarmadon.analitica_reportes.ui.AnaliticaReportesScreen
 import kotlin.OptIn
 import com.app.administradorfarmadon.inventario.crearproductogeneral.logica.CrearProductoGeneralViewModel
 import com.app.administradorfarmadon.inventario.crearproductogeneral.ui.CrearProductoGeneralScreen
@@ -483,11 +484,35 @@ private fun AppNavHost(
         composable("clientes_puntos") { PantallaEnConstruccion("Programa de Puntos") { navController.popBackStack() } }
         composable("clientes_historial") { PantallaEnConstruccion("Historial Clínico") { navController.popBackStack() } }
 
-        // --- REPORTES ---
-        composable("reportes_dashboard") { PantallaEnConstruccion("Dashboard Ejecutivo") { navController.popBackStack() } }
-        composable("reportes_caja") { PantallaEnConstruccion("Reportes de Ventas y Caja") { navController.popBackStack() } }
-        composable("reportes_inventario") { PantallaEnConstruccion("Reportes de Inventario") { navController.popBackStack() } }
-        composable("reportes_fiscal") { PantallaEnConstruccion("Reportes DIGEMID / SUNAT") { navController.popBackStack() } }
+        // --- ANALÍTICA & REPORTES ---
+        val pantallaAnaliticaReportes: @Composable (pestanaInicial: String) -> Unit = { pestana ->
+            AnaliticaReportesScreen(
+                pestanaInicial = pestana,
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("analitica_reportes") { pantallaAnaliticaReportes("ANALITICA") }
+        composable("analitica") { pantallaAnaliticaReportes("ANALITICA") }
+        composable("reportes") { pantallaAnaliticaReportes("REPORTES") }
+        composable("bi") { pantallaAnaliticaReportes("ANALITICA") }
+        composable("reportes_dashboard") { pantallaAnaliticaReportes("ANALITICA") }
+        composable("reportes_caja") { pantallaAnaliticaReportes("REPORTES") }
+        composable("reportes_inventario") { pantallaAnaliticaReportes("REPORTES") }
+        composable("reportes_fiscal") { pantallaAnaliticaReportes("REPORTES") }
+        composable("reportes_ventas") { pantallaAnaliticaReportes("REPORTES") }
+        composable("reportes_compras") { pantallaAnaliticaReportes("REPORTES") }
+        composable("reportes_clientes") { pantallaAnaliticaReportes("REPORTES") }
+
+        // --- FACTURACIÓN ELECTRÓNICA ---
+        val pantallaFacturacion: @Composable () -> Unit = {
+            FacturacionElectronicaScreen(
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("facturacion") { pantallaFacturacion() }
+        composable("facturacion_electronica") { pantallaFacturacion() }
+        composable("config_facturacion") { pantallaFacturacion() }
+        composable("facturacion_config") { pantallaFacturacion() }
 
         // --- CONFIGURACIÓN ---
         val pantallaConfiguracion: @Composable () -> Unit = {
@@ -510,7 +535,8 @@ private fun AppNavHost(
             val vm: SucursalesViewModel = viewModel()
             SucursalesScreen(
                 viewModel = vm,
-                onVolver = { navController.popBackStack() }
+                onVolver = { navController.popBackStack() },
+                onIrAConfiguracionFiscal = { navController.navigate("facturacion_electronica") }
             )
         }
         composable("config_sucursales") {
@@ -553,22 +579,13 @@ private fun AppNavHost(
         composable("config_plan") { pantallaPlan() }
         composable("plan") { pantallaPlan() }
 
-        // --- FACTURACIÓN ELECTRÓNICA ---
-        val pantallaFacturacion: @Composable () -> Unit = {
-            FacturacionElectronicaScreen(
-                onVolver = { navController.popBackStack() }
-            )
-        }
-        composable("facturacion") { pantallaFacturacion() }
-        composable("facturacion_electronica") { pantallaFacturacion() }
-
         // --- MÓDULOS DEL CATÁLOGO (rutas por código canónico) ---
         // El sidebar navega por código de módulo (plan/rol/overrides en tiempo
         // real). Cada módulo sin pantalla propia aún llega a un placeholder
         // honesto. "inventario", "compras", "sucursales" y "usuarios" ya tienen pantalla real arriba.
         val modulosPendientes = listOf(
-            "clientes_crm", "reportes", "soporte",
-            "notificaciones", "api", "automatizaciones", "bi", "marketplace",
+            "clientes_crm", "soporte",
+            "notificaciones", "api", "automatizaciones", "marketplace",
             "backups", "observabilidad", "ia_copiloto", "ia_sugeridor", "reglas_negocio",
             "camara_qr", "gestion_documental", "telemedicina", "pagos_embebidos",
             "gamificacion", "reputacion", "rrhh", "finanzas", "hardware",

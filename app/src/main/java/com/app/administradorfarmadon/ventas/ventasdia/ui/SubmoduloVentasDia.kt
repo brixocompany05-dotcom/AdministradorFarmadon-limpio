@@ -214,7 +214,12 @@ fun SubmoduloVentasDia(
                         )
 
                         // Selector de Estado
-                        val estados = listOf("TODOS" to "Todos", "COMPLETADA" to "Completas", "DEVOLUCIONES" to "Devueltas")
+                        val estados = listOf(
+                            "TODOS" to "Todos",
+                            "COMPLETADA" to "Completas",
+                            "DEVOLUCIONES" to "Devueltas",
+                            "ANULADA" to "Anuladas"
+                        )
                         estados.forEach { (clave, label) ->
                             val isSel = uiState.filtroEstado == clave
                             Surface(
@@ -283,6 +288,7 @@ fun SubmoduloVentasDia(
                                             Venta.ESTADO_COMPLETADA -> TipoEstadoFarmadon.EXITO to "COMPLETADA"
                                             Venta.ESTADO_DEVOLUCION_PARCIAL -> TipoEstadoFarmadon.ALERTA to "DEV. PARCIAL"
                                             Venta.ESTADO_DEVOLUCION_TOTAL -> TipoEstadoFarmadon.PELIGRO to "DEV. TOTAL"
+                                            Venta.ESTADO_ANULADA -> TipoEstadoFarmadon.PELIGRO to "ANULADA"
                                             else -> TipoEstadoFarmadon.NEUTRO to venta.estado
                                         }
 
@@ -322,8 +328,11 @@ fun SubmoduloVentasDia(
                                                 )
                                                 Text(
                                                     "$simboloMoneda ${String.format(Locale.US, "%.2f", venta.total)}",
-                                                    style = FDType.Numeric.copy(fontSize = 13.sp, fontWeight = FontWeight.Black),
-                                                    color = FDColors.TextPrimary,
+                                                    style = FDType.Numeric.copy(
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = if (venta.estado == Venta.ESTADO_ANULADA) FDColors.TextTertiary else FDColors.TextPrimary
+                                                    ),
                                                     modifier = Modifier.weight(1f),
                                                     textAlign = TextAlign.End
                                                 )
@@ -353,11 +362,25 @@ fun SubmoduloVentasDia(
                         venta = venta,
                         simbolo = simboloMoneda,
                         onImprimir = { viewModel.imprimirTicket(context, venta) },
-                        onDevolver = { onDevolver(venta) }
+                        onDevolver = { onDevolver(venta) },
+                        onAnular = { viewModel.abrirDialogoAnular(venta) }
                     )
                 }
             }
         }
+    }
+
+    // Modal de Confirmación de Anulación
+    if (uiState.mostrarDialogoAnular && uiState.ventaAAnular != null) {
+        DialogoConfirmarAnulacion(
+            venta = uiState.ventaAAnular!!,
+            simbolo = simboloMoneda,
+            procesando = uiState.procesandoAnulacion,
+            onDismiss = { viewModel.cerrarDialogoAnular() },
+            onConfirmar = { motivo ->
+                viewModel.anularVenta(uiState.ventaAAnular!!.id, motivo)
+            }
+        )
     }
 }
 
@@ -399,7 +422,8 @@ private fun DetalleVentaContenido(
     venta: Venta,
     simbolo: String,
     onImprimir: () -> Unit,
-    onDevolver: () -> Unit
+    onDevolver: () -> Unit,
+    onAnular: () -> Unit
 ) {
     val fmtFecha = remember { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()) }
     val fechaTexto = if (venta.fechaHoraMs > 0) fmtFecha.format(Date(venta.fechaHoraMs)) else "--"
@@ -408,6 +432,7 @@ private fun DetalleVentaContenido(
         Venta.ESTADO_COMPLETADA -> TipoEstadoFarmadon.EXITO to "COMPLETADA"
         Venta.ESTADO_DEVOLUCION_PARCIAL -> TipoEstadoFarmadon.ALERTA to "DEV. PARCIAL"
         Venta.ESTADO_DEVOLUCION_TOTAL -> TipoEstadoFarmadon.PELIGRO to "DEV. TOTAL"
+        Venta.ESTADO_ANULADA -> TipoEstadoFarmadon.PELIGRO to "ANULADA"
         else -> TipoEstadoFarmadon.NEUTRO to venta.estado
     }
 
@@ -435,6 +460,42 @@ private fun DetalleVentaContenido(
                         Text(fechaTexto, style = FDType.Caption, color = FDColors.TextTertiary)
                     }
                     POSBadge(texto = textoBadge, tipo = tipoBadge)
+                }
+            }
+
+            // 1.1 Banner de Auditoría si la venta fue anulada
+            if (venta.estado == Venta.ESTADO_ANULADA) {
+                item {
+                    Surface(
+                        color = FDColors.Error.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.35f)),
+                        shape = FDShapes.Small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Cancel, null, tint = FDColors.Error, modifier = Modifier.size(16.dp))
+                                Text("VENTA ANULADA", style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black, color = FDColors.Error))
+                            }
+                            Text(
+                                "Motivo: ${venta.anulacionMotivo.ifBlank { "Sin motivo registrado" }}",
+                                style = FDType.Body.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold),
+                                color = FDColors.TextPrimary
+                            )
+                            val anuladaFechaTexto = if (venta.anuladaEnMs > 0) fmtFecha.format(Date(venta.anuladaEnMs)) else ""
+                            Text(
+                                "Por: ${venta.anuladaPorNombre.ifBlank { "Usuario" }} · $anuladaFechaTexto",
+                                style = FDType.Caption.copy(fontSize = 10.5.sp),
+                                color = FDColors.TextSecondary
+                            )
+                            if (venta.numeroNotaCredito.isNotBlank()) {
+                                Text(
+                                    "Nota de Crédito generada: ${venta.numeroNotaCredito}",
+                                    style = FDType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold, color = FDColors.Error)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -515,7 +576,14 @@ private fun DetalleVentaContenido(
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Total:", style = FDType.Body.copy(fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
-                            Text("$simbolo ${String.format(Locale.US, "%.2f", venta.total)}", style = FDType.Numeric.copy(fontWeight = FontWeight.Black, fontSize = 14.sp, color = FDColors.Primary))
+                            Text(
+                                "$simbolo ${String.format(Locale.US, "%.2f", venta.total)}",
+                                style = FDType.Numeric.copy(
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 14.sp,
+                                    color = if (venta.estado == Venta.ESTADO_ANULADA) FDColors.TextTertiary else FDColors.Primary
+                                )
+                            )
                         }
 
                         if (venta.totalDevuelto > 0.0) {
@@ -552,7 +620,7 @@ private fun DetalleVentaContenido(
             HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = onImprimir,
@@ -565,19 +633,123 @@ private fun DetalleVentaContenido(
                     Text("IMPRIMIR", style = FDType.Label.copy(fontWeight = FontWeight.Bold, color = FDColors.Primary))
                 }
 
-                val permiteDevolver = venta.estado != Venta.ESTADO_DEVOLUCION_TOTAL
-                Button(
-                    onClick = onDevolver,
-                    enabled = permiteDevolver,
-                    modifier = Modifier.weight(1.1f).height(44.dp),
-                    shape = FDShapes.Small,
-                    colors = ButtonDefaults.buttonColors(containerColor = FDColors.Error)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.AssignmentReturn, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("DEVOLVER", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                // Si la venta está completada (sin devoluciones), permite ANULAR
+                if (venta.estado == Venta.ESTADO_COMPLETADA) {
+                    OutlinedButton(
+                        onClick = onAnular,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        shape = FDShapes.Small,
+                        border = BorderStroke(1.dp, FDColors.Error),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Error)
+                    ) {
+                        Icon(Icons.Default.Cancel, null, modifier = Modifier.size(16.dp), tint = FDColors.Error)
+                        Spacer(Modifier.width(6.dp))
+                        Text("ANULAR", style = FDType.Label.copy(fontWeight = FontWeight.Black, color = FDColors.Error))
+                    }
+                }
+
+                // Permite Devolver solo si no está totalmente devuelta ni anulada
+                if (venta.estado != Venta.ESTADO_ANULADA) {
+                    val permiteDevolver = venta.estado != Venta.ESTADO_DEVOLUCION_TOTAL
+                    Button(
+                        onClick = onDevolver,
+                        enabled = permiteDevolver,
+                        modifier = Modifier.weight(1.1f).height(44.dp),
+                        shape = FDShapes.Small,
+                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Error)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.AssignmentReturn, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("DEVOLVER", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                    }
                 }
             }
         }
     }
+}
+
+/**
+ * Diálogo de confirmación para la anulación atómica de una venta (FASE 12).
+ */
+@Composable
+private fun DialogoConfirmarAnulacion(
+    venta: Venta,
+    simbolo: String,
+    procesando: Boolean,
+    onDismiss: () -> Unit,
+    onConfirmar: (motivo: String) -> Unit
+) {
+    var motivo by remember { mutableStateOf("") }
+    val esValido = motivo.trim().length >= 5
+
+    AlertDialog(
+        onDismissRequest = { if (!procesando) onDismiss() },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.WarningAmber, null, tint = FDColors.Error, modifier = Modifier.size(24.dp))
+                Text("Anular Venta ${venta.numeroCompleto}", style = FDType.Heading3.copy(fontWeight = FontWeight.Black))
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(
+                    color = FDColors.Error.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.3f)),
+                    shape = FDShapes.Small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            "Esta acción anulará la venta por completo:",
+                            style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                            color = FDColors.Error
+                        )
+                        Text("• Todo el stock consumido regresará a los lotes originales.", style = FDType.Caption, color = FDColors.TextPrimary)
+                        Text("• Se registrará la salida del dinero ($simbolo ${String.format(Locale.US, "%.2f", venta.total)}) en la caja abierta.", style = FDType.Caption, color = FDColors.TextPrimary)
+                        Text("• Se generará el comprobante fiscal de baja correspondiente.", style = FDType.Caption, color = FDColors.TextPrimary)
+                    }
+                }
+
+                Text(
+                    "Ingresa el motivo de la anulación (mínimo 5 caracteres):",
+                    style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                    color = FDColors.TextSecondary
+                )
+
+                FDTextField(
+                    value = motivo,
+                    onValueChange = { motivo = it },
+                    placeholder = "Ej: Error en medio de pago, cliente desistió...",
+                    singleLine = false,
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (esValido && !procesando) onConfirmar(motivo) },
+                enabled = esValido && !procesando,
+                colors = ButtonDefaults.buttonColors(containerColor = FDColors.Error),
+                shape = FDShapes.Small
+            ) {
+                if (procesando) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("ANULANDO...", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                } else {
+                    Text("CONFIRMAR ANULACIÓN", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                }
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                enabled = !procesando,
+                shape = FDShapes.Small
+            ) {
+                Text("CANCELAR", style = FDType.Label.copy(fontWeight = FontWeight.Bold))
+            }
+        }
+    )
 }

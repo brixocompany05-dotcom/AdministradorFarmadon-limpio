@@ -505,7 +505,10 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
  * Es la suma de lote.cantidad de todos los lotes sin bloquear.
  */
 val MoldeProductos.stockDisponibleFisico: Double
-    get() = lotes.values.sumOf { it.cantidad.coerceAtLeast(0.0) }
+    get() = lotes.values.filter {
+        val dias = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.diasHastaVencer(it.vencimiento)
+        dias == null || dias > 0
+    }.sumOf { it.cantidad.coerceAtLeast(0.0) }
 
 /** Alias de compatibilidad —” apunta a stockDisponibleFisico. */
 val MoldeProductos.stockDisponibleUnidades: Double
@@ -534,38 +537,14 @@ val MoldeProductos.stockDisponibleEnContenido: Double
     }
 
 /**
- * Valida si hay stock suficiente para vender [cantidadContenido] unidades de contenido
- * (tabletas, mL, etc. —” lo que dice PresentacionProducto.cantidad).
- *
- * Convierte correctamente de contenido → físico usando UnidadVentaHelper
- * antes de comparar con el stock (que está en unidades físicas).
- *
- * El módulo de ventas llama esto con la presentación a vender para saber si puede vender.
- * Normaliza la unidad de la presentación a la del producto (R3): si el producto habla en
- * "L" y la presentación en "ml", convierte antes de comparar, para no decir "stock insuficiente"
- * falsamente ni dejar pasar una venta que no cabe.
+ * Valida si hay stock suficiente para vender la presentación dada.
+ * Delega directamente a UnidadVentaHelper.calcularDescuentoFEFO (Fuente Única de Verdad).
  */
 fun MoldeProductos.validarDisponibilidadVenta(presentacion: PresentacionProducto): Pair<Boolean, String?> {
-    val factor = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper
-        .factorContenido(contenido, presentaciones)
-    val unidadProducto = contenidoUnidad.ifBlank { empaque }
-    // Misma normalización que calcularDescuentoFEFO: la presentación vendida a unidad del producto.
-    val cantidadEnUnidadProducto = com.app.administradorfarmadon.inventario.compartido.logica
-        .PerfilUnidades.normalizarA(presentacion.cantidad.toDouble(), presentacion.unidadMedida, unidadProducto)
-    val fisicoRequerido = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper
-        .stockFisicoParaVender(cantidadEnUnidadProducto, factor)
-    val stockFisico = stockDisponibleFisico
-
-    return if (stockFisico >= fisicoRequerido) {
-        true to null
-    } else {
-        val disponibleContenido = (stockFisico * factor).toLong()
-        val nomContenido = contenidoUnidad.ifBlank { "unidades" }
-        val mensaje = if (stockFisico <= 0.0) {
-            "Producto agotado. No hay stock disponible."
-        } else {
-            "Stock insuficiente: quedan $disponibleContenido $nomContenido disponibles."
-        }
-        false to mensaje
-    }
+    val res = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper
+        .calcularDescuentoFEFO(this, presentacion)
+    return res.fold(
+        onSuccess = { true to null },
+        onFailure = { false to (it.message ?: "Stock insuficiente.") }
+    )
 }

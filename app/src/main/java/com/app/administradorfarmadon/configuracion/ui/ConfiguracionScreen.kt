@@ -177,13 +177,13 @@ fun ConfiguracionScreen(
 
                         // Columna 2: Administración
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FDSpacing.xxl)) {
-                            ConfigAdminItems(esAdmin, onNavigateToPlan, onNavigateToMetodosPago, context, msgAdmin)
+                            ConfigAdminItems(esAdmin, esSedePrincipal, onNavigateToPlan, onNavigateToMetodosPago, context, msgAdmin)
                         }
                     }
                 } else {
                     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FDSpacing.xxl)) {
                         ConfigGestionItems(puedeGestionarSucursales, esAdmin, onNavigateToSucursales, onNavigateToUsuarios, context, msgAdmin)
-                        ConfigAdminItems(esAdmin, onNavigateToPlan, onNavigateToMetodosPago, context, msgAdmin)
+                        ConfigAdminItems(esAdmin, esSedePrincipal, onNavigateToPlan, onNavigateToMetodosPago, context, msgAdmin)
                         
                         ConfigSectionHeader("PREFERENCIAS DEL SISTEMA")
                         ConfigItemRow(
@@ -259,12 +259,13 @@ private fun ConfigGestionItems(
 @Composable
 private fun ConfigAdminItems(
     esAdmin: Boolean,
+    esSedePrincipal: Boolean,
     onNavigateToPlan: () -> Unit,
     onNavigateToMetodosPago: () -> Unit,
     context: android.content.Context,
     msgAdmin: String
 ) {
-    ConfigSectionHeader("ADMINISTRACIÓN Y FACTURACIÓN")
+    ConfigSectionHeader("ADMINISTRACIÓN Y SUSCRIPCIÓN")
 
     ConfigItemRow(
         titulo = "Plan y Suscripción",

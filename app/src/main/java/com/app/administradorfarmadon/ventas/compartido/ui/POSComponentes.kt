@@ -25,8 +25,17 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
@@ -78,80 +87,6 @@ import java.util.Locale
  * COMPONENTES COMPARTIDOS POS
  * Estandarización visual para el módulo de Ventas (SaaS Enterprise).
  */
-
-@Composable
-fun POSHeader(
-    titulo: String = "",
-    cajaCerrada: Boolean = false
-) {
-    val s = recordarMedidaAdaptativa()
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) { // Reducido de gapMedium
-        if (cajaCerrada) {
-            POSNotificationBar(
-                mensaje = "LA CAJA SE ENCUENTRA CERRADA. ALGUNAS FUNCIONES ESTÁN DESHABILITADAS.",
-                tipo = TipoEstadoFarmadon.PELIGRO,
-                icono = Icons.Default.Lock
-            )
-            Spacer(Modifier.height(s.gapSmall))
-        }
-        
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            if (titulo.isNotEmpty()) {
-                Text(
-                    text = titulo.uppercase(),
-                    style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 22.sp),
-                    color = FDColors.TextPrimary
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                POSHeaderSelector(icono = Icons.Default.AccountBalance, label = "Caja 01")
-                POSHeaderSelector(icono = Icons.Default.Update, label = "Turno: Mañana")
-                POSHeaderSelector(icono = Icons.Default.Person, label = "Cajero: Sin seleccionar")
-                
-                Column(horizontalAlignment = Alignment.Start) {
-                    Text("Apertura", style = FDType.Caption.copy(fontSize = 9.sp), color = FDColors.TextTertiary)
-                    Text("--/-- --:--", style = FDType.Label.copy(fontSize = 10.sp), color = FDColors.TextSecondary)
-                }
-
-                Surface(
-                    color = FDColors.Warning.copy(alpha = 0.15f),
-                    shape = CircleShape,
-                    border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.3f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(modifier = Modifier.size(6.dp).background(FDColors.Warning, CircleShape))
-                        Text("En Proceso", style = FDType.Label.copy(fontSize = 10.sp, color = FDColors.Warning))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun POSHeaderSelector(icono: ImageVector, label: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.clickable { }
-    ) {
-        Icon(icono, null, modifier = Modifier.size(16.dp), tint = FDColors.TextSecondary)
-        Text(label, style = FDType.Label.copy(fontSize = 11.sp), color = FDColors.TextSecondary)
-        Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(14.dp), tint = FDColors.TextTertiary)
-    }
-}
 
 @Composable
 fun POSNotificationBar(
@@ -264,94 +199,6 @@ fun POSEmptyState(
                 Text(text = titulo, style = FDType.Heading3.copy(fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
                 Text(text = subtitulo, style = FDType.Body, color = FDColors.TextSecondary, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 320.dp))
             }
-        }
-    }
-}
-
-@Composable
-fun POSTable(
-    headers: List<String>,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        // Headers
-        Surface(
-            color = FDColors.InputBackground.copy(alpha = 0.4f),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                headers.forEach { header ->
-                    Text(
-                        text = header.uppercase(),
-                        style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp),
-                        color = FDColors.TextTertiary,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
-        
-        // Rows container
-        Column(modifier = Modifier.weight(1f)) {
-            content()
-        }
-        
-        // Pagination visual
-        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = "0 registros", style = FDType.Caption.copy(fontSize = 11.sp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(onClick = {}, enabled = false, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ChevronLeft, null, modifier = Modifier.size(18.dp)) }
-                IconButton(onClick = {}, enabled = false, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ChevronRight, null, modifier = Modifier.size(18.dp)) }
-            }
-        }
-    }
-}
-
-@Composable
-fun POSTableRow(
-    cells: List<String>,
-    onClick: () -> Unit = {},
-    status: TipoEstadoFarmadon? = null
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-    
-    Surface(
-        onClick = onClick,
-        interactionSource = interactionSource,
-        color = if (isHovered) FDColors.SurfaceHover else FDColors.Surface,
-        modifier = Modifier.fillMaxWidth().hoverable(interactionSource)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                cells.forEachIndexed { index, cell ->
-                    if (index == cells.lastIndex && status != null) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            POSBadge(texto = cell, tipo = status)
-                        }
-                    } else {
-                        Text(
-                            text = cell,
-                            style = FDType.Body.copy(fontSize = 13.sp),
-                            color = FDColors.TextPrimary,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-            HorizontalDivider(color = FDColors.Border.copy(alpha = 0.2f), modifier = Modifier.padding(horizontal = 16.dp))
         }
     }
 }
@@ -663,6 +510,10 @@ fun FDSearchField(
     modifier: Modifier = Modifier,
     placeholder: String = "Buscar...",
     leadingIcon: ImageVector = Icons.Default.Search,
+    focusRequester: FocusRequester? = null,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    onEnterPressed: (() -> Unit)? = null,
     trailingContent: @Composable (RowScope.() -> Unit)? = null
 ) {
     val s = recordarMedidaAdaptativa()
@@ -689,6 +540,22 @@ fun FDSearchField(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                var tfModifier = Modifier.fillMaxWidth()
+                if (focusRequester != null) {
+                    tfModifier = tfModifier.focusRequester(focusRequester)
+                }
+                if (onEnterPressed != null) {
+                    tfModifier = tfModifier.onKeyEvent { keyEvent ->
+                        if (keyEvent.type == KeyEventType.KeyDown && (keyEvent.key == Key.Enter || keyEvent.key == Key.NumPadEnter)) {
+                            onEnterPressed()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
+
                 BasicTextField(
                     value = busqueda,
                     onValueChange = onBusquedaChange,
@@ -696,7 +563,9 @@ fun FDSearchField(
                     textStyle = FDType.Body.copy(color = FDColors.TextPrimary, fontSize = s.textBody.value.sp),
                     cursorBrush = SolidColor(FDColors.Primary),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    keyboardOptions = keyboardOptions,
+                    keyboardActions = keyboardActions,
+                    modifier = tfModifier
                 )
             }
 

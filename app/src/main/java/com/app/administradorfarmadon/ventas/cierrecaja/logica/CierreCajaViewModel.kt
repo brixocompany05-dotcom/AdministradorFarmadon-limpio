@@ -36,7 +36,7 @@ data class CierreCajaUiState(
     /** Total contado físicamente sumando cada billete y moneda ingresada. */
     val totalContado: Double
         get() = conteoDenominaciones.entries.sumOf { (denom, cant) ->
-            (denom.toDoubleOrNull() ?: 0.0) * cant
+            (com.app.administradorfarmadon.ventas.compartido.logica.MontoFormateador.normalizarMonto(denom) ?: 0.0) * cant
         }
 
     /** Diferencia respecto al efectivo que DEBE haber en el cajón (contado - esperado). */

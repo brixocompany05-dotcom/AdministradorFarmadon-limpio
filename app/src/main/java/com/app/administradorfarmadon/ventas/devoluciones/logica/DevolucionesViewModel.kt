@@ -154,7 +154,7 @@ class DevolucionesViewModel(
             ventasRepository.observarVentasDelDia()
                 .catch { Log.e(TAG, "Error escuchando ventas del día: ${it.message}", it) }
                 .collect { ventas ->
-                    val devolvibles = ventas.filter { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL }
+                    val devolvibles = ventas.filter { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL && it.estado != Venta.ESTADO_ANULADA }
                     _uiState.update { it.copy(ventasDelDia = devolvibles) }
                 }
         }
@@ -183,7 +183,7 @@ class DevolucionesViewModel(
             _uiState.update { it.copy(buscando = true) }
             val res = ventasRepository.buscarVentaPorNumero(texto)
             res.onSuccess { lista ->
-                val devolvibles = lista.filter { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL }
+                val devolvibles = lista.filter { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL && it.estado != Venta.ESTADO_ANULADA }
                 _uiState.update { it.copy(buscando = false, resultadosBusqueda = devolvibles) }
             }.onFailure { err ->
                 _uiState.update { it.copy(buscando = false, error = "Error buscando venta: ${err.message}") }
@@ -192,6 +192,10 @@ class DevolucionesViewModel(
     }
 
     fun seleccionarVenta(venta: Venta) {
+        if (venta.estado == Venta.ESTADO_ANULADA) {
+            _uiState.update { it.copy(error = "La venta '${venta.numeroCompleto}' fue anulada. No se pueden procesar devoluciones.") }
+            return
+        }
         val idIdem = "dev_${UUID.randomUUID()}"
         _uiState.update {
             it.copy(

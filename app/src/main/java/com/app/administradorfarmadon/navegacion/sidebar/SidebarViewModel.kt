@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.app.administradorfarmadon.base_datos.FirestoreFieldUtils
 import androidx.lifecycle.viewModelScope
+import com.app.administradorfarmadon.modulos.domain.ModuloResuelto
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -782,6 +783,13 @@ class SidebarViewModel : ViewModel() {
                         categoria = "OPERACIÓN",
                         orden = 20,
                         icono = "proveedores"
+                    ),
+                    ModuloResuelto(
+                        modulo = "analitica_reportes",
+                        nombre = "Analítica & Reportes",
+                        categoria = "GERENCIA",
+                        orden = 30,
+                        icono = "analytics"
                     )
                 )
             }

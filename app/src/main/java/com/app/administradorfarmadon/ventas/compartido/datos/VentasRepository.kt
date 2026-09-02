@@ -15,6 +15,7 @@ import com.app.administradorfarmadon.ventas.compartido.modelo.CajaSesion
 import com.app.administradorfarmadon.ventas.compartido.modelo.ClienteDeVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.DevolucionVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.EmisorComprobante
+import com.app.administradorfarmadon.ventas.compartido.modelo.FacturacionDocumento
 import com.app.administradorfarmadon.ventas.compartido.modelo.ItemDevolucion
 import com.app.administradorfarmadon.ventas.compartido.modelo.ItemDevolucionParam
 import com.app.administradorfarmadon.ventas.compartido.modelo.ItemVenta
@@ -155,12 +156,21 @@ class VentasRepository(
 
                 val punteroSnap = tx.get(pointerRef)
                 val contadorSnap = tx.get(contadorRef)
+                val sucursalRef = FarmadonPaths.sucursal(db, farmaciaId, sucursalId)
+                val sucursalSnap = tx.get(sucursalRef)
+                val emisorRef = FarmadonPaths.facturacionEmisor(db, farmaciaId)
+                val emisorSnap = tx.get(emisorRef)
 
                 val productSnaps = distinctProductIds.associateWith { prodId ->
                     tx.get(FarmadonPaths.inventario(db, farmaciaId, sucursalId).document(prodId))
                 }
 
-                // ── 2. VALIDAR CAJA ABIERTA ──
+                // ── 2. VALIDAR CAJA ABIERTA Y FACTURACIÓN VERIFICADA (FASE F2) ──
+                val emisorVerificado = emisorSnap.getBoolean("verificadoOk") == true
+                if (!emisorVerificado) {
+                    throw IllegalStateException("FACTURACIÓN ELECTRÓNICA PENDIENTE: El administrador debe completar y verificar el emisor en Configuración → Facturación Electrónica antes de cobrar.")
+                }
+
                 val estadoCajaStr = punteroSnap.getString("estado") ?: CajaSesion.ESTADO_CERRADA
                 if (estadoCajaStr != CajaSesion.ESTADO_ABIERTA) {
                     throw IllegalStateException("La caja está cerrada. Ábrela para cobrar.")
@@ -170,9 +180,15 @@ class VentasRepository(
                     throw IllegalStateException("No hay un turno de caja válido asociado a la caja abierta.")
                 }
 
-                // ── 3. CORRELATIVO Y COMPROBANTE ──
+                // ── 3. CORRELATIVO Y COMPROBANTE (Series por sucursal - FASE F0) ──
                 val tipoComprobante = if (cliente.tipoDocumento == "RUC" && cliente.numeroDocumento.length == 11) "FACTURA" else "BOLETA"
-                val serie = if (tipoComprobante == "FACTURA") "F001" else "B001"
+                val serieBoleta = sucursalSnap.getString("serieBoleta")?.trim().orEmpty()
+                val serieFactura = sucursalSnap.getString("serieFactura")?.trim().orEmpty()
+                val serie = if (tipoComprobante == "FACTURA") serieFactura else serieBoleta
+
+                if (serie.isBlank()) {
+                    throw IllegalStateException("La sede no tiene serie fiscal asignada. Configura Facturación Electrónica desde la Sede Principal.")
+                }
                 val campoContador = if (tipoComprobante == "FACTURA") "ultimaFactura" else "ultimaBoleta"
 
                 val ultimoCorrelativo = if (contadorSnap.exists()) {
@@ -434,19 +450,49 @@ class VentasRepository(
                     "cajeroNombre" to SessionManager.nombreUsuario,
                     "fechaHoraMs" to ahoraMs,
                     "diaClave" to diaClave,
+                    "estadoFiscal" to "PENDIENTE",
+                    "moduloOrigen" to "POS",
                     "creadoEl" to FieldValue.serverTimestamp()
                 )
                 tx.set(ventaRef, ventaData)
 
-                // 5.5 Actualizar puntero de caja (ventasPorMetodo y cantidadVentas)
+                // 5.5 Registrar documento en la bandeja fiscal (FASE 12)
+                val factDocRef = FarmadonPaths.facturacionDocumentos(db, farmaciaId).document(ventaId)
+                val factDocData = mapOf(
+                    "id" to ventaId,
+                    "tipo" to tipoComprobante,
+                    "serie" to serie,
+                    "correlativo" to nuevoCorrelativo,
+                    "numeroCompleto" to numeroCompleto,
+                    "clienteTipoDoc" to cliente.tipoDocumento,
+                    "clienteNumeroDoc" to cliente.numeroDocumento,
+                    "clienteNombre" to cliente.nombre,
+                    "ventaId" to ventaId,
+                    "devolucionId" to "",
+                    "sucursalId" to sucursalId,
+                    "total" to totalCalculado,
+                    "estadoEnvio" to FacturacionDocumento.ESTADO_PENDIENTE,
+                    "fechaMs" to ahoraMs,
+                    "motivo" to "",
+                    "moduloOrigen" to "POS"
+                )
+                tx.set(factDocRef, factDocData)
+
+                // 5.6 Actualizar puntero de caja (ventasPorMetodo y cantidadVentas)
                 @Suppress("UNCHECKED_CAST")
                 val ventasPorMetodo = (punteroSnap.get("ventasPorMetodo") as? Map<String, Any>)
                     ?.mapValues { (_, v) -> (v as? Number)?.toDouble() ?: 0.0 }
                     ?.toMutableMap() ?: mutableMapOf()
 
+                var vueltoRestantePuntero = vuelto
                 for (p in pagos) {
+                    val montoNetoMetodo = if (p.tipoId == "EFECTIVO") {
+                        val asignado = minOf(vueltoRestantePuntero, p.monto)
+                        vueltoRestantePuntero = redondear2(vueltoRestantePuntero - asignado)
+                        redondear2(p.monto - asignado)
+                    } else redondear2(p.monto)
                     val actual = ventasPorMetodo[p.tipoId] ?: 0.0
-                    ventasPorMetodo[p.tipoId] = redondear2(actual + p.monto)
+                    ventasPorMetodo[p.tipoId] = redondear2(actual + montoNetoMetodo)
                 }
                 val cantVentasActual = (punteroSnap.get("cantidadVentas") as? Number)?.toInt() ?: 0
                 tx.update(
@@ -457,8 +503,16 @@ class VentasRepository(
                     )
                 )
 
-                // 5.6 Registrar movimientos de caja individuales por cada método de pago
+                // 5.7 Registrar movimientos de caja individuales por cada método de pago (monto neto ingresado al cajón/cuenta)
+                var vueltoRestanteMovs = vuelto
                 for (p in pagos) {
+                    val montoNetoMov = if (p.tipoId == "EFECTIVO") {
+                        val asignado = minOf(vueltoRestanteMovs, p.monto)
+                        vueltoRestanteMovs = redondear2(vueltoRestanteMovs - asignado)
+                        redondear2(p.monto - asignado)
+                    } else redondear2(p.monto)
+                    if (montoNetoMov <= 0.0) continue
+
                     val movRef = FarmadonPaths.cajaMovimientos(db, farmaciaId, sucursalId).document()
                     val movData = mapOf(
                         "id" to movRef.id,
@@ -467,7 +521,7 @@ class VentasRepository(
                         "tipo" to MovimientoCaja.TIPO_VENTA,
                         "metodoTipo" to p.tipoId,
                         "metodoNombre" to p.nombreMetodo,
-                        "monto" to redondear2(p.monto),
+                        "monto" to montoNetoMov,
                         "motivo" to "Venta $numeroCompleto",
                         "referenciaId" to ventaId,
                         "referenciaNumero" to numeroCompleto,
@@ -500,7 +554,9 @@ class VentasRepository(
                     cajeroId = SessionManager.idCajera,
                     cajeroNombre = SessionManager.nombreUsuario,
                     fechaHoraMs = ahoraMs,
-                    diaClave = diaClave
+                    diaClave = diaClave,
+                    estadoFiscal = "PENDIENTE",
+                    moduloOrigen = "POS"
                 )
             }.await()
 
@@ -510,6 +566,24 @@ class VentasRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Error registrando venta: ${e.message}", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Consulta si una venta ya fue grabada previamente por su ID de idempotencia (FASE 11 H1).
+     */
+    suspend fun consultarVentaPorIdempotencia(rawIdem: String): Venta? {
+        val (farmaciaId, sucursalId) = ids() ?: return null
+        if (rawIdem.isBlank()) return null
+        val ventaId = if (rawIdem.startsWith("v_")) rawIdem else "v_$rawIdem"
+        return try {
+            val snap = FarmadonPaths.ventas(db, farmaciaId, sucursalId).document(ventaId).get().await()
+            if (snap.exists()) {
+                parseVenta(snap.id, snap.data)
+            } else null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error consultando venta previa por idempotencia: ${e.message}", e)
+            null
         }
     }
 
@@ -545,6 +619,7 @@ class VentasRepository(
             val devRef = FarmadonPaths.devoluciones(db, farmaciaId, sucursalId).document(devId)
             val ventaRef = FarmadonPaths.ventas(db, farmaciaId, sucursalId).document(ventaId)
             val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val contadorRef = FarmadonPaths.contadores(db, farmaciaId, sucursalId).document("ventas")
 
             val distinctProductIds = itemsADevolver.map { it.productoId }.distinct()
 
@@ -573,6 +648,10 @@ class VentasRepository(
                 }
                 val sesionId = punteroSnap.getString("sesionId").orEmpty()
 
+                val contadorSnap = tx.get(contadorRef)
+                val sucursalRef = FarmadonPaths.sucursal(db, farmaciaId, sucursalId)
+                val sucursalSnap = tx.get(sucursalRef)
+
                 val productSnaps = distinctProductIds.associateWith { prodId ->
                     tx.get(FarmadonPaths.inventario(db, farmaciaId, sucursalId).document(prodId))
                 }
@@ -580,6 +659,10 @@ class VentasRepository(
                 // ── 2. VALIDAR ÍTEMS DEVOLVIBLES Y MONTOS ──
                 val venta = parseVenta(ventaSnap.id, ventaSnap.data)
                     ?: throw IllegalStateException("Error al leer el documento de la venta '$ventaId'.")
+
+                if (venta.estado == Venta.ESTADO_ANULADA) {
+                    throw IllegalStateException("No se pueden registrar devoluciones sobre una venta anulada.")
+                }
 
                 val factorDescuento = if (venta.subtotal > 0.0) (venta.total / venta.subtotal) else 1.0
 
@@ -622,6 +705,27 @@ class VentasRepository(
                         cantidadDevuelta = itemVenta.cantidadDevuelta + itemDevParam.cantidad
                     )
                 }
+
+                // Correlativo atómico de Nota de Crédito (Series por sucursal - FASE F0)
+                // SUNAT UBL 2.1: Boleta -> serieNotaCreditoBoleta (BCxx) / Factura -> serieNotaCreditoFactura (FCxx)
+                val esFactura = venta.tipoComprobante.equals("FACTURA", ignoreCase = true) || venta.serie.startsWith("F", ignoreCase = true)
+                val serieNC = if (esFactura) {
+                    sucursalSnap.getString("serieNotaCreditoFactura")?.trim().orEmpty()
+                } else {
+                    sucursalSnap.getString("serieNotaCreditoBoleta")?.trim().orEmpty()
+                }
+                if (serieNC.isBlank()) {
+                    throw IllegalStateException("La sede no tiene serie de Nota de Crédito asignada. Configura Facturación Electrónica desde la Sede Principal.")
+                }
+
+                val campoContadorNC = if (esFactura) "ultimaNcFactura" else "ultimaNcBoleta"
+                val ultimoCorrelativoNC = if (contadorSnap.exists()) {
+                    (contadorSnap.get(campoContadorNC) as? Number)?.toLong()
+                        ?: (contadorSnap.get("ultimaNotaCredito") as? Number)?.toLong()
+                        ?: 0L
+                } else 0L
+                val nuevoCorrelativoNC = ultimoCorrelativoNC + 1L
+                val numeroNC = String.format(Locale.US, "%s-%06d", serieNC, nuevoCorrelativoNC)
 
                 // ── 3. RESTITUCIÓN DE STOCK A LOS LOTES ORIGINALES ──
                 val itemsDevueltosPorProducto = itemsADevolver.groupBy { it.productoId }
@@ -723,11 +827,19 @@ class VentasRepository(
                     tx.set(kardexRef, kardexData)
                 }
 
-                // 4.3 Escribir documento de Devolución
+                // 4.3 Incrementar correlativo de Nota de Crédito según tipo
+                tx.set(contadorRef, mapOf(campoContadorNC to nuevoCorrelativoNC), SetOptions.merge())
+
+                // 4.4 Escribir documento de Devolución
                 val devData = mapOf(
                     "id" to devId,
                     "ventaId" to venta.id,
                     "numeroVenta" to venta.numeroCompleto,
+                    "tipoDocumento" to "NOTA_CREDITO",
+                    "serie" to serieNC,
+                    "correlativo" to nuevoCorrelativoNC,
+                    "numeroCompleto" to numeroNC,
+                    "estadoFiscal" to "PENDIENTE",
                     "items" to itemsDevolucionDataList.map {
                         mapOf(
                             "productoId" to it.productoId,
@@ -749,7 +861,30 @@ class VentasRepository(
                 )
                 tx.set(devRef, devData)
 
-                // 4.4 Actualizar la Venta con las nuevas cantidades devueltas y estado
+                // 4.5 Registrar en la bandeja fiscal (FASE 12)
+                val factNCId = "nc_$devId"
+                val factNCRef = FarmadonPaths.facturacionDocumentos(db, farmaciaId).document(factNCId)
+                val factNCData = mapOf(
+                    "id" to factNCId,
+                    "tipo" to "NOTA_CREDITO",
+                    "serie" to serieNC,
+                    "correlativo" to nuevoCorrelativoNC,
+                    "numeroCompleto" to numeroNC,
+                    "clienteTipoDoc" to venta.cliente.tipoDocumento,
+                    "clienteNumeroDoc" to venta.cliente.numeroDocumento,
+                    "clienteNombre" to venta.cliente.nombre,
+                    "ventaId" to venta.id,
+                    "devolucionId" to devId,
+                    "sucursalId" to sucursalId,
+                    "total" to montoReembolsoTotal,
+                    "estadoEnvio" to FacturacionDocumento.ESTADO_PENDIENTE,
+                    "fechaMs" to ahoraMs,
+                    "motivo" to motivo.trim(),
+                    "moduloOrigen" to "POS"
+                )
+                tx.set(factNCRef, factNCData)
+
+                // 4.6 Actualizar la Venta con las nuevas cantidades devueltas y estado
                 val nuevoEstadoVenta = if (updatedVentaItems.all { it.cantidadDevolvible == 0 }) {
                     Venta.ESTADO_DEVOLUCION_TOTAL
                 } else {
@@ -786,7 +921,7 @@ class VentasRepository(
                     )
                 )
 
-                // 4.5 Actualizar puntero de caja (ventasPorMetodo y devolucionesEfectivo)
+                // 4.7 Actualizar puntero de caja (ventasPorMetodo y devolucionesEfectivo)
                 @Suppress("UNCHECKED_CAST")
                 val ventasPorMetodo = (punteroSnap.get("ventasPorMetodo") as? Map<String, Any>)
                     ?.mapValues { (_, v) -> (v as? Number)?.toDouble() ?: 0.0 }
@@ -810,7 +945,7 @@ class VentasRepository(
                     )
                 )
 
-                // 4.6 Registrar movimiento de caja por devolución (monto negativo)
+                // 4.8 Registrar movimiento de caja por devolución (monto negativo)
                 val nombreMetodoReembolso = when (metodoReembolso) {
                     "EFECTIVO" -> "Efectivo"
                     "YAPE" -> "Yape"
@@ -845,6 +980,11 @@ class VentasRepository(
                     id = devId,
                     ventaId = venta.id,
                     numeroVenta = venta.numeroCompleto,
+                    tipoDocumento = "NOTA_CREDITO",
+                    serie = serieNC,
+                    correlativo = nuevoCorrelativoNC,
+                    numeroCompleto = numeroNC,
+                    estadoFiscal = "PENDIENTE",
                     items = itemsDevolucionDataList,
                     montoReembolso = montoReembolsoTotal,
                     metodoReembolso = metodoReembolso,
@@ -861,6 +1001,302 @@ class VentasRepository(
             Result.success(resultadoFinal)
         } catch (e: Exception) {
             Log.e(TAG, "Error registrando devolución: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    // ───────────────────────────── FUNCIÓN 2.1: ANULAR VENTA COMPLETA ─────────────────────────────
+
+    /**
+     * Anula una venta completada en una transacción atómica (FASE 12):
+     * Restituye todo el stock a los lotes originales, descuenta ventasRegistradas,
+     * escribe kardex ANULACION_VENTA, descuenta el puntero de caja aplicando regla de vuelto-neto,
+     * registra movimiento de egreso ANULACION en caja_movimientos,
+     * marca la venta como ANULADA con auditoría completa (quién, motivo, fecha),
+     * y genera el documento fiscal pendiente (NOTA_CREDITO si era FACTURA, COMUNICACION_BAJA si era BOLETA).
+     */
+    suspend fun anularVenta(
+        ventaId: String,
+        motivo: String,
+        idempotenciaId: String = ""
+    ): Result<Venta> {
+        val (farmaciaId, sucursalId) = ids()
+            ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+
+        val motivoLimpio = motivo.trim()
+        if (ventaId.isBlank()) return Result.failure(IllegalArgumentException("ID de venta no válido."))
+        if (motivoLimpio.length < 5) return Result.failure(IllegalArgumentException("Debe ingresar un motivo de anulación de al menos 5 caracteres."))
+
+        return try {
+            val ahoraMs = HoraServidor.ahoraMs()
+            val ventaRef = FarmadonPaths.ventas(db, farmaciaId, sucursalId).document(ventaId)
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val contadorRef = FarmadonPaths.contadores(db, farmaciaId, sucursalId).document("ventas")
+
+            var ventaAnuladaResult: Venta? = null
+
+            db.runTransaction { tx ->
+                // ── 1. TODAS LAS LECTURAS ANTES DE CUALQUIER ESCRITURA (Regla 1) ──
+                val ventaSnap = tx.get(ventaRef)
+                if (!ventaSnap.exists()) {
+                    throw IllegalStateException("La venta con ID '$ventaId' no existe.")
+                }
+
+                val venta = parseVenta(ventaSnap.id, ventaSnap.data)
+                    ?: throw IllegalStateException("Error al leer el documento de la venta '$ventaId'.")
+
+                if (venta.estado == Venta.ESTADO_ANULADA) {
+                    // Idempotencia: ya estaba anulada
+                    ventaAnuladaResult = venta
+                    return@runTransaction
+                }
+
+                if (venta.estado != Venta.ESTADO_COMPLETADA) {
+                    throw IllegalStateException("Esa venta ya tiene devoluciones registradas (${venta.estado}). No se puede anular.")
+                }
+
+                val punteroSnap = tx.get(pointerRef)
+                val estadoCajaStr = punteroSnap.getString("estado") ?: CajaSesion.ESTADO_CERRADA
+                if (estadoCajaStr != CajaSesion.ESTADO_ABIERTA) {
+                    throw IllegalStateException("La caja está cerrada. Ábrela para registrar anulaciones de venta.")
+                }
+                val sesionId = punteroSnap.getString("sesionId").orEmpty()
+
+                val contadorSnap = tx.get(contadorRef)
+                val sucursalRef = FarmadonPaths.sucursal(db, farmaciaId, sucursalId)
+                val sucursalSnap = tx.get(sucursalRef)
+
+                val distinctProductIds = venta.items.map { it.productoId }.distinct()
+                val productSnaps = distinctProductIds.associateWith { prodId ->
+                    tx.get(FarmadonPaths.inventario(db, farmaciaId, sucursalId).document(prodId))
+                }
+
+                // ── 2. PREPARAR NOTA DE CRÉDITO (SI FACTURA) O COMUNICACIÓN DE BAJA (SI BOLETA) ──
+                val esFactura = venta.tipoComprobante == "FACTURA" || venta.serie.startsWith("F", ignoreCase = true)
+                val serieNCFactura = if (esFactura) {
+                    val s = sucursalSnap.getString("serieNotaCreditoFactura")?.trim().orEmpty()
+                    if (s.isBlank()) {
+                        throw IllegalStateException("La sede no tiene serie de Nota de Crédito asignada. Configura Facturación Electrónica desde la Sede Principal.")
+                    }
+                    s
+                } else ""
+
+                val ultimoCorrelativoNC = if (contadorSnap.exists()) {
+                    (contadorSnap.get("ultimaNcFactura") as? Number)?.toLong()
+                        ?: (contadorSnap.get("ultimaNotaCredito") as? Number)?.toLong()
+                        ?: 0L
+                } else 0L
+                val nuevoCorrelativoNC = if (esFactura) ultimoCorrelativoNC + 1L else ultimoCorrelativoNC
+                val numeroNC = if (esFactura) String.format(Locale.US, "%s-%06d", serieNCFactura, nuevoCorrelativoNC) else ""
+
+                // ── 3. RESTITUCIÓN DE STOCK A LOS LOTES ORIGINALES ──
+                val productosUpdates = mutableMapOf<String, Map<String, Any>>()
+                val kardexPorProducto = mutableMapOf<String, Double>()
+
+                for (item in venta.items) {
+                    val prodId = item.productoId
+                    val prodSnap = productSnaps[prodId]
+                        ?: throw IllegalStateException("No se pudo leer el producto $prodId en inventario.")
+                    if (!prodSnap.exists()) {
+                        throw IllegalStateException("El producto '${item.nombreProducto}' no existe en inventario.")
+                    }
+
+                    @Suppress("UNCHECKED_CAST")
+                    val lotesDeTrabajo = (prodSnap.get("lotes") as? Map<*, *>)?.mapNotNull { (k, v) ->
+                        if (v is Map<*, *>) k.toString() to (v as Map<String, Any>).toMutableMap() else null
+                    }?.toMap(mutableMapOf()) ?: mutableMapOf<String, MutableMap<String, Any>>()
+
+                    var totalFisicoItem = 0.0
+
+                    for (lc in item.lotesConsumidos) {
+                        val cantARestituir = lc.cantidadFisica
+                        if (cantARestituir <= 0.0) continue
+                        totalFisicoItem += cantARestituir
+
+                        val entrada = buscarEntradaLote(lotesDeTrabajo, lc.loteId, lc.loteNumero)
+                        if (entrada != null) {
+                            val (loteKey, loteData) = entrada
+                            val cantActual = (loteData["cantidad"] as? Number)?.toDouble() ?: 0.0
+                            loteData["cantidad"] = cantActual + cantARestituir
+
+                            val vReg = (loteData["ventasRegistradas"] as? Number)?.toDouble() ?: 0.0
+                            loteData["ventasRegistradas"] = (vReg - cantARestituir).coerceAtLeast(0.0)
+
+                            lotesDeTrabajo[loteKey] = loteData
+                        } else {
+                            val nuevaKey = lc.loteId.ifBlank { FechaVencimientoHelper.llaveLote(lc.loteNumero) }
+                            lotesDeTrabajo[nuevaKey] = mutableMapOf(
+                                "numero" to lc.loteNumero,
+                                "loteId" to nuevaKey,
+                                "vencimiento" to lc.vencimiento,
+                                "cantidad" to cantARestituir,
+                                "ventasRegistradas" to 0.0,
+                                "fechaIngreso" to FieldValue.serverTimestamp()
+                            )
+                        }
+                    }
+
+                    kardexPorProducto[prodId] = (kardexPorProducto[prodId] ?: 0.0) + totalFisicoItem
+
+                    val (nuevoStockDisp, nuevoStockTotal, vencMasCercano) = FechaVencimientoHelper.resumenStockYFefo(lotesDeTrabajo)
+                    productosUpdates[prodId] = mapOf(
+                        "lotes" to lotesDeTrabajo,
+                        "stock" to nuevoStockDisp,
+                        "stockTotal" to nuevoStockTotal,
+                        "vencimientoMasCercano" to vencMasCercano,
+                        "actualizadoEl" to FieldValue.serverTimestamp()
+                    )
+                }
+
+                // ── 4. TODAS LAS ESCRITURAS (Regla 1) ──
+
+                // 4.1 Actualizar productos
+                for ((prodId, updates) in productosUpdates) {
+                    tx.update(FarmadonPaths.inventario(db, farmaciaId, sucursalId).document(prodId), updates)
+                }
+
+                // 4.2 Kardex de entrada por anulación de venta
+                for ((prodId, cantFisica) in kardexPorProducto) {
+                    val kardexRef = FarmadonPaths.movimientos(db, farmaciaId, sucursalId).document("anulacion_${ventaId}_${prodId}")
+                    val nomProd = venta.items.firstOrNull { it.productoId == prodId }?.nombreProducto ?: ""
+                    val kardexData = mapOf(
+                        "id" to kardexRef.id,
+                        "tipo" to "ANULACION_VENTA",
+                        "productoId" to prodId,
+                        "productoNombre" to nomProd,
+                        "cantidadTotal" to cantFisica,
+                        "cantidad" to cantFisica,
+                        "referenciaNumero" to venta.numeroCompleto,
+                        "referenciaId" to ventaId,
+                        "cajaSesionId" to sesionId,
+                        "usuarioId" to SessionManager.idCajera,
+                        "usuarioNombre" to SessionManager.nombreUsuario,
+                        "usuarioEmail" to SessionManager.email,
+                        "origen" to "ANULACION_POS",
+                        "motivo" to "Anulación $motivoLimpio (${venta.numeroCompleto})",
+                        "notas" to motivoLimpio,
+                        "fecha" to FieldValue.serverTimestamp(),
+                        "fechaMs" to ahoraMs
+                    )
+                    tx.set(kardexRef, kardexData)
+                }
+
+                // 4.3 Si era Factura, incrementar correlativo de Nota de Crédito
+                if (esFactura) {
+                    tx.set(contadorRef, mapOf("ultimaNcFactura" to nuevoCorrelativoNC), SetOptions.merge())
+                }
+
+                // 4.4 Actualizar el documento de Venta a ANULADA
+                tx.update(
+                    ventaRef,
+                    mapOf(
+                        "estado" to Venta.ESTADO_ANULADA,
+                        "anuladaPorId" to SessionManager.idCajera,
+                        "anuladaPorNombre" to SessionManager.nombreUsuario,
+                        "anulacionMotivo" to motivoLimpio,
+                        "anuladaEnMs" to ahoraMs,
+                        "numeroNotaCredito" to numeroNC,
+                        "anuladoEl" to FieldValue.serverTimestamp()
+                    )
+                )
+
+                // 4.5 Actualizar puntero de caja (ventasPorMetodo y cantidadVentas)
+                @Suppress("UNCHECKED_CAST")
+                val ventasPorMetodo = (punteroSnap.get("ventasPorMetodo") as? Map<String, Any>)
+                    ?.mapValues { (_, v) -> (v as? Number)?.toDouble() ?: 0.0 }
+                    ?.toMutableMap() ?: mutableMapOf()
+
+                var vueltoRestante = venta.vuelto
+                for (p in venta.pagos) {
+                    val montoNetoMetodo = if (p.tipoId == "EFECTIVO") {
+                        val asignado = minOf(vueltoRestante, p.monto)
+                        vueltoRestante = redondear2(vueltoRestante - asignado)
+                        redondear2(p.monto - asignado)
+                    } else redondear2(p.monto)
+                    val actual = ventasPorMetodo[p.tipoId] ?: 0.0
+                    ventasPorMetodo[p.tipoId] = redondear2(actual - montoNetoMetodo)
+                }
+
+                val cantVentasActual = (punteroSnap.get("cantidadVentas") as? Number)?.toInt() ?: 0
+                tx.update(
+                    pointerRef,
+                    mapOf(
+                        "ventasPorMetodo" to ventasPorMetodo,
+                        "cantidadVentas" to (cantVentasActual - 1).coerceAtLeast(0)
+                    )
+                )
+
+                // 4.6 Registrar movimientos de egreso por anulación individuales por método en caja_movimientos
+                var vueltoRestanteMovs = venta.vuelto
+                for (p in venta.pagos) {
+                    val montoNetoMov = if (p.tipoId == "EFECTIVO") {
+                        val asignado = minOf(vueltoRestanteMovs, p.monto)
+                        vueltoRestanteMovs = redondear2(vueltoRestanteMovs - asignado)
+                        redondear2(p.monto - asignado)
+                    } else redondear2(p.monto)
+                    if (montoNetoMov <= 0.0) continue
+
+                    val movRef = FarmadonPaths.cajaMovimientos(db, farmaciaId, sucursalId).document()
+                    val movData = mapOf(
+                        "id" to movRef.id,
+                        "farmaciaId" to farmaciaId,
+                        "sucursalId" to sucursalId,
+                        "tipo" to MovimientoCaja.TIPO_ANULACION,
+                        "metodoTipo" to p.tipoId,
+                        "metodoNombre" to p.nombreMetodo,
+                        "monto" to redondear2(-montoNetoMov),
+                        "motivo" to "Anulación de ${venta.numeroCompleto}: $motivoLimpio",
+                        "referenciaId" to venta.id,
+                        "referenciaNumero" to venta.numeroCompleto,
+                        "cajaSesionId" to sesionId,
+                        "usuarioId" to SessionManager.idCajera,
+                        "usuarioNombre" to SessionManager.nombreUsuario,
+                        "fechaMs" to ahoraMs,
+                        "fecha" to FieldValue.serverTimestamp()
+                    )
+                    tx.set(movRef, movData)
+                }
+
+                // 4.7 Registrar documento pendiente en facturacion_documentos
+                val factAnulId = "anul_${venta.id}"
+                val factAnulRef = FarmadonPaths.facturacionDocumentos(db, farmaciaId).document(factAnulId)
+                val tipoDocFiscal = if (esFactura) "NOTA_CREDITO" else "COMUNICACION_BAJA"
+                val numDocFiscal = if (esFactura) numeroNC else "AN-${venta.numeroCompleto}"
+                val factDocData = mapOf(
+                    "id" to factAnulId,
+                    "tipo" to tipoDocFiscal,
+                    "serie" to if (esFactura) "NC01" else venta.serie,
+                    "correlativo" to if (esFactura) nuevoCorrelativoNC else venta.correlativo,
+                    "numeroCompleto" to numDocFiscal,
+                    "clienteTipoDoc" to venta.cliente.tipoDocumento,
+                    "clienteNumeroDoc" to venta.cliente.numeroDocumento,
+                    "clienteNombre" to venta.cliente.nombre,
+                    "ventaId" to venta.id,
+                    "devolucionId" to "",
+                    "sucursalId" to sucursalId,
+                    "total" to venta.total,
+                    "estadoEnvio" to FacturacionDocumento.ESTADO_PENDIENTE,
+                    "fechaMs" to ahoraMs,
+                    "motivo" to motivoLimpio,
+                    "moduloOrigen" to "POS"
+                )
+                tx.set(factAnulRef, factDocData)
+
+                ventaAnuladaResult = venta.copy(
+                    estado = Venta.ESTADO_ANULADA,
+                    anuladaPorId = SessionManager.idCajera,
+                    anuladaPorNombre = SessionManager.nombreUsuario,
+                    anulacionMotivo = motivoLimpio,
+                    anuladaEnMs = ahoraMs,
+                    numeroNotaCredito = numeroNC
+                )
+            }.await()
+
+            val res = ventaAnuladaResult
+                ?: return Result.failure(IllegalStateException("No se pudo completar la transacción de anulación."))
+            Result.success(res)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error anulando venta: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -986,10 +1422,12 @@ class VentasRepository(
 
     /**
      * Guarda una venta en pausa en la nube para retomarla luego desde cualquier caja.
+     * Preserva los ítems, el cliente y el descuento pactado (R3/R8).
      */
     suspend fun suspenderVenta(
         items: List<ItemVenta>,
         cliente: ClienteDeVenta = ClienteDeVenta(),
+        descuento: Double = 0.0,
         nota: String = ""
     ): Result<VentaSuspendida> {
         val (farmaciaId, sucursalId) = ids()
@@ -999,7 +1437,9 @@ class VentasRepository(
         return try {
             val ahoraMs = HoraServidor.ahoraMs()
             val docRef = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId).document()
-            val total = redondear2(items.sumOf { it.precioUnitario * it.cantidad })
+            val subtotal = redondear2(items.sumOf { it.precioUnitario * it.cantidad })
+            val descuentoRedondeado = redondear2(descuento.coerceAtLeast(0.0))
+            val total = redondear2((subtotal - descuentoRedondeado).coerceAtLeast(0.0))
             val suspData = mapOf(
                 "id" to docRef.id,
                 "items" to items.map { item ->
@@ -1023,6 +1463,8 @@ class VentasRepository(
                     "nombre" to cliente.nombre,
                     "clienteId" to cliente.clienteId
                 ),
+                "subtotal" to subtotal,
+                "descuento" to descuentoRedondeado,
                 "total" to total,
                 "nota" to nota.trim(),
                 "creadoPorId" to SessionManager.idCajera,
@@ -1036,6 +1478,8 @@ class VentasRepository(
                     id = docRef.id,
                     items = items,
                     cliente = cliente,
+                    subtotal = subtotal,
+                    descuento = descuentoRedondeado,
                     total = total,
                     nota = nota.trim(),
                     creadoPorId = SessionManager.idCajera,
@@ -1050,7 +1494,37 @@ class VentasRepository(
     }
 
     /**
-     * Elimina una venta suspendida tras haber sido reanudada o descartada.
+     * Reanuda atómicamente una venta suspendida mediante transacción:
+     * verifica que aún exista en Firestore, la elimina para que otra caja no la retome,
+     * y retorna la venta recuperada (ALTO 3).
+     */
+    suspend fun reanudarVentaSuspendida(id: String): Result<VentaSuspendida> {
+        val (farmaciaId, sucursalId) = ids()
+            ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+        if (id.isBlank()) return Result.failure(IllegalArgumentException("ID de venta suspendida no válido."))
+
+        return try {
+            val suspRef = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId).document(id)
+            val susp = db.runTransaction { tx ->
+                val snap = tx.get(suspRef)
+                if (!snap.exists()) {
+                    throw IllegalStateException("Esta venta suspendida ya fue recuperada o descartada desde otra terminal.")
+                }
+                val parsed = parseVentaSuspendida(snap.id, snap.data)
+                    ?: throw IllegalStateException("Los datos de la venta suspendida están corruptos.")
+                tx.delete(suspRef)
+                parsed
+            }.await()
+
+            Result.success(susp)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reanudando venta suspendida: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Elimina una venta suspendida tras haber sido descartada.
      */
     suspend fun eliminarSuspendida(id: String): Result<Unit> {
         val (farmaciaId, sucursalId) = ids()
@@ -1201,7 +1675,14 @@ class VentasRepository(
                 cajeroId = data["cajeroId"] as? String ?: "",
                 cajeroNombre = data["cajeroNombre"] as? String ?: "",
                 fechaHoraMs = (data["fechaHoraMs"] as? Number)?.toLong() ?: 0L,
-                diaClave = data["diaClave"] as? String ?: ""
+                diaClave = data["diaClave"] as? String ?: "",
+                estadoFiscal = data["estadoFiscal"] as? String ?: "PENDIENTE",
+                moduloOrigen = data["moduloOrigen"] as? String ?: "POS",
+                anuladaPorId = data["anuladaPorId"] as? String ?: "",
+                anuladaPorNombre = data["anuladaPorNombre"] as? String ?: "",
+                anulacionMotivo = data["anulacionMotivo"] as? String ?: "",
+                anuladaEnMs = (data["anuladaEnMs"] as? Number)?.toLong() ?: 0L,
+                numeroNotaCredito = data["numeroNotaCredito"] as? String ?: ""
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parseando Venta $id: ${e.message}", e)
@@ -1229,6 +1710,11 @@ class VentasRepository(
                 id = id,
                 ventaId = data["ventaId"] as? String ?: "",
                 numeroVenta = data["numeroVenta"] as? String ?: "",
+                tipoDocumento = data["tipoDocumento"] as? String ?: "NOTA_CREDITO",
+                serie = data["serie"] as? String ?: "NC01",
+                correlativo = (data["correlativo"] as? Number)?.toLong() ?: 0L,
+                numeroCompleto = data["numeroCompleto"] as? String ?: "",
+                estadoFiscal = data["estadoFiscal"] as? String ?: "PENDIENTE",
                 items = items,
                 montoReembolso = (data["montoReembolso"] as? Number)?.toDouble() ?: 0.0,
                 metodoReembolso = data["metodoReembolso"] as? String ?: "EFECTIVO",
@@ -1273,11 +1759,17 @@ class VentasRepository(
                 )
             } ?: emptyList()
 
+            val subtotal = (data["subtotal"] as? Number)?.toDouble() ?: items.sumOf { it.precioUnitario * it.cantidad }
+            val descuento = (data["descuento"] as? Number)?.toDouble() ?: 0.0
+            val total = (data["total"] as? Number)?.toDouble() ?: (subtotal - descuento)
+
             VentaSuspendida(
                 id = id,
                 items = items,
                 cliente = cliente,
-                total = (data["total"] as? Number)?.toDouble() ?: 0.0,
+                subtotal = subtotal,
+                descuento = descuento,
+                total = total,
                 nota = data["nota"] as? String ?: "",
                 creadoPorId = data["creadoPorId"] as? String ?: "",
                 creadoPorNombre = data["creadoPorNombre"] as? String ?: "",
