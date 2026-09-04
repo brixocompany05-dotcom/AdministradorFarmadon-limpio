@@ -38,12 +38,24 @@ import com.app.administradorfarmadon.disenotemaapp.ui.tokens.InterPremium
 @Composable
 fun ComprasScreen(
     viewModel: ComprasViewModel,
-    onNavigateToIngresoStock: () -> Unit = {},
+    pestanaInicial: String? = null,
     modifier: Modifier = Modifier
 ) {
     val s = recordarMedidaAdaptativa()
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(pestanaInicial) {
+        if (!pestanaInicial.isNullOrBlank()) {
+            val tab = when (pestanaInicial.uppercase()) {
+                "PROVEEDORES", "COMPRAS_PROVEEDORES", "INVENTARIO_PROVEEDORES", "COMPRAS_DISTRIBUIDORES" -> "PROVEEDORES"
+                "CUENTAS", "CUENTAS_POR_PAGAR", "COMPRAS_FACTURAS", "FACTURAS" -> "CUENTAS"
+                else -> "REPOSICION"
+            }
+            viewModel.seleccionarTab(tab)
+        }
+    }
+
     // BackHandler quiet —” teclado primero, luego diálogos, luego nada (sin competencia)
     val focusManagerCompras = LocalFocusManager.current
     val keyboardControllerCompras = LocalSoftwareKeyboardController.current
@@ -173,17 +185,19 @@ fun ComprasScreen(
                             val provSel = state.proveedorSeleccionado
                             val deuda = if (provSel != null) state.deudaPendienteProveedor(provSel) else 0.0
                             val cantFact = if (provSel != null) state.facturasPendientesCountProveedor(provSel) else 0
-                            val context = androidx.compose.ui.platform.LocalContext.current
                             PestanaProveedores(
                                 proveedores = state.proveedoresFiltrados,
                                 proveedorSeleccionado = state.proveedorSeleccionado,
                                 deudaPendiente = deuda, facturasPendientesCount = cantFact, subTabActual = state.subTabProveedor,
                                 productosDelProveedor = state.productosDelProveedorSeleccionado,
+                                todosLosProductos = state.todosLosProductos,
                                 onSeleccionarSubTab = { viewModel.seleccionarSubTabProveedor(it) },
                                 onSeleccionarProveedor = { viewModel.seleccionarProveedor(it) },
                                 onCrearProveedor = { viewModel.abrirDialogoCrearProveedor() },
                                 onEditarProveedor = { viewModel.abrirDialogoEditarProveedor(it) },
                                 onEliminarProveedor = { prov -> viewModel.eliminarProveedor(prov, cantFact) { _, _ -> } },
+                                onVincularProducto = { prod, prov -> viewModel.vincularProductoAProveedor(prod.id, prov) },
+                                onDesvincularProducto = { prod -> viewModel.desvincularProductoDeProveedor(prod.id) },
                                 onCobrarSaldoAFavor = { monto, doc, onComplete -> viewModel.cobrarSaldoAFavor(state.proveedorSeleccionado?.id ?: "", monto, doc, onComplete) },
                                 onDeclararSaldoPerdido = { monto, motivo, onComplete -> viewModel.declararSaldoPerdido(state.proveedorSeleccionado?.id ?: "", monto, motivo, onComplete) },
                                 listaState = viewModel.listaProveedores,
@@ -213,7 +227,7 @@ fun ComprasScreen(
                 procesando = state.procesandoAnulacion,
                 autorizadoPlata = viewModel.esUsuarioAutorizadoPlata,
                 onDismiss = { viewModel.cerrarDialogoAnularFactura() },
-                onConfirmar = { motivo, plata, metodo, referencia -> viewModel.confirmarAnulacionFactura(motivo, plata, metodo, referencia) }
+                onConfirmar = { motivo, plata, metodo, referencia, conDevolucion -> viewModel.confirmarAnulacionFactura(motivo, plata, metodo, referencia, conDevolucion) }
             )
         }
 
@@ -224,13 +238,14 @@ fun ComprasScreen(
                     facturaExistente = state.facturaRecepcionExistente,
                     procesando = state.procesandoRecepcion,
                     indiceLotes = state.indiceLotesOrden,
+                    // Estricto por ID: con nombres duplicados, el nombre pinta saldo ajeno.
                     saldoAFavorDisponible = state.proveedores.firstOrNull {
-                        it.id == pedido.proveedorId || it.nombre.equals(pedido.proveedorNombre, ignoreCase = true)
+                        it.id.isNotBlank() && it.id == pedido.proveedorId
                     }?.saldoAFavor ?: 0.0,
                     metodosPago = state.metodosPago,
                     onDismiss = { viewModel.cerrarDialogoRecepcion() },
-                    onAsentarRecepcion = { numFact, condPago, fVencPago, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj ->
-                        viewModel.asentarRecepcionPedido(pedido.id, numFact, condPago, fVencPago, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj)
+                    onAsentarRecepcion = { numFact, condPago, fVencPago, fEmisionPapel, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj ->
+                        viewModel.asentarRecepcionPedido(pedido.id, numFact, condPago, fVencPago, fEmisionPapel, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj)
                     }
                 )
             }

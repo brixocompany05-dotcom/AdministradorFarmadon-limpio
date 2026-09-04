@@ -61,10 +61,10 @@ fun PanelRegistrarPago(
     BackHandler { if (!procesando) onVolver() }
 
     val opcionesMetodo = remember(metodosPago) {
-        val activas = metodosPago.filter { EtiquetaMetodoPago.esValidaParaProveedor(it) }
-        if (activas.isNotEmpty()) activas.map { EtiquetaMetodoPago.deInstancia(it) }
-        else EtiquetaMetodoPago.baseParaProveedores
+        metodosPago.filter { EtiquetaMetodoPago.esValidaParaProveedor(it) }
+            .map { EtiquetaMetodoPago.deInstancia(it) }
     }
+    val sinMetodosReales = opcionesMetodo.isEmpty()
 
     val estadoEditor = remember(factura.id, opcionesMetodo) {
         PagosMixtosEditorState(
@@ -196,8 +196,26 @@ fun PanelRegistrarPago(
                                     color = colores.estadoPeligro
                                 )
                             }
+                        } else if (sinMetodosReales) {
+                            Surface(
+                                color = colores.peligroSutil,
+                                shape = RoundedCornerShape(s.radiusChip),
+                                border = BorderStroke(s.borderWidth, colores.estadoPeligro.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "No hay métodos de pago activos para proveedores. Activa uno en Configuración → Métodos de Pago.",
+                                    modifier = Modifier.padding(s.padCard),
+                                    style = TokensFarmadon.tipografia.cuerpo.copy(
+                                        fontSize = s.textBody.value.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = InterPremium
+                                    ),
+                                    color = colores.estadoPeligro
+                                )
+                            }
                         } else {
-                            PagosMixtosEditor(estado = estadoEditor)
+                            PagosMixtosEditor(estado = estadoEditor, soloLectura = procesando)
                         }
                     }
                 }
@@ -384,6 +402,8 @@ fun PanelRegistrarPago(
                         }
                         Text(
                             when {
+                                procesando -> "Guardando el pago… no cierres la pantalla."
+                                sinMetodosReales -> "Activa un método de pago para continuar."
                                 estadoEditor.cuadra -> "Listo para guardar."
                                 estadoEditor.filas.isEmpty() -> "Elige al menos un método de pago."
                                 else -> "Falta escribir el monto de algún método."

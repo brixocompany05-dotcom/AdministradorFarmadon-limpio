@@ -148,12 +148,18 @@ object UnidadVentaHelper {
 
         val fisicoTotal = stockFisicoParaVender(cantidadEnUnidadProducto, factor)
 
-        // 2. Validar stock suficiente en lotes VIGENTES (R3/Sanitaria: lotes vencidos nunca se venden)
+        // 2. Validar stock suficiente en lotes VIGENTES CON COSTO (R3/Sanitaria/Negocio: sin costo o no valorizado no se vende en POS)
         val vendibles = producto.lotes.values.filter { lote ->
             val dias = FechaVencimientoHelper.diasHastaVencer(lote.vencimiento)
-            lote.cantidad > 0.0 && (dias == null || dias > 0)
+            val tieneCosto = (lote.costoCompraUnitario > 0.0 || lote.costoUltimoIngreso > 0.0) && !lote.noValorizado
+            lote.cantidad > 0.0 && (dias == null || dias > 0) && tieneCosto
         }
         val stockDisponible = vendibles.sumOf { it.cantidad.coerceAtLeast(0.0) }
+        val stockSinCosto = producto.lotes.values.filter { lote ->
+            val dias = FechaVencimientoHelper.diasHastaVencer(lote.vencimiento)
+            val sinCosto = (lote.costoCompraUnitario <= 0.0 && lote.costoUltimoIngreso <= 0.0) || lote.noValorizado
+            lote.cantidad > 0.0 && (dias == null || dias > 0) && sinCosto
+        }.sumOf { it.cantidad }
         val stockVencido = producto.lotes.values.filter { lote ->
             val dias = FechaVencimientoHelper.diasHastaVencer(lote.vencimiento)
             dias != null && dias <= 0 && lote.cantidad > 0.0
@@ -162,12 +168,15 @@ object UnidadVentaHelper {
         if (stockDisponible < fisicoTotal) {
             val disponibleContenido = (stockDisponible * factor).toLong()
             val unidad = producto.contenidoUnidad.ifBlank { producto.empaque.ifBlank { "unidades" } }
-            val mensaje = if (stockDisponible <= 0.0 && stockVencido > 0.0) {
-                "El stock de '${producto.nombre}' está vencido. Retíralo del anaquel (Inventario → Merma)."
-            } else if (stockDisponible <= 0.0) {
-                "Producto agotado."
-            } else {
-                "Stock insuficiente: quedan $disponibleContenido $unidad disponibles."
+            val mensaje = when {
+                stockDisponible <= 0.0 && stockSinCosto > 0.0 -> {
+                    "El lote de '${producto.nombre}' no tiene costo registrado (S/ 0.00). Registra la compra correspondiente antes de venderlo."
+                }
+                stockDisponible <= 0.0 && stockVencido > 0.0 -> {
+                    "El stock de '${producto.nombre}' está vencido. Retíralo del anaquel (Inventario → Merma)."
+                }
+                stockDisponible <= 0.0 -> "Producto agotado."
+                else -> "Stock insuficiente: quedan $disponibleContenido $unidad disponibles."
             }
             return Result.failure(Exception(mensaje))
         }

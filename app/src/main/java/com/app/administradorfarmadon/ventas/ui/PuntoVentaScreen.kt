@@ -41,7 +41,8 @@ import com.app.administradorfarmadon.ventas.ventasdia.ui.SubmoduloVentasDia
 @Composable
 fun PuntoVentaScreen(
     pestanaInicial: String = "NUEVA VENTA",
-    onVolver: () -> Unit = {}
+    onVolver: () -> Unit = {},
+    onNavigate: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     LaunchedEffect(Unit) {
@@ -142,7 +143,17 @@ fun PuntoVentaScreen(
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (submoduloActivo) {
-                "NUEVA VENTA" -> SubmoduloNuevaVenta(simboloMoneda, nuevaVentaViewModel)
+                "NUEVA VENTA" -> SubmoduloNuevaVenta(
+                    simboloMoneda = simboloMoneda,
+                    viewModel = nuevaVentaViewModel,
+                    onNavigate = { ruta ->
+                        if (ruta == "caja" || ruta == "CIERRE DE CAJA") {
+                            submoduloActivo = "CIERRE DE CAJA"
+                        } else {
+                            onNavigate(ruta)
+                        }
+                    }
+                )
                 "VENTAS DEL DÍA" -> SubmoduloVentasDia(
                     simboloMoneda = simboloMoneda,
                     onDevolver = { v ->

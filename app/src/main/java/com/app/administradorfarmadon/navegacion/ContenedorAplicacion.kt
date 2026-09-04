@@ -51,8 +51,14 @@ import com.app.administradorfarmadon.configuracion.plan.ui.PlanFacturacionScreen
 import com.app.administradorfarmadon.facturacionelectronica.ui.FacturacionElectronicaScreen
 import com.app.administradorfarmadon.configuracion.ui.ConfiguracionScreen
 import com.app.administradorfarmadon.configuracion.metodospago.ui.MetodosPagoScreen
+import com.app.administradorfarmadon.configuracion.pos.ui.PosConfigScreen
 import com.app.administradorfarmadon.notificaciones.suscripcion.logica.AlertaSuscripcionViewModel
 import com.app.administradorfarmadon.notificaciones.suscripcion.ui.AlertaFlotanteBanner
+import com.app.administradorfarmadon.appconexioninternet.NetworkHealthMonitor
+import com.app.administradorfarmadon.appconexioninternet.NetworkStatus
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private const val MIN_SUPPORTED_WIDTH_DP = 600
 
@@ -69,6 +75,8 @@ fun ContenedorAplicacion(
     val currentRoute = backStackEntry?.destination?.route
 
     val alertaVisible by alertaViewModel.alertaVisible.collectAsState()
+    val networkStatus by NetworkHealthMonitor.status.collectAsState()
+    val ultimaConexionMs by NetworkHealthMonitor.ultimaConexionMs.collectAsState()
 
     val sidebarItems by sidebarViewModel.items.collectAsState()
     val isSidebarLoading by sidebarViewModel.isLoading.collectAsState()
@@ -92,6 +100,7 @@ fun ContenedorAplicacion(
     val usuarioNombre by sidebarViewModel.usuarioNombre.collectAsState()
     val rolNombre by sidebarViewModel.rolNombre.collectAsState()
     val esItinerante by sidebarViewModel.esItinerante.collectAsState()
+    val planPermiteMultiSede by sidebarViewModel.planPermiteMultiSede.collectAsState()
     val sucursalesDisponibles by sidebarViewModel.sucursalesDisponibles.collectAsState()
     val notificacionFlotante by sidebarViewModel.notificacionFlotante.collectAsState()
     val errorCarga by sidebarViewModel.errorCarga.collectAsState()
@@ -212,8 +221,11 @@ fun ContenedorAplicacion(
                 rolNombre = rolNombre,
                 isDarkMode = esTemaOscuro,
                 esItinerante = esItinerante,
+                planPermiteMultiSede = planPermiteMultiSede,
                 sucursales = sucursalesDisponibles,
-                onCambiarSucursal = { id, nom -> sidebarViewModel.cambiarSucursalActiva(id, nom) },
+                onCambiarSucursal = { id, nom ->
+                    sidebarViewModel.cambiarSucursalActiva(id, nom)
+                },
                 onToggleTheme = { themeViewModel.alternarTema() },
                 onNavigate = { route ->
                     navigateToTab(navController, route)
@@ -232,16 +244,27 @@ fun ContenedorAplicacion(
                 onLogout()
             }
 
-            AppNavHost(
-                navController = navController,
-                onLogout = handleLogout,
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(TokensFarmadon.colores.fondoBase)
-                    .safeDrawingPadding(),
-                onInventoryDetailStateChanged = { isInventoryDetailOpen = it },
-                onFocusModeChanged = { isFocusModeActive = it }
-            )
+            ) {
+                BannerConexionGlobal(
+                    status = networkStatus,
+                    ultimaConexionMs = ultimaConexionMs
+                )
+
+                AppNavHost(
+                    navController = navController,
+                    onLogout = handleLogout,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .safeDrawingPadding(),
+                    onInventoryDetailStateChanged = { isInventoryDetailOpen = it },
+                    onFocusModeChanged = { isFocusModeActive = it }
+                )
+            }
         }
 
         Column(
@@ -376,7 +399,7 @@ private fun AppNavHost(
         popExitTransition = { fadeOut(animationSpec = androidx.compose.animation.core.tween(150)) }
     ) {
         // --- INVENTARIO ---
-        composable("inventario") {
+        val pantallaInventario: @Composable () -> Unit = {
             InventarioScreen(
                 onNavigateToCrearProducto = { navController.navigate("nuevo_producto") },
                 onNavigateToEditarProducto = { productId ->
@@ -386,6 +409,7 @@ private fun AppNavHost(
                 onFocusModeChanged = onFocusModeChanged
             )
         }
+        composable("inventario") { pantallaInventario() }
 
         composable("nuevo_producto") {
             val vm: CrearProductoGeneralViewModel = viewModel()
@@ -416,41 +440,85 @@ private fun AppNavHost(
         composable("ventas") {
             com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
                 pestanaInicial = "NUEVA VENTA",
-                onVolver = { navController.popBackStack() }
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
             )
         }
         composable("ventas_nueva") {
             com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
                 pestanaInicial = "NUEVA VENTA",
-                onVolver = { navController.popBackStack() }
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
             )
         }
         composable("ventas_dia") {
             com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
                 pestanaInicial = "VENTAS DEL DÍA",
-                onVolver = { navController.popBackStack() }
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
             )
         }
         composable("ventas_devoluciones") {
             com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
                 pestanaInicial = "DEVOLUCIONES",
-                onVolver = { navController.popBackStack() }
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
             )
         }
         composable("ventas_caja") {
             com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
                 pestanaInicial = "CIERRE DE CAJA",
-                onVolver = { navController.popBackStack() }
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("pos") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("caja") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "CIERRE DE CAJA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("cierre_caja") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "CIERRE DE CAJA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
             )
         }
 
-        // --- DISPENSACIÓN ---
-        composable("dispensacion_recetas") { PantallaEnConstruccion("Recetas Médicas") { navController.popBackStack() } }
-        composable("dispensacion_controlados") { PantallaEnConstruccion("Medicamentos Controlados") { navController.popBackStack() } }
-        composable("dispensacion_adulto") { PantallaEnConstruccion("Atención Adulto Mayor") { navController.popBackStack() } }
+        // --- DISPENSACIÓN (Atención directa en caja / mostrador) ---
+        composable("dispensacion_recetas") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("dispensacion_controlados") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("dispensacion_adulto") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
 
         // --- INVENTARIO Y COMPRAS ---
-        val pantallaCompras: @Composable () -> Unit = {
+        val pantallaCompras: @Composable (pestana: String) -> Unit = { pestana ->
             // UN solo ViewModel para TODAS las rutas de compras (dueño: la actividad).
             // Al navegar entre módulos los datos siguen vivos en tiempo real y la
             // pantalla se pinta al instante: jamás se recarga ni se recrea de cero.
@@ -459,30 +527,42 @@ private fun AppNavHost(
                 if (owner != null) viewModel(viewModelStoreOwner = owner) else viewModel()
             com.app.administradorfarmadon.compras.ui.ComprasScreen(
                 viewModel = vm,
-                onNavigateToIngresoStock = { navController.navigate("ingreso_stock") }
+                pestanaInicial = pestana
             )
         }
-        composable("inventario_compras") { pantallaCompras() }
-        composable("compras") { pantallaCompras() }
-        composable("compras_proveedores") { pantallaCompras() }
-        composable("proveedores") { pantallaCompras() }
-        composable("compras_facturas") { pantallaCompras() }
-        composable("compras_pedidos") { pantallaCompras() }
-        composable("compras_reposicion") { pantallaCompras() }
-        composable("inventario_proveedores") { pantallaCompras() }
-        composable("gestion_compras") { pantallaCompras() }
-        composable("compras_distribuidores") { pantallaCompras() }
-        composable("inventario_vencimientos") { PantallaEnConstruccion("Alertas de Vencimiento") { navController.popBackStack() } }
+        composable("inventario_compras") { pantallaCompras("REPOSICION") }
+        composable("compras") { pantallaCompras("REPOSICION") }
+        composable("compras_reposicion") { pantallaCompras("REPOSICION") }
+        composable("compras_pedidos") { pantallaCompras("REPOSICION") }
+        composable("gestion_compras") { pantallaCompras("REPOSICION") }
+        composable("compras_proveedores") { pantallaCompras("PROVEEDORES") }
+        composable("proveedores") { pantallaCompras("PROVEEDORES") }
+        composable("inventario_proveedores") { pantallaCompras("PROVEEDORES") }
+        composable("compras_distribuidores") { pantallaCompras("PROVEEDORES") }
+        composable("compras_facturas") { pantallaCompras("CUENTAS") }
+        composable("inventario_vencimientos") { pantallaInventario() }
         composable("inventario_transferencias") { PantallaEnConstruccion("Transferencias entre Sucursales") { navController.popBackStack() } }
 
         // --- CLIENTES ---
-        composable("clientes_directorio") {
+        val pantallaClientes: @Composable () -> Unit = {
             com.app.administradorfarmadon.clientes.ui.ClientesScreen(
                 onVolver = { navController.popBackStack() }
             )
         }
-        composable("clientes_puntos") { PantallaEnConstruccion("Programa de Puntos") { navController.popBackStack() } }
-        composable("clientes_historial") { PantallaEnConstruccion("Historial Clínico") { navController.popBackStack() } }
+        composable("clientes") { pantallaClientes() }
+        composable("clientes_directorio") { pantallaClientes() }
+        composable("clientes_crm") { pantallaClientes() }
+        composable("clientes_puntos") { pantallaClientes() }
+        composable("clientes_historial") { pantallaClientes() }
+
+        // --- SOPORTE & MESA DE AYUDA BRIXO ---
+        val pantallaSoporte: @Composable () -> Unit = {
+            com.app.administradorfarmadon.soporte.ui.SoporteScreen(
+                onVolver = { navController.popBackStack() }
+            )
+        }
+        composable("soporte") { pantallaSoporte() }
+        composable("soporte_inapp") { pantallaSoporte() }
 
         // --- ANALÍTICA & REPORTES ---
         val pantallaAnaliticaReportes: @Composable (pestanaInicial: String) -> Unit = { pestana ->
@@ -493,7 +573,7 @@ private fun AppNavHost(
         }
         composable("analitica_reportes") { pantallaAnaliticaReportes("ANALITICA") }
         composable("analitica") { pantallaAnaliticaReportes("ANALITICA") }
-        composable("reportes") { pantallaAnaliticaReportes("REPORTES") }
+        composable("reportes") { pantallaAnaliticaReportes("ANALITICA") }
         composable("bi") { pantallaAnaliticaReportes("ANALITICA") }
         composable("reportes_dashboard") { pantallaAnaliticaReportes("ANALITICA") }
         composable("reportes_caja") { pantallaAnaliticaReportes("REPORTES") }
@@ -504,15 +584,17 @@ private fun AppNavHost(
         composable("reportes_clientes") { pantallaAnaliticaReportes("REPORTES") }
 
         // --- FACTURACIÓN ELECTRÓNICA ---
-        val pantallaFacturacion: @Composable () -> Unit = {
+        val pantallaFacturacion: @Composable (Int) -> Unit = { pestana ->
             FacturacionElectronicaScreen(
+                pestanaInicial = pestana,
                 onVolver = { navController.popBackStack() }
             )
         }
-        composable("facturacion") { pantallaFacturacion() }
-        composable("facturacion_electronica") { pantallaFacturacion() }
-        composable("config_facturacion") { pantallaFacturacion() }
-        composable("facturacion_config") { pantallaFacturacion() }
+        composable("facturacion") { pantallaFacturacion(0) }
+        composable("facturacion_electronica") { pantallaFacturacion(0) }
+        composable("config_facturacion") { pantallaFacturacion(2) }
+        composable("facturacion_config") { pantallaFacturacion(2) }
+        composable("facturacion_emisor") { pantallaFacturacion(2) }
 
         // --- CONFIGURACIÓN ---
         val pantallaConfiguracion: @Composable () -> Unit = {
@@ -521,6 +603,8 @@ private fun AppNavHost(
                 onNavigateToPlan = { navController.navigate("config_plan") },
                 onNavigateToUsuarios = { navController.navigate("config_usuarios") },
                 onNavigateToMetodosPago = { navController.navigate("config_metodos_pago") },
+                onNavigateToPosConfig = { navController.navigate("config_pos") },
+                onNavigateToFacturacion = { navController.navigate("facturacion_electronica") },
                 onLogout = {
                     FirebaseAuth.getInstance().signOut()
                     onLogout()
@@ -530,6 +614,12 @@ private fun AppNavHost(
         composable("config_farmacia") { pantallaConfiguracion() }
         composable("configuracion") { pantallaConfiguracion() }
         composable("config_metodos_pago") { MetodosPagoScreen(onBack = { navController.popBackStack() }) }
+        val pantallaPosConfig: @Composable () -> Unit = {
+            PosConfigScreen(onBack = { navController.popBackStack() })
+        }
+        composable("config_pos") { pantallaPosConfig() }
+        composable("reglas_negocio") { pantallaPosConfig() }
+        composable("hardware") { pantallaPosConfig() }
         
         val pantallaSucursales: @Composable () -> Unit = {
             val vm: SucursalesViewModel = viewModel()
@@ -579,20 +669,43 @@ private fun AppNavHost(
         composable("config_plan") { pantallaPlan() }
         composable("plan") { pantallaPlan() }
 
+        // Mapeos de catálogo directamente a pantallas operativas reales (SaaS 2026)
+        composable("recetas") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("sustancias_controladas") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("cupones_campanas") {
+            com.app.administradorfarmadon.ventas.ui.PuntoVentaScreen(
+                pestanaInicial = "NUEVA VENTA",
+                onVolver = { navController.popBackStack() },
+                onNavigate = { ruta -> navController.navigate(ruta) }
+            )
+        }
+        composable("portal_proveedores") { pantallaCompras("PROVEEDORES") }
+        composable("kardex_valorizacion") { pantallaAnaliticaReportes("REPORTES") }
+        composable("finanzas") { pantallaAnaliticaReportes("ANALITICA") }
+        composable("estado_servicio") { pantallaSoporte() }
+        composable("marca_blanca") { pantallaConfiguracion() }
+
         // --- MÓDULOS DEL CATÁLOGO (rutas por código canónico) ---
-        // El sidebar navega por código de módulo (plan/rol/overrides en tiempo
-        // real). Cada módulo sin pantalla propia aún llega a un placeholder
-        // honesto. "inventario", "compras", "sucursales" y "usuarios" ya tienen pantalla real arriba.
         val modulosPendientes = listOf(
-            "clientes_crm", "soporte",
             "notificaciones", "api", "automatizaciones", "marketplace",
-            "backups", "observabilidad", "ia_copiloto", "ia_sugeridor", "reglas_negocio",
+            "backups", "observabilidad", "ia_copiloto", "ia_sugeridor",
             "camara_qr", "gestion_documental", "telemedicina", "pagos_embebidos",
-            "gamificacion", "reputacion", "rrhh", "finanzas", "hardware",
-            "portal_proveedores", "localizacion", "cumplimiento", "offline", "onboarding",
-            "estado_servicio", "marca_blanca", "soporte_inapp", "recetas", "farmacovigilancia",
-            "preparados_magistrales", "sustancias_controladas", "adherencia",
-            "cupones_campanas", "ocr_documentos", "kardex_valorizacion"
+            "gamificacion", "reputacion", "rrhh",
+            "localizacion", "cumplimiento", "offline", "onboarding",
+            "farmacovigilancia", "preparados_magistrales", "adherencia",
+            "ocr_documentos"
         )
         modulosPendientes.forEach { code ->
             composable(code) {
@@ -872,6 +985,76 @@ private fun PantallaNoCompatible() {
                 style = TokensFarmadon.tipografia.cuerpo,
                 textAlign = TextAlign.Center
             )
+        }
+    }
+}
+
+@Composable
+private fun BannerConexionGlobal(
+    status: NetworkStatus,
+    ultimaConexionMs: Long
+) {
+    // Solo se muestra cuando REALMENTE no hay conexión física (DESCONECTADO)
+    // o el WiFi/red no tiene salida a internet (SIN_SALIDA).
+    // Si la conexión es inestable, lenta o degradada, NO se molesta al usuario.
+    val esVisible = status == NetworkStatus.DESCONECTADO || status == NetworkStatus.SIN_SALIDA
+
+    AnimatedVisibility(
+        visible = esVisible,
+        enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
+    ) {
+        val horaFormateada = remember(ultimaConexionMs) {
+            val ms = if (ultimaConexionMs > 0L) ultimaConexionMs else System.currentTimeMillis()
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+        }
+
+        val (colorPunto, textoBanner) = when (status) {
+            NetworkStatus.DESCONECTADO ->
+                Color(0xFFEF4444) to "Sin conexión — datos de $horaFormateada, no son actuales"
+            NetworkStatus.SIN_SALIDA ->
+                Color(0xFFF59E0B) to "Con wifi pero sin megas — datos de $horaFormateada"
+            else ->
+                Color(0xFFEF4444) to ""
+        }
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp),
+            color = if (status == NetworkStatus.DESCONECTADO)
+                Color(0xFF450A0A)
+            else
+                Color(0xFF451A03),
+            shadowElevation = 4.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(colorPunto)
+                    )
+                    Text(
+                        text = textoBanner,
+                        style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        ),
+                        color = Color.White
+                    )
+                }
+            }
         }
     }
 }

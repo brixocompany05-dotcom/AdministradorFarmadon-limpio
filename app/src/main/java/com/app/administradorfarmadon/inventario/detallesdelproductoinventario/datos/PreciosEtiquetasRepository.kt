@@ -606,7 +606,7 @@ class PreciosEtiquetasRepository(
                 return Result.failure(IllegalStateException("No se puede eliminar: tiene ventas registradas. Usa 'Pausar' para ocultar de caja sin borrar historial."))
             }
             // Facturas donde aparece (no ANULADA)
-            val facturasSnap = tiendaRef.collection("compras_facturas").limit(30).get().await()
+            val facturasSnap = tiendaRef.collection("compras_facturas").get().await()
             val enFacturaViva = facturasSnap.documents.any { doc ->
                 val estado = doc.getString("estadoPago") ?: ""
                 if (estado.equals("ANULADA", true)) return@any false
@@ -618,7 +618,7 @@ class PreciosEtiquetasRepository(
                 return Result.failure(IllegalStateException("No se puede eliminar: aparece en facturas de compra vigentes. Anula o regulariza esas facturas primero, o usa 'Pausar'."))
             }
             // Pedidos con saldo pendiente
-            val pedidosSnap = tiendaRef.collection("pedidos_compra").limit(30).get().await()
+            val pedidosSnap = tiendaRef.collection("pedidos_compra").get().await()
             val enPedidoPendiente = pedidosSnap.documents.any { doc ->
                 val estado = doc.getString("estado") ?: ""
                 if (estado == "CANCELADO" || estado == "RECIBIDO" || estado == "COMPLETADA_AJUSTE") return@any false
@@ -630,7 +630,7 @@ class PreciosEtiquetasRepository(
                 return Result.failure(IllegalStateException("No se puede eliminar: está en pedidos de compra pendientes. Cancela o completa esos pedidos primero."))
             }
             // Carrito reposición
-            val carritoSnap = tiendaRef.collection("carrito_reposicion").limit(20).get().await()
+            val carritoSnap = tiendaRef.collection("carrito_reposicion").get().await()
             val enCarrito = carritoSnap.documents.any { doc ->
                 val items = doc.get("items") as? Map<*, *> ?: return@any false
                 items.containsKey(productId) || doc.data?.values?.any { it.toString().contains(productId) } == true

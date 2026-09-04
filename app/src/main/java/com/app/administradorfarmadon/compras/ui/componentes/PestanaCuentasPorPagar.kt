@@ -332,7 +332,7 @@ fun PestanaCuentasPorPagar(
                         onDismissRequest = { mostrarMenuPeriodo = false },
                         modifier = Modifier.background(FDColors.SurfaceElevated)
                     ) {
-                        PeriodoContableFactura.values().forEach { per ->
+                        PeriodoContableFactura.entries.forEach { per ->
                             val isSel = per == periodoSeleccionado
                             DropdownMenuItem(
                                 text = {
@@ -488,6 +488,11 @@ fun PestanaCuentasPorPagar(
                             ) {
                                 Icon(Icons.Default.FilterListOff, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconMedium))
                                 Text("Sin resultados", style = FDType.Body.copy(fontWeight = FontWeight.Bold), color = FDColors.TextPrimary)
+                                Text(
+                                    "Filtros: $filtroEstado · ${periodoSeleccionado.label} · búsqueda \"${busquedaComprobante.ifBlank { "—" }}\"",
+                                    style = FDType.Caption,
+                                    color = FDColors.TextTertiary
+                                )
                             }
                         }
                     } else {
@@ -535,8 +540,9 @@ fun PestanaCuentasPorPagar(
                                                 maxLines = 1,
                                                 modifier = Modifier.weight(1f).padding(end = 8.dp)
                                             )
+                                            val fechaCard = if (fact.fechaEmision.isNotBlank()) "Emisión: ${fact.fechaEmision}" else "Recepción: ${fact.fechaRegistro}"
                                             Text(
-                                                text = fact.fechaRegistro,
+                                                text = fechaCard,
                                                 style = FDType.Caption,
                                                 color = FDColors.TextTertiary
                                             )
@@ -656,8 +662,13 @@ private fun DetalleFacturaLiquidacion(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val textoFechasDetalle = if (factura.fechaEmision.isNotBlank()) {
+                    "Emisión: ${factura.fechaEmision} · Recepción: ${factura.fechaRegistro}"
+                } else {
+                    "Emisión: — · Recepción: ${factura.fechaRegistro}"
+                }
                 Text(
-                    text = "Factura N° ${factura.numeroFactura} · Emitida: ${factura.fechaRegistro}",
+                    text = "Factura N° ${factura.numeroFactura} · $textoFechasDetalle",
                     style = FDType.BodySmall.copy(fontSize = 11.5.sp),
                     color = FDColors.TextSecondary
                 )
@@ -686,11 +697,12 @@ private fun DetalleFacturaLiquidacion(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
-                // Acciones Rápidas (Prorrogar Vencimiento)
+                // Acciones Rápidas (Prorrogar Vencimiento) — bloqueadas mientras se guarda un pago
                 if (!factura.esAnulada && !esContado && !esPagada) {
                     FDBotonSecundario(
                         texto = "PRORROGAR",
                         onClick = { onAbrirDialogoProrroga(factura) },
+                        habilitado = !procesandoPago,
                         modifier = Modifier.height(s.btnSmallH)
                     )
                 }
@@ -708,6 +720,129 @@ private fun DetalleFacturaLiquidacion(
                 .padding(s.padCard),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
+            // BLOQUE A: PRODUCTOS FACTURADOS
+            if (factura.items.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "PRODUCTOS FACTURADOS (${factura.items.size})",
+                            style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                            color = FDColors.TextSecondary
+                        )
+                        val totalUnds = factura.items.sumOf { it.cantidadTotal }
+                        Text(
+                            "${totalUnds.toInt()} und. en total",
+                            style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold),
+                            color = FDColors.TextTertiary
+                        )
+                    }
+
+                    Surface(
+                        color = FDColors.Surface,
+                        shape = FDShapes.Small,
+                        border = BorderStroke(s.borderWidth * 0.7f, FDColors.Border)
+                    ) {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            // Cabecera de columnas
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("DESCRIPCIÓN / LOTE", style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary, modifier = Modifier.weight(1.8f))
+                                Text("CANTIDAD", style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary, textAlign = TextAlign.Center, modifier = Modifier.weight(0.9f))
+                                Text("P. UNIT", style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                                Text("SUBTOTAL", style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary, textAlign = TextAlign.End, modifier = Modifier.weight(0.9f))
+                            }
+                            HorizontalDivider(thickness = 0.5.dp, color = FDColors.Border.copy(alpha = 0.5f))
+
+                            factura.items.forEachIndexed { idx, item ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1.8f)) {
+                                            Text(
+                                                item.productoNombre,
+                                                style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
+                                                color = FDColors.TextPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            val loteTxt = buildString {
+                                                if (item.loteNumero.isNotBlank()) append("Lote: ${item.loteNumero}")
+                                                if (item.vencimiento.isNotBlank()) {
+                                                    if (isNotEmpty()) append(" · ")
+                                                    append("Vence: ${item.vencimiento}")
+                                                }
+                                                if (item.empaque.isNotBlank()) {
+                                                    if (isNotEmpty()) append(" · ")
+                                                    append(item.empaque)
+                                                }
+                                            }
+                                            if (loteTxt.isNotBlank()) {
+                                                Text(
+                                                    loteTxt,
+                                                    style = FDType.Caption.copy(fontSize = 9.5.sp),
+                                                    color = FDColors.TextTertiary
+                                                )
+                                            }
+                                        }
+
+                                        Column(
+                                            modifier = Modifier.weight(0.9f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                "${item.cantidadTotal.toInt()}",
+                                                style = FDType.Numeric.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Black),
+                                                color = FDColors.TextPrimary
+                                            )
+                                            if (item.bonificacionGratis > 0.0) {
+                                                Text(
+                                                    "+${item.bonificacionGratis.toInt()} bonif.",
+                                                    style = FDType.Caption.copy(fontSize = 8.5.sp, fontWeight = FontWeight.Bold),
+                                                    color = FDColors.Success
+                                                )
+                                            }
+                                        }
+
+                                        Text(
+                                            "$simboloMoneda " + String.format(Locale.US, "%.2f", item.costoUnitario),
+                                            style = FDType.Numeric.copy(fontSize = 10.5.sp),
+                                            color = FDColors.TextSecondary,
+                                            textAlign = TextAlign.End,
+                                            modifier = Modifier.weight(0.8f)
+                                        )
+
+                                        Text(
+                                            "$simboloMoneda " + String.format(Locale.US, "%.2f", item.costoTotal),
+                                            style = FDType.Numeric.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Black),
+                                            color = FDColors.TextPrimary,
+                                            textAlign = TextAlign.End,
+                                            modifier = Modifier.weight(0.9f)
+                                        )
+                                    }
+                                }
+                                if (idx < factura.items.lastIndex) {
+                                    HorizontalDivider(thickness = 0.5.dp, color = FDColors.Border.copy(alpha = 0.25f))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // BLOQUE B: HISTORIAL DE ABONOS REALIZADOS
             Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
                 Row(
@@ -828,22 +963,19 @@ private fun DetalleFacturaLiquidacion(
                 FilaContable("Emitida", factura.fechaRegistro.ifBlank { "—" }, s)
                 FilaContable("Fecha de pago", fechaPagoTexto, s)
                 if (factura.totalAjustes > 0.01) {
-                    FilaContable("Notas de crédito", "- $simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAjustes), s, color = FDColors.Warning)
+                    FilaContable("Total en papel", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel), s)
+                    FilaContable("Notas de crédito (descuento)", "- $simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAjustes), s, color = FDColors.Warning)
+                    FilaContable("Total efectivo a liquidar", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalEfectivo), s, bold = true)
+                } else {
+                    FilaContable("Total de factura", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel), s, bold = true)
                 }
                 FilaContable("Abonado", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAbonadoReal), s, color = FDColors.Success)
+                HorizontalDivider(color = FDColors.Border.copy(alpha = 0.6f), thickness = s.separatorH)
                 FilaContable(
-                    "Pendiente",
+                    "Pendiente por pagar",
                     "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoRestante),
                     s,
                     color = if (saldoRestante > 0.01) FDColors.Warning else FDColors.Success,
-                    bold = true
-                )
-                HorizontalDivider(color = FDColors.Border.copy(alpha = 0.6f), thickness = s.separatorH)
-                FilaContable(
-                    "Total de factura",
-                    "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel),
-                    s,
-                    color = FDColors.TextPrimary,
                     bold = true,
                     grande = true
                 )
@@ -853,16 +985,18 @@ private fun DetalleFacturaLiquidacion(
                     horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 1.2f)
                 ) {
                     if (!factura.esAnulada) {
-                        if (!esContado) {
-                            FDBotonSecundario(
-                                texto = "NOTA DE CRÉDITO",
-                                onClick = { onAbrirDialogoNotaCredito(factura) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                        // También en contado: si llegó incompleta, la NC genera el saldo a favor.
+                        // El servidor valida el máximo ajustable; aquí no se esconde el camino.
+                        FDBotonSecundario(
+                            texto = "NOTA DE CRÉDITO",
+                            onClick = { onAbrirDialogoNotaCredito(factura) },
+                            habilitado = !procesandoPago,
+                            modifier = Modifier.weight(1f)
+                        )
                         FDBotonSecundario(
                             texto = "ANULAR FACTURA",
                             onClick = { onAbrirDialogoAnular(factura) },
+                            habilitado = !procesandoPago,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -872,6 +1006,7 @@ private fun DetalleFacturaLiquidacion(
                             texto = if (factura.totalAbonadoReal > 0) "REGISTRAR OTRO ABONO" else "REGISTRAR PAGO / ABONO",
                             onClick = { onAbrirDialogoAbono(factura) },
                             icono = Icons.Default.AddCard,
+                            habilitado = !procesandoPago,
                             modifier = Modifier.weight(1f)
                         )
                     }

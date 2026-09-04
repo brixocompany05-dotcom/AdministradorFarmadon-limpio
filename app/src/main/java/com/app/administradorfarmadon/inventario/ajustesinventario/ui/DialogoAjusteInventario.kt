@@ -177,7 +177,12 @@ fun DialogoAjusteInventario(
         derivedStateOf { opcion == null || (cantidad > 0.0 && (esEntrada || cantidad <= disponibleLote + 0.001)) }
     }
     
-    val motivoValido = true // Siempre válido porque el motivo base es la opción seleccionada
+    val esNoComercial = opcion?.tipo in listOf("MUESTRA", "DONACION", "SOBRANTE")
+    val motivoValido by remember(opcion, notasAdicionales) {
+        derivedStateOf {
+            if (esNoComercial) notasAdicionales.trim().length >= 5 else true
+        }
+    }
 
     val puedeGuardar by remember(opcion, loteValido, vencimientoValido, cantidadValida, motivoValido, procesando, exito) {
         derivedStateOf { 
@@ -193,6 +198,7 @@ fun DialogoAjusteInventario(
             !loteValido -> errorLocal = if (esEntrada) "Cuéntanos qué lote tiene la mercadería." else "Elige de qué lote sale."
             !vencimientoValido -> errorLocal = "La fecha de vencimiento no es válida o ya está vencida."
             !cantidadValida -> errorLocal = if (esEntrada) "Ingresa una cantidad mayor a 0." else "Esa cantidad es más de lo que hay en el lote."
+            !motivoValido -> errorLocal = "Escribe un motivo de al menos 5 caracteres para este ajuste sin costo."
             else -> {
                 keyboardController?.hide(); focusManager.clearFocus()
                 // La justificación es el Motivo (etiqueta) + notas si existen
@@ -998,6 +1004,9 @@ private fun PanelResumenAjuste(
                     opcion?.let {
                         FilaResumenAjuste("Motivo base", it.etiqueta, color = FDColors.Primary)
                     }
+                    if (opcion?.tipo in listOf("MUESTRA", "DONACION", "SOBRANTE")) {
+                        FilaResumenAjuste("Costo del lote", "S/ 0.00 (NO VALORIZADO)", color = FDColors.Warning)
+                    }
                     if (cantidad > 0.0) {
                         FilaResumenAjuste(
                             if (opcion?.esEntrada == true) "Entran" else "Saldrán",
@@ -1020,18 +1029,19 @@ private fun PanelResumenAjuste(
                 }
             }
 
-            // Campo de Notas Adicionales (Opcional)
+            // Campo de Notas / Motivo Adicional
+            val esNoComercial = opcion?.tipo in listOf("MUESTRA", "DONACION", "SOBRANTE")
             Surface(
                 color = FDColors.SurfaceElevated.copy(alpha = 0.6f),
                 shape = FDShapes.Small,
-                border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.6f)),
+                border = BorderStroke(1.dp, if (esNoComercial && notasAdicionales.trim().length < 5) FDColors.Warning else FDColors.Border.copy(alpha = 0.6f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "NOTAS O DETALLES ADICIONALES (OPCIONAL)",
+                        if (esNoComercial) "MOTIVO O JUSTIFICACIÓN (OBLIGATORIO ≥ 5 CARACTERES)" else "NOTAS O DETALLES ADICIONALES (OPCIONAL)",
                         style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black),
-                        color = FDColors.TextTertiary
+                        color = if (esNoComercial && notasAdicionales.trim().length < 5) FDColors.Warning else FDColors.TextTertiary
                     )
                     BasicTextField(
                         value = notasAdicionales,
@@ -1040,7 +1050,11 @@ private fun PanelResumenAjuste(
                         modifier = Modifier.fillMaxWidth(),
                         decorationBox = { innerTextField ->
                             if (notasAdicionales.isEmpty()) {
-                                Text("Escribe el detalle real de lo que pasó (opcional)", style = FDType.BodySmall, color = FDColors.TextTertiary)
+                                Text(
+                                    if (esNoComercial) "Escribe el motivo del ingreso no valorizado (obligatorio)..." else "Escribe el detalle real de lo que pasó (opcional)",
+                                    style = FDType.BodySmall,
+                                    color = FDColors.TextTertiary
+                                )
                             }
                             innerTextField()
                         }

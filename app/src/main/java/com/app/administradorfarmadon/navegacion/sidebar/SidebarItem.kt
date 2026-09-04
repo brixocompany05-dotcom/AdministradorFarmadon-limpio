@@ -35,9 +35,9 @@ fun SidebarItem(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp)
-            .padding(horizontal = 12.dp, vertical = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .height(48.dp)
+            .padding(horizontal = 10.dp, vertical = 3.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
             .clickable { onClick() },
         contentAlignment = Alignment.CenterStart
@@ -52,15 +52,15 @@ fun SidebarItem(
                 imageVector = icon,
                 contentDescription = null,
                 tint = iconColor,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(21.dp)
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(13.dp))
             Text(
                 text = label,
                 style = FDType.Body.copy(
                     color = contentColor,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 13.sp
+                    fontSize = 13.5.sp
                 ),
                 maxLines = 1,
                 softWrap = false,

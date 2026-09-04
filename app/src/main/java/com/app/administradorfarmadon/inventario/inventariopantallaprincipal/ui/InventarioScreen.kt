@@ -76,6 +76,7 @@ import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.ui
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica.ProductDetailState
 import androidx.compose.runtime.snapshotFlow
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.InventarioBusquedaEstado
+import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.InventarioSortColumn
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.PharmProduct
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.paginacion.InfiniteLoadingFooter
 
@@ -557,18 +558,6 @@ fun InventarioScreen(
                             ElegantMetricCard(label = "Por vencer", value = nearExpiryCount.toString(), sub = "30 días", accent = FDColors.Error, icon = Icons.Outlined.Schedule, isLoading = isCargandoInicial || isCargandoMetricas, onClick = { viewModel.seleccionarEstadoTab(if (estadoTab == "POR_VENCER") "TODOS" else "POR_VENCER") }, s = s, modifier = Modifier.weight(1f))
                         }
 
-                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = s.padScreenH, vertical = s.xs)) {
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                if (uiState.productsList.isNotEmpty() || activeFiltersCount > 0 || searchQuery.isNotEmpty()) {
-                                    com.app.administradorfarmadon.inventario.inventariopantallaprincipal.ui.componentes.comunes.CategoryTabsRow(
-                                        categories = uiState.categories,
-                                        selectedCategories = uiState.selectedCategories,
-                                        onCategoryClick = { viewModel.toggleCategoryFilter(it) },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-                        }
                     }
 
                     // ── 2. SCROLLABLE MIDDLE: TABLA ──
@@ -579,15 +568,15 @@ fun InventarioScreen(
                     ) {
                         @OptIn(ExperimentalFoundationApi::class)
                         stickyHeader(key = "table_header") {
-                            Row(modifier = Modifier.fillMaxWidth().background(SaaSBackground).padding(horizontal = s.padScreenH, vertical = s.xs), verticalAlignment = Alignment.CenterVertically) {
-                                Row(modifier = Modifier.weight(1f).clickable { viewModel.toggleSort(com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.InventarioSortColumn.PRODUCTO) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("PRODUCTO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp)
-                                    Icon(Icons.Default.UnfoldMore, null, tint = FDColors.TextTertiary.copy(alpha = 0.5f), modifier = Modifier.size(s.iconTiny * 0.9f))
+                            Row(modifier = Modifier.fillMaxWidth().background(SaaSBackground).padding(horizontal = s.padScreenH, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(modifier = Modifier.weight(1f).clickable { viewModel.toggleSort(
+                                    InventarioSortColumn.PRODUCTO) }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("PRODUCTO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 1.1.sp)
+                                    Icon(Icons.Default.UnfoldMore, null, tint = FDColors.TextTertiary.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
                                 }
-                                Box(modifier = Modifier.width(layoutState.cols.code)) { Text("CÓDIGO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
-                                Box(modifier = Modifier.width(layoutState.cols.stock), contentAlignment = Alignment.CenterEnd) { Text("STOCK ACTUAL", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
-                                Box(modifier = Modifier.width(layoutState.cols.min), contentAlignment = Alignment.CenterEnd) { Text("STOCK MÍNIMO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
-                                Box(modifier = Modifier.width(layoutState.cols.expiry), contentAlignment = Alignment.CenterEnd) { Text("VENCIMIENTO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = s.textLabel.value.sp * 0.85f, letterSpacing = 1.1.sp) }
+                                Box(modifier = Modifier.width(layoutState.cols.category), contentAlignment = Alignment.CenterStart) { Text("CATEGORÍA", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 1.1.sp) }
+                                Box(modifier = Modifier.width(layoutState.cols.stock), contentAlignment = Alignment.CenterEnd) { Text("STOCK ACTUAL", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 1.1.sp) }
+                                Box(modifier = Modifier.width(layoutState.cols.min), contentAlignment = Alignment.CenterEnd) { Text("STOCK MÍNIMO", color = FDColors.TextTertiary, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 1.1.sp) }
                             }
                             Box(modifier = Modifier.fillMaxWidth().padding(horizontal = s.padScreenH).height(s.separatorH).background(FDColors.Border.copy(alpha = 0.6f)))
                         }

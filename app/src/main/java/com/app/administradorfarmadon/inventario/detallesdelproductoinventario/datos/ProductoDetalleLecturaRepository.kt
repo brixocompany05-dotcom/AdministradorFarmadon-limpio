@@ -1,29 +1,23 @@
 package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.datos
-import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 
 import android.util.Log
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
-import com.app.administradorfarmadon.inventario.compartido.modelo.ExpedienteReclamoProveedor
-import com.app.administradorfarmadon.inventario.compartido.logica.CodigoBarraHelper
 import com.app.administradorfarmadon.inventario.compartido.logica.ProductoParser
-import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
-import com.app.administradorfarmadon.inventario.compartido.modelo.LoteProducto
+import com.app.administradorfarmadon.inventario.compartido.modelo.ExpedienteReclamoProveedor
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
-import com.app.administradorfarmadon.inventario.crearproductogeneral.datos.CatalogoEmpaques
-import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionProducto
 import com.app.administradorfarmadon.inventario.detallesdelproductoinventario.modelo.MovimientoInventario
 import com.google.firebase.Timestamp
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import com.app.administradorfarmadon.inventario.compartido.logica.CodigoBarraHelper
 import kotlinx.coroutines.tasks.await
-import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
-import java.util.UUID
 
 /**
  * Repositorio de Detalles de Producto en Cloud Firestore (Multi-Tenant).
@@ -74,23 +68,23 @@ class ProductoDetalleLecturaRepository(
         }
     }
 
-
     fun observarMovimientosProducto(clienteId: String, productId: String, limit: Long = 50): Flow<List<MovimientoInventario>> = callbackFlow {
-        if (clienteId.isBlank() || productId.isBlank()) {
+        val sucursalId = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId }.ifBlank { "principal" }
+        if (clienteId.isBlank() || productId.isBlank() || sucursalId.isBlank()) {
             trySend(emptyList())
             close()
             return@callbackFlow
         }
 
-        val ref = FarmadonPaths.movimientos(db, clienteId, SessionManager.sucursalIdEfectiva)
+        // Consulta de 1 solo campo (productoId) con ordenamiento en memoria para cero dependencia de índices compuestos
+        val ref = FarmadonPaths.movimientos(db, clienteId, sucursalId)
             .whereEqualTo("productoId", productId)
-            .orderBy("fecha", com.google.firebase.firestore.Query.Direction.DESCENDING)
             .limit(limit)
 
         val listener = ref.addSnapshotListener { snapshot, error ->
             if (error != null) {
                 Log.e(TAG, "Error escuchando movimientos: ${error.message}", error)
-                close(error)
+                trySend(emptyList())
                 return@addSnapshotListener
             }
 
@@ -99,14 +93,15 @@ class ProductoDetalleLecturaRepository(
                 val tipo = doc.getString("tipo") ?: ""
                 val cant = doc.getDouble("cantidad") ?: doc.getDouble("cantidadTotal") ?: 0.0
                 val ts = doc.get("fecha") as? Timestamp
-                val user = doc.getString("usuarioEmail") ?: ""
+                val fechaMs = doc.getLong("fechaMs") ?: ts?.toDate()?.time ?: 0L
+                val user = doc.getString("usuarioEmail") ?: doc.getString("usuarioNombre") ?: ""
                 val loteNum = doc.getString("loteNumero") ?: doc.getString("lote") ?: ""
                 val prov = doc.getString("proveedorNombre") ?: ""
                 val fact = doc.getString("facturaNumero") ?: ""
                 val mot = doc.getString("motivo") ?: ""
 
                 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-                val fechaStr = ts?.toDate()?.let { sdf.format(it) } ?: ""
+                val fechaStr = if (fechaMs > 0L) sdf.format(Date(fechaMs)) else (ts?.toDate()?.let { sdf.format(it) } ?: "")
 
                 val refDetalle = buildString {
                     if (loteNum.isNotBlank()) append("Lote: $loteNum")
@@ -115,17 +110,21 @@ class ProductoDetalleLecturaRepository(
                     if (mot.isNotBlank()) append("  ·  Motivo: $mot")
                 }
 
-                MovimientoInventario(
-                    id = id,
-                    tipo = tipo,
-                    cantidad = cant,
-                    fecha = fechaStr,
-                    loteNumero = loteNum,
-                    usuarioNombre = user.substringBefore("@"),
-                    referencia = refDetalle,
-                    costoTotal = doc.getDouble("costoTotal") ?: 0.0
+                Pair(
+                    fechaMs,
+                    MovimientoInventario(
+                        id = id,
+                        productoId = productId,
+                        tipo = tipo,
+                        cantidad = cant,
+                        fecha = fechaStr,
+                        loteNumero = loteNum,
+                        usuarioNombre = user.substringBefore("@"),
+                        referencia = refDetalle,
+                        costoTotal = doc.getDouble("costoTotal") ?: 0.0
+                    )
                 )
-            } ?: emptyList()
+            }?.sortedByDescending { it.first }?.map { it.second } ?: emptyList()
 
             trySend(lista)
         }
@@ -135,15 +134,15 @@ class ProductoDetalleLecturaRepository(
         }
     }
 
-
     fun observarReclamosProducto(clienteId: String, productId: String): Flow<List<ExpedienteReclamoProveedor>> = callbackFlow {
-        if (clienteId.isBlank() || productId.isBlank()) {
+        val sucursalId = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId }.ifBlank { "principal" }
+        if (clienteId.isBlank() || productId.isBlank() || sucursalId.isBlank()) {
             trySend(emptyList())
             close()
             return@callbackFlow
         }
 
-        val ref = FarmadonPaths.reclamosProveedores(db, clienteId, SessionManager.sucursalIdEfectiva)
+        val ref = FarmadonPaths.reclamosProveedores(db, clienteId, sucursalId)
             .whereEqualTo("productoId", productId)
 
         val listener = ref.addSnapshotListener { snapshot, error ->
@@ -215,7 +214,8 @@ class ProductoDetalleLecturaRepository(
             return@callbackFlow
         }
 
-        val docRef = FarmadonPaths.catalogos(db, clienteId, SessionManager.sucursalIdEfectiva).document("ubicaciones")
+        val sucursalId = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId }.ifBlank { "principal" }
+        val docRef = FarmadonPaths.catalogos(db, clienteId, sucursalId).document("ubicaciones")
 
         val listener = docRef.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -275,13 +275,13 @@ class ProductoDetalleLecturaRepository(
     suspend fun obtenerInfoEliminacion(clienteId: String, productoId: String): InfoEliminacion? {
         if (clienteId.isBlank() || productoId.isBlank()) return null
         return try {
-            val tienda = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
+            val sucursalId = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId }.ifBlank { "principal" }
+            val tienda = FarmadonPaths.sucursal(db, clienteId, sucursalId)
             val q = tienda.collection("auditorias").document("inventario").collection("productos")
                 .document("listaeliminado").collection("items")
                 .whereEqualTo("productoId", productoId)
-                .orderBy("fecha", com.google.firebase.firestore.Query.Direction.DESCENDING)
-                .limit(1).get().await()
-            val doc = q.documents.firstOrNull() ?: return null
+                .limit(5).get().await()
+            val doc = q.documents.maxByOrNull { it.getTimestamp("fecha")?.toDate()?.time ?: 0L } ?: return null
             val email = doc.getString("usuarioEmail") ?: doc.getString("eliminadoPorUid") ?: ""
             val motivo = doc.getString("motivo") ?: ""
             val ts = doc.getTimestamp("fecha")
@@ -291,9 +291,4 @@ class ProductoDetalleLecturaRepository(
             InfoEliminacion(email, fechaStr, motivo)
         } catch (_: Exception) { null }
     }
-
-    /**
-     * Guarda la configuración operativa y logística (Ubicación, Stock Mínimo y Estado Activo/Suspendido).
-     */
-
 }

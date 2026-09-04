@@ -5,8 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.clientes.datos.ClientesRepository
 import com.app.administradorfarmadon.clientes.modelo.ClienteFarmacia
-import com.app.administradorfarmadon.compartido.datos.ApiDocumentosPeru
-import com.app.administradorfarmadon.compartido.datos.ResultadoConsultaDoc
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,14 +19,12 @@ import kotlinx.coroutines.launch
  */
 data class ClientesUiState(
     val clientes: List<ClienteFarmacia> = emptyList(),
+    val totalClientesServidor: Int = 0,
     val cargando: Boolean = true,
     val filtroTexto: String = "",
     val clienteSeleccionado: ClienteFarmacia? = null,
     val historialVentas: List<Venta> = emptyList(),
     val cargandoHistorial: Boolean = false,
-    val mostrarDialogoCrearEditar: Boolean = false,
-    val clienteEnEdicion: ClienteFarmacia? = null,
-    val consultandoDoc: Boolean = false,
     val error: String? = null,
     val mensajeExito: String? = null
 ) {
@@ -55,10 +51,16 @@ data class ClientesUiState(
 
     val totalOperacionesCliente: Int
         get() = historialVentas.count { it.estado != Venta.ESTADO_ANULADA }
+
+    val ticketPromedioCliente: Double
+        get() = if (totalOperacionesCliente > 0 && totalComprasCliente > 0.0) {
+            kotlin.math.round((totalComprasCliente / totalOperacionesCliente) * 100.0) / 100.0
+        } else 0.0
 }
 
 /**
- * ViewModel del módulo de Directorio de Clientes.
+ * ViewModel del módulo de Directorio de Clientes (Solo Lectura / Consulta Informativa R1/R3/R8).
+ * La única puerta de registro de clientes es el módulo de Ventas (POS).
  */
 class ClientesViewModel(
     private val clientesRepository: ClientesRepository = ClientesRepository()
@@ -74,7 +76,17 @@ class ClientesViewModel(
     private var jobHistorial: Job? = null
 
     init {
+        recargarTotalClientes()
         iniciarObservadorClientes()
+    }
+
+    fun recargarTotalClientes() {
+        viewModelScope.launch {
+            val total = clientesRepository.obtenerTotalClientes()
+            if (total > 0) {
+                _uiState.update { it.copy(totalClientesServidor = total) }
+            }
+        }
     }
 
     private fun iniciarObservadorClientes() {
@@ -90,12 +102,15 @@ class ClientesViewModel(
                         val selActualizada = estado.clienteSeleccionado?.let { sel ->
                             lista.firstOrNull { it.id == sel.id }
                         }
+                        val totalSrv = if (estado.totalClientesServidor > 0) estado.totalClientesServidor else lista.size
                         estado.copy(
                             clientes = lista,
+                            totalClientesServidor = maxOf(totalSrv, lista.size),
                             cargando = false,
                             clienteSeleccionado = selActualizada
                         )
                     }
+                    recargarTotalClientes()
                 }
         }
     }
@@ -120,93 +135,6 @@ class ClientesViewModel(
                 .collect { ventas ->
                     _uiState.update { it.copy(historialVentas = ventas, cargandoHistorial = false) }
                 }
-        }
-    }
-
-    fun abrirDialogoCrear() {
-        _uiState.update { it.copy(mostrarDialogoCrearEditar = true, clienteEnEdicion = null, error = null) }
-    }
-
-    fun abrirDialogoEditar(cliente: ClienteFarmacia) {
-        _uiState.update { it.copy(mostrarDialogoCrearEditar = true, clienteEnEdicion = cliente, error = null) }
-    }
-
-    fun cerrarDialogoCrearEditar() {
-        _uiState.update { it.copy(mostrarDialogoCrearEditar = false, clienteEnEdicion = null) }
-    }
-
-    fun consultarDocumentoOficial(tipo: String, numero: String, onResultado: (nombre: String, direccion: String) -> Unit) {
-        if (numero.trim().isBlank()) return
-        viewModelScope.launch {
-            _uiState.update { it.copy(consultandoDoc = true, error = null) }
-            when (val res = ApiDocumentosPeru.consultar(tipo, numero)) {
-                is ResultadoConsultaDoc.Encontrado -> {
-                    _uiState.update { it.copy(consultandoDoc = false) }
-                    onResultado(res.nombreCompleto, res.direccion)
-                }
-                is ResultadoConsultaDoc.NoEncontrado -> {
-                    _uiState.update {
-                        it.copy(
-                            consultandoDoc = false,
-                            error = "No se encontraron datos en los registros oficiales para el $tipo $numero."
-                        )
-                    }
-                }
-                is ResultadoConsultaDoc.SinToken -> {
-                    _uiState.update {
-                        it.copy(
-                            consultandoDoc = false,
-                            error = res.mensaje
-                        )
-                    }
-                }
-                is ResultadoConsultaDoc.Error -> {
-                    _uiState.update {
-                        it.copy(
-                            consultandoDoc = false,
-                            error = res.mensaje
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun guardarCliente(cliente: ClienteFarmacia) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(error = null) }
-            val res = clientesRepository.guardarCliente(cliente)
-            res.onSuccess { guardado ->
-                _uiState.update {
-                    it.copy(
-                        mostrarDialogoCrearEditar = false,
-                        clienteEnEdicion = null,
-                        clienteSeleccionado = guardado,
-                        mensajeExito = "Cliente '${guardado.nombre}' guardado exitosamente."
-                    )
-                }
-                seleccionarCliente(guardado)
-            }.onFailure { err ->
-                _uiState.update { it.copy(error = err.message ?: "No se pudo guardar el cliente.") }
-            }
-        }
-    }
-
-    fun eliminarCliente(clienteId: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(error = null) }
-            val res = clientesRepository.eliminarCliente(clienteId)
-            res.onSuccess {
-                _uiState.update {
-                    it.copy(
-                        clienteSeleccionado = null,
-                        historialVentas = emptyList(),
-                        mensajeExito = "Cliente eliminado del directorio."
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update { it.copy(error = err.message ?: "No se pudo eliminar el cliente.") }
-            }
         }
     }
 

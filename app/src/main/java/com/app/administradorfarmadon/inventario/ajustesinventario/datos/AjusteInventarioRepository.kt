@@ -105,17 +105,20 @@ class AjusteInventarioRepository(
                         "factura" to "AJUSTE"
                     )
                 )
+                val esNoComercial = tipo in listOf("MUESTRA", "DONACION", "SOBRANTE")
                 val loteFinalData = mutableMapOf<String, Any>(
                     "numero" to loteLimpio,
                     "loteId" to FechaVencimientoHelper.llaveLote(loteLimpio),
                     "vencimiento" to vencimientoFinal,
                     "cantidad" to nuevaCantidad,
-                    "proveedor" to (proveedorOriginal ?: ""),
+                    "proveedor" to (proveedorOriginal ?: (if (esNoComercial) "NO COMERCIAL ($tipo)" else "")),
                     "proveedorId" to (proveedorIdOriginal ?: ""),
                     "factura" to (facturaOriginal ?: "AJUSTE"),
                     "entradas" to entradas,
-                    "costoCompra" to costoCompraOriginal,
-                    "costoUnitario" to costoUnitarioOriginal,
+                    "costoCompra" to (if (esNoComercial) 0.0 else costoCompraOriginal),
+                    "costoUnitario" to (if (esNoComercial) 0.0 else costoUnitarioOriginal),
+                    "noValorizado" to (esNoComercial || (loteActual?.get("noValorizado") == true)),
+                    "origen" to "AJUSTE_$tipo",
                     "ultimaEntrada" to FieldValue.serverTimestamp()
                 )
                 (loteActual?.get("cantidadBloqueada") as? Number)?.let { loteFinalData["cantidadBloqueada"] = it.toDouble() }

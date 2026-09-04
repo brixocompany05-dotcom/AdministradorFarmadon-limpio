@@ -38,7 +38,8 @@ import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 @Composable
 fun PagosMixtosEditor(
     estado: PagosMixtosEditorState,
-    modificador: Modifier = Modifier
+    modificador: Modifier = Modifier,
+    soloLectura: Boolean = false
 ) {
     val s = recordarMedidaAdaptativa()
     val colores = TokensFarmadon.colores
@@ -73,7 +74,7 @@ fun PagosMixtosEditor(
                     ),
                     modifier = Modifier
                         .clip(RoundedCornerShape(s.radiusButton))
-                        .clickable {
+                        .clickable(enabled = !soloLectura) {
                             if (usado) {
                                 estado.quitarPorMetodo(opcion)
                             } else {
@@ -157,7 +158,7 @@ fun PagosMixtosEditor(
                             modifier = Modifier
                                 .size(s.iconSmall)
                                 .clip(RoundedCornerShape(s.radiusChip))
-                                .clickable { estado.quitarPorMetodo(fila.metodo) }
+                                .clickable(enabled = !soloLectura) { estado.quitarPorMetodo(fila.metodo) }
                         )
                     }
                     Row(
@@ -168,6 +169,7 @@ fun PagosMixtosEditor(
                         OutlinedTextField(
                             value = fila.montoTexto,
                             onValueChange = { estado.cambiarMonto(fila.id, it) },
+                            enabled = !soloLectura,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             label = { Text("¿CUÁNTO? ($simboloMoneda)", fontSize = s.textLabel.value.sp * 0.82f) },
@@ -225,6 +227,7 @@ fun PagosMixtosEditor(
                             OutlinedTextField(
                                 value = fila.operacion,
                                 onValueChange = { estado.cambiarOperacion(fila.id, it) },
+                                enabled = !soloLectura,
                                 label = { Text("N° de operación", fontSize = s.textLabel.value.sp * 0.82f) },
                                 singleLine = true,
                                 textStyle = TokensFarmadon.tipografia.cuerpo.copy(

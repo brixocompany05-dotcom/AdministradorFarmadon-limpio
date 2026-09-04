@@ -368,7 +368,6 @@ fun PlanCard(
     compacto: Boolean = false
 ) {
     val priceFinal = plan.precioMensual
-    // La moneda NACE del país del plan (catálogo propio de BRIXO, O(1)).
     val monedaPlan = CatalogoPaises.monedaDe(plan.paisIso)
     val precioTexto = if (plan.esGratuito) "GRATIS" else "${monedaPlan.second} ${"%.2f".format(priceFinal)}"
     val precioUnidad = if (plan.esGratuito)
@@ -378,27 +377,25 @@ fun PlanCard(
     val notaTrial = if (!plan.esGratuito && plan.diasPrueba > 0) "INCLUYE ${plan.diasPrueba} DÍAS DE PRUEBA" else null
 
     val isDestacado = plan.nombre.contains("Pro", ignoreCase = true) || plan.nombre.contains("Premium", ignoreCase = true)
+
     Surface(
         modifier = modifier
-            .widthIn(max = 360.dp)
-            .heightIn(min = if (compacto) 220.dp else 260.dp)
+            .widthIn(min = 320.dp, max = 440.dp)
             .bounceClick()
             .clickable { onClick() }
             .then(
-                if (selected) Modifier.border(1.5.dp, FDColors.Primary, RoundedCornerShape(20.dp))
-                else if (isDestacado) Modifier.border(1.2.dp, FDColors.Success.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                if (selected) Modifier.border(2.dp, FDColors.Primary, RoundedCornerShape(20.dp))
+                else if (isDestacado) Modifier.border(1.5.dp, FDColors.Success, RoundedCornerShape(20.dp))
                 else Modifier.border(1.dp, FDColors.Border, RoundedCornerShape(20.dp))
             ),
-        color = when {
-            selected -> FDColors.Primary
-            isDestacado -> FDColors.SuccessSubtle
-            else -> FDColors.SurfaceElevated
-        },
+        color = FDColors.SurfaceElevated,
         shape = RoundedCornerShape(20.dp),
-        shadowElevation = if (selected || isDestacado) 8.dp else 0.dp
+        shadowElevation = if (selected) 10.dp else 4.dp
     ) {
         Column(
-            modifier = Modifier.padding(s.gapXXLarge),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(s.gapXXLarge),
             verticalArrangement = Arrangement.spacedBy(s.gapLarge)
         ) {
             Row(
@@ -408,19 +405,46 @@ fun PlanCard(
             ) {
                 Text(
                     text = plan.nombre.uppercase(),
-                    style = TokensFarmadon.tipografia.etiqueta,
-                    color = if (selected) FDColors.PrimaryText else TokensFarmadon.colores.textoSecundario
+                    style = TokensFarmadon.tipografia.titulo3.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    ),
+                    color = FDColors.TextPrimary
                 )
                 if (selected) {
-                    Icon(Icons.Default.CheckCircle, null, tint = FDColors.PrimaryText, modifier = Modifier.size(16.dp))
+                    Surface(
+                        color = FDColors.Primary,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, null, tint = FDColors.PrimaryText, modifier = Modifier.size(14.dp))
+                            Text("SELECCIONADO", style = TokensFarmadon.tipografia.leyenda.copy(fontWeight = FontWeight.Bold), color = FDColors.PrimaryText)
+                        }
+                    }
+                } else if (isDestacado) {
+                    Surface(
+                        color = FDColors.Success.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            "POPULAR",
+                            style = TokensFarmadon.tipografia.leyenda.copy(fontWeight = FontWeight.Bold),
+                            color = FDColors.Success,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
             if (plan.descripcion.isNotEmpty()) {
                 Text(
                     text = plan.descripcion,
-                    style = TokensFarmadon.tipografia.cuerpoPequeno,
-                    color = if (selected) FDColors.PrimaryText.copy(alpha = 0.7f) else TokensFarmadon.colores.textoTerciario
+                    style = TokensFarmadon.tipografia.cuerpo,
+                    color = FDColors.TextSecondary
                 )
             }
 
@@ -428,49 +452,64 @@ fun PlanCard(
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         text = precioTexto,
-                        style = TokensFarmadon.tipografia.visual.copy(fontSize = 34.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Light),
-                        color = if (selected) FDColors.PrimaryText else FDColors.TextPrimary
+                        style = TokensFarmadon.tipografia.visual.copy(
+                            fontSize = 38.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = FDColors.TextPrimary
                     )
                     Text(
                         text = precioUnidad,
-                        style = TokensFarmadon.tipografia.leyenda.copy(fontSize = 11.sp),
-                        color = if (selected) FDColors.PrimaryText.copy(alpha = 0.6f) else FDColors.TextTertiary,
-                        modifier = Modifier.padding(bottom = 6.dp, start = 4.dp)
+                        style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontWeight = FontWeight.Medium),
+                        color = FDColors.TextSecondary,
+                        modifier = Modifier.padding(bottom = 6.dp, start = 6.dp)
                     )
                 }
                 if (notaTrial != null) {
-                    Text(
-                        text = notaTrial,
-                        style = TokensFarmadon.tipografia.leyenda,
-                        color = if (selected) FDColors.PrimaryText.copy(alpha = 0.6f) else TokensFarmadon.colores.textoTerciario,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                    Surface(
+                        color = FDColors.Primary.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.padding(top = 6.dp)
+                    ) {
+                        Text(
+                            text = notaTrial,
+                            style = TokensFarmadon.tipografia.leyenda.copy(fontWeight = FontWeight.SemiBold),
+                            color = FDColors.Primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
-            HorizontalDivider(color = (if (selected) FDColors.PrimaryText else TokensFarmadon.colores.bordeSutil).copy(alpha = 0.12f))
+            HorizontalDivider(color = FDColors.Border, thickness = 1.dp)
 
-            Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
-                // TODAS las herramientas del plan (jamás un recorte silencioso).
-                // Se descartan vacías o repetidas idénticas a la descripción.
+            Column(verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
                 val herramientas = plan.features
                     .map { it.trim() }
                     .filter { it.isNotEmpty() && it != plan.descripcion.trim() }
                 herramientas.forEach { feature ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(s.gapSmall)
+                        horizontalArrangement = Arrangement.spacedBy(s.gapMedium)
                     ) {
-                        Icon(
-                            Icons.Default.Check,
-                            null,
-                            tint = if (selected) FDColors.PrimaryText else FDColors.Success,
-                            modifier = Modifier.size(14.dp)
-                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = FDColors.Success.copy(alpha = 0.15f),
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    null,
+                                    tint = FDColors.Success,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
                         Text(
                             text = feature,
-                            style = TokensFarmadon.tipografia.cuerpoPequeno,
-                            color = if (selected) FDColors.PrimaryText else TokensFarmadon.colores.textoSecundario
+                            style = TokensFarmadon.tipografia.cuerpo,
+                            color = FDColors.TextPrimary
                         )
                     }
                 }
@@ -481,17 +520,23 @@ fun PlanCard(
             Button(
                 onClick = onClick,
                 enabled = !cargando && planSeleccionable,
-                modifier = Modifier.fillMaxWidth().height(s.btnMediumH),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(s.btnLargeH),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected) FDColors.PrimaryText else FDColors.Primary.copy(alpha = 0.1f),
-                    contentColor = if (selected) FDColors.Primary else FDColors.Primary
+                    containerColor = if (selected) FDColors.Primary else FDColors.Primary.copy(alpha = 0.15f),
+                    contentColor = if (selected) FDColors.PrimaryText else FDColors.Primary
                 ),
                 shape = TokensFarmadon.formas.mediana
             ) {
                 if (selected && cargando) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = FDColors.Primary, strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = FDColors.PrimaryText, strokeWidth = 2.dp)
                 } else {
-                    Text(if (selected) "PLAN SELECCIONADO" else "ELEGIR PLAN", style = TokensFarmadon.tipografia.etiqueta, color = if (selected) FDColors.Primary else FDColors.Primary)
+                    Text(
+                        if (selected) "PLAN SELECCIONADO" else "ELEGIR ESTE PLAN",
+                        style = TokensFarmadon.tipografia.etiqueta.copy(fontWeight = FontWeight.Bold),
+                        color = if (selected) FDColors.PrimaryText else FDColors.Primary
+                    )
                 }
             }
         }

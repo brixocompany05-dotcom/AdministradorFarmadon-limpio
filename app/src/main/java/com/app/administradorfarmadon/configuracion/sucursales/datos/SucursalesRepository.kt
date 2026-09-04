@@ -305,11 +305,18 @@ class SucursalesRepository(
                     throw IllegalStateException("EMISOR_INCOMPLETO: Debes configurar y verificar la Facturación Electrónica en la Sede Principal antes de crear nuevas sedes.")
                 }
 
-                // Asignar series fiscales únicas atómicamente (FASE F0)
                 val seriesRef = FarmadonPaths.facturacionSeries(db, clienteId)
                 val seriesSnap = tx.get(seriesRef)
                 val proximoIndice = (seriesSnap.getLong("proximoIndice") ?: 1L).coerceAtLeast(1L)
                 val seriesNuevas = derivarSeriesPorIndice(proximoIndice)
+
+                // Leer posConfig de la sede principal para heredar copia-borrador (FASE ALTA POS)
+                val principalMap = rawSucursales.firstOrNull { it["esPrincipal"] == true }
+                val principalId = (principalMap?.get("id") as? String).orEmpty()
+                val posPrincipalDocRef = if (principalId.isNotBlank()) {
+                    FarmadonPaths.sucursal(db, clienteId, principalId).collection("catalogos").document("posConfig")
+                } else null
+                val posPrincipalSnap = if (posPrincipalDocRef != null) tx.get(posPrincipalDocRef) else null
 
                 val data = mutableMapOf<String, Any?>(
                     "id" to sucursalId,
@@ -366,6 +373,37 @@ class SucursalesRepository(
 
                 // 1c. Incrementar atómicamente el contador de series fiscales de la farmacia
                 tx.set(seriesRef, mapOf("proximoIndice" to proximoIndice + 1L), SetOptions.merge())
+
+                // 1d. HERENCIA DE BORRADOR POS (sin defaults silenciosos ni doble tipeo):
+                //     La nueva sede nace con copia-borrador de Principal pero en estado PENDIENTE (esBorrador = true).
+                //     El POS bloqueará cobros hasta que el administrador abra Configuración > Ventas/POS y presione Guardar.
+                val nuevaPosConfigRef = FarmadonPaths.sucursal(db, clienteId, sucursalId)
+                    .collection("catalogos").document("posConfig")
+                val posBorradorData: Map<String, Any?> = if (posPrincipalSnap != null && posPrincipalSnap.exists()) {
+                    val map = posPrincipalSnap.data?.toMutableMap() ?: mutableMapOf()
+                    map["sucursalId"] = sucursalId
+                    map["esBorrador"] = true
+                    map["guardadoEnMs"] = 0L
+                    map["guardadoPorId"] = ""
+                    map["guardadoPorNombre"] = ""
+                    map["guardadoPorRol"] = ""
+                    map
+                } else {
+                    mapOf(
+                        "farmaciaId" to clienteId,
+                        "sucursalId" to sucursalId,
+                        "esBorrador" to true,
+                        "guardadoEnMs" to 0L,
+                        "guardadoPorId" to "",
+                        "guardadoPorNombre" to "",
+                        "guardadoPorRol" to "",
+                        "descuento" to mapOf("maxPct" to 10.0, "maxMonto" to 50.0),
+                        "caja" to mapOf("retiroMax" to 500.0, "vueltoMax" to 200.0, "entregaCiegaTurno" to true),
+                        "ticket" to mapOf("copias" to 1, "pie" to "Gracias por su compra"),
+                        "receta" to mapOf("exigirConfirmacion" to true)
+                    )
+                }
+                tx.set(nuevaPosConfigRef, posBorradorData, SetOptions.merge())
 
                 // 2. Array resumen = ESPEJO de la subcolección real (mismo tamaño, mismo id).
                 //    Fuente de verdad: la subcolección. El array nunca miente porque

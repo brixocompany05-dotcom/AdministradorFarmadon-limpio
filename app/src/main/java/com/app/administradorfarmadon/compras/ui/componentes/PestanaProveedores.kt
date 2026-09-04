@@ -53,11 +53,14 @@ fun PestanaProveedores(
     facturasPendientesCount: Int = 0,
     subTabActual: String,
     productosDelProveedor: List<PharmProduct>,
+    todosLosProductos: List<PharmProduct> = emptyList(),
     onSeleccionarSubTab: (String) -> Unit,
     onSeleccionarProveedor: (String) -> Unit,
     onCrearProveedor: () -> Unit,
     onEditarProveedor: (Proveedor) -> Unit,
     onEliminarProveedor: (Proveedor) -> Unit = {},
+    onVincularProducto: (PharmProduct, Proveedor) -> Unit = { _, _ -> },
+    onDesvincularProducto: (PharmProduct) -> Unit = {},
     // Operaciones de DINERO: sin valor por defecto — el botón jamás queda
     // "REGISTRANDO..." infinito por un llamante olvidadizo; el compilador lo exige.
     onCobrarSaldoAFavor: (Double, String, (Result<Unit>) -> Unit) -> Unit,
@@ -75,9 +78,37 @@ fun PestanaProveedores(
     val keyboardControllerProv = LocalSoftwareKeyboardController.current
     val densityProv = LocalDensity.current
     val isKeyboardVisibleProv = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(densityProv) > 0
+    var mostrarDialogoEliminar by remember(proveedorSeleccionado?.id) { mutableStateOf(false) }
+    var mostrarDialogoAsignar by remember { mutableStateOf(false) }
+    var productoParaCambiar by remember { mutableStateOf<PharmProduct?>(null) }
+    var busquedaProveedor by remember { mutableStateOf("") }
+    var filtroRapido by remember { mutableStateOf("TODOS") } // "TODOS" | "CON_SALDO"
+
+    val totalProveedores = proveedores.size
+    val cantConSaldo = remember(proveedores) {
+        proveedores.count { it.saldoAFavor > 0.01 }
+    }
+
+    val proveedoresFiltrados = remember(proveedores, busquedaProveedor, filtroRapido) {
+        val q = busquedaProveedor.trim().lowercase()
+        proveedores.filter { prov ->
+            val coincideFiltro = when (filtroRapido) {
+                "CON_SALDO" -> prov.saldoAFavor > 0.01
+                else -> true
+            }
+            if (!coincideFiltro) return@filter false
+            if (q.isBlank()) return@filter true
+            prov.nombre.contains(q, ignoreCase = true) ||
+                prov.idFiscal.contains(q, ignoreCase = true) ||
+                prov.contacto.contains(q, ignoreCase = true) ||
+                prov.telefono.contains(q, ignoreCase = true)
+        }
+    }
+
     BackHandler(enabled = true) {
         when {
             isKeyboardVisibleProv -> { keyboardControllerProv?.hide(); focusManagerProv.clearFocus(force = true) }
+            mostrarDialogoEliminar -> { mostrarDialogoEliminar = false }
             else -> { }
         }
     }
@@ -222,26 +253,161 @@ fun PestanaProveedores(
 
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.6f), thickness = s.separatorH)
 
-                if (proveedores.isEmpty()) {
+                // ── BUSCADOR DE PROVEEDOR ──
+                OutlinedTextField(
+                    value = busquedaProveedor,
+                    onValueChange = { busquedaProveedor = it },
+                    placeholder = { Text("Buscar droguería, RUC o contacto...", fontSize = 12.sp, color = FDColors.InputPlaceholder) },
+                    leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall)) },
+                    trailingIcon = if (busquedaProveedor.isNotBlank()) {
+                        {
+                            IconButton(onClick = { busquedaProveedor = "" }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Limpiar búsqueda", tint = FDColors.TextTertiary, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    } else null,
+                    singleLine = true,
+                    shape = FDShapes.Small,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = FDColors.InputBackground,
+                        unfocusedContainerColor = FDColors.InputBackground,
+                        focusedBorderColor = FDColors.BorderFocus,
+                        unfocusedBorderColor = FDColors.InputBorder,
+                        focusedTextColor = FDColors.InputText,
+                        unfocusedTextColor = FDColors.InputText
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(s.inputMinH)
+                )
+
+                // ── FILTROS RÁPIDOS Y CONTADOR EN VIVO ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(s.xs),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Chip TODOS
+                    val selTodos = filtroRapido == "TODOS"
+                    Surface(
+                        onClick = { filtroRapido = "TODOS" },
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (selTodos) FDColors.Primary.copy(alpha = 0.12f) else FDColors.SurfaceElevated,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selTodos) FDColors.Primary else FDColors.Border.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp)
+                        ) {
+                            Text(
+                                text = "TODOS",
+                                style = FDType.Caption.copy(fontWeight = if (selTodos) FontWeight.Bold else FontWeight.Medium, fontSize = 10.sp),
+                                color = if (selTodos) FDColors.Primary else FDColors.TextSecondary
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (selTodos) FDColors.Primary else FDColors.Border.copy(alpha = 0.4f)
+                            ) {
+                                Text(
+                                    text = "$totalProveedores",
+                                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp),
+                                    color = if (selTodos) Color.White else FDColors.TextSecondary,
+                                    modifier = Modifier.padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Chip CON SALDO
+                    val selSaldo = filtroRapido == "CON_SALDO"
+                    Surface(
+                        onClick = { filtroRapido = "CON_SALDO" },
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (selSaldo) FDColors.Success.copy(alpha = 0.12f) else FDColors.SurfaceElevated,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selSaldo) FDColors.Success else FDColors.Border.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp)
+                        ) {
+                            Text(
+                                text = "CON SALDO",
+                                style = FDType.Caption.copy(fontWeight = if (selSaldo) FontWeight.Bold else FontWeight.Medium, fontSize = 10.sp),
+                                color = if (selSaldo) FDColors.Success else FDColors.TextSecondary
+                            )
+                            if (cantConSaldo > 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (selSaldo) FDColors.Success else FDColors.Success.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = "$cantConSaldo",
+                                        style = FDType.Caption.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp),
+                                        color = if (selSaldo) Color.White else FDColors.Success,
+                                        modifier = Modifier.padding(horizontal = 3.5.dp, vertical = 0.5.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.weight(1f))
+
+                    Text(
+                        text = "${proveedoresFiltrados.size} de $totalProveedores",
+                        style = FDType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                        color = FDColors.TextTertiary
+                    )
+                }
+
+                if (proveedoresFiltrados.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                            verticalArrangement = Arrangement.spacedBy(s.gapSmall),
+                            modifier = Modifier.padding(s.md)
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.SearchOff,
+                                contentDescription = null,
+                                tint = FDColors.TextTertiary,
+                                modifier = Modifier.size(32.dp)
+                            )
                             Text(
-                                text = "Aún no hay proveedores registrados",
-                                style = FDType.Heading3.copy(fontSize = 14.5.sp),
+                                text = "Sin resultados",
+                                style = FDType.Heading3.copy(fontSize = 14.sp),
                                 color = FDColors.TextPrimary
                             )
                             Text(
-                                text = "Usa NUEVO para registrar tu primera droguería o proveedor.",
+                                text = if (busquedaProveedor.isNotBlank()) "No se encontró '$busquedaProveedor'" else "No hay proveedores con el filtro seleccionado",
                                 style = FDType.BodySmall.copy(fontSize = 12.sp),
                                 color = FDColors.TextSecondary,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                textAlign = TextAlign.Center
                             )
+                            if (busquedaProveedor.isNotBlank() || filtroRapido != "TODOS") {
+                                Spacer(Modifier.height(4.dp))
+                                FDBotonSecundario(
+                                    texto = "LIMPIAR BÚSQUEDA",
+                                    onClick = {
+                                        busquedaProveedor = ""
+                                        filtroRapido = "TODOS"
+                                    },
+                                    modifier = Modifier.height(32.dp)
+                                )
+                            }
                         }
                     }
                 } else {
@@ -250,7 +416,7 @@ fun PestanaProveedores(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(s.sm)
                     ) {
-                    items(proveedores, key = { it.id }) { prov ->
+                    items(proveedoresFiltrados, key = { it.id }) { prov ->
                         val isSelected = prov.id == (proveedorSeleccionado?.id ?: "")
                         
                         // Barra de Selección Animada
@@ -469,8 +635,102 @@ fun PestanaProveedores(
                                         )
                                     }
                                 }
+
+                                // Botones de Acción Operativa: Editar y Eliminar Proveedor
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FDBotonSecundario(
+                                        texto = "EDITAR",
+                                        icono = Icons.Default.Edit,
+                                        onClick = { onEditarProveedor(proveedorSeleccionado) },
+                                        modifier = Modifier.height(s.btnSmallH)
+                                    )
+                                    IconButton(
+                                        onClick = { mostrarDialogoEliminar = true },
+                                        modifier = Modifier
+                                            .size(s.btnSmallH)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(FDColors.Error.copy(alpha = 0.10f))
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DeleteOutline,
+                                            contentDescription = "Eliminar proveedor",
+                                            tint = FDColors.Error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
+                    }
+
+                    if (mostrarDialogoEliminar) {
+                        AlertDialog(
+                            onDismissRequest = { mostrarDialogoEliminar = false },
+                            title = {
+                                Text(
+                                    text = "Eliminar Proveedor",
+                                    style = FDType.Heading3,
+                                    color = FDColors.TextPrimary
+                                )
+                            },
+                            text = {
+                                when {
+                                    facturasPendientesCount > 0 -> {
+                                        Text(
+                                            text = "No se puede eliminar a '${proveedorSeleccionado.nombre}' porque tiene $facturasPendientesCount factura(s) pendiente(s) de pago por un total de $simboloMoneda ${String.format(Locale.US, "%.2f", deudaPendiente)}. Liquida o anula esas facturas primero.",
+                                            style = FDType.Body,
+                                            color = FDColors.Error
+                                        )
+                                    }
+                                    proveedorSeleccionado.saldoAFavor > 0.01 -> {
+                                        Text(
+                                            text = "No se puede eliminar a '${proveedorSeleccionado.nombre}' porque tiene un saldo a favor de $simboloMoneda ${String.format(Locale.US, "%.2f", proveedorSeleccionado.saldoAFavor)}. Aplica o cobra ese saldo primero.",
+                                            style = FDType.Body,
+                                            color = FDColors.Error
+                                        )
+                                    }
+                                    else -> {
+                                        Text(
+                                            text = "Se borrarán los datos comerciales de '${proveedorSeleccionado.nombre}' (contacto, teléfono, correo, dirección y pedido mínimo). Esta acción no se puede deshacer. Las facturas y el historial de pagos NO se borran.",
+                                            style = FDType.Body,
+                                            color = FDColors.TextSecondary
+                                        )
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                if (facturasPendientesCount == 0 && proveedorSeleccionado.saldoAFavor <= 0.01) {
+                                    Button(
+                                        onClick = {
+                                            mostrarDialogoEliminar = false
+                                            onEliminarProveedor(proveedorSeleccionado)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = FDColors.Error,
+                                            contentColor = Color.White
+                                        )
+                                    ) {
+                                        Text("ELIMINAR")
+                                    }
+                                } else {
+                                    TextButton(onClick = { mostrarDialogoEliminar = false }) {
+                                        Text("ENTENDIDO", color = FDColors.Primary)
+                                    }
+                                }
+                            },
+                            dismissButton = {
+                                if (facturasPendientesCount == 0 && proveedorSeleccionado.saldoAFavor <= 0.01) {
+                                    TextButton(onClick = { mostrarDialogoEliminar = false }) {
+                                        Text("CANCELAR", color = FDColors.TextSecondary)
+                                    }
+                                }
+                            },
+                            containerColor = FDColors.SurfaceElevated,
+                            shape = RoundedCornerShape(14.dp)
+                        )
                     }
 
                     // 2. NAVEGACIÓN DE PESTAÑAS (Fija al Top)
@@ -531,9 +791,9 @@ fun PestanaProveedores(
                                             Icon(Icons.Default.AccountBalanceWallet, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconTiny * 1.0f))
                                             Text("DEUDA:", style = FDType.Label.copy(fontSize = 9.sp), color = FDColors.TextTertiary)
                                             Text(
-                                                text = if (deudaPendiente > 0) "$simboloMoneda " + String.format(Locale.US, "%.2f", deudaPendiente) else "AL DÍA",
+                                                text = if (errorEscucha != null) "SIN DATOS" else if (deudaPendiente > 0.01) "$simboloMoneda " + String.format(Locale.US, "%.2f", deudaPendiente) else "AL DÍA",
                                                 style = FDType.Body.copy(fontWeight = FontWeight.Black, fontSize = 12.sp),
-                                                color = if (deudaPendiente > 0) FDColors.Error else FDColors.Success
+                                                color = if (errorEscucha != null) FDColors.Warning else if (deudaPendiente > 0.01) FDColors.Error else FDColors.Success
                                             )
                                         }
                                         VerticalDivider(modifier = Modifier.height(14.dp), color = FDColors.Border)
@@ -605,8 +865,10 @@ fun PestanaProveedores(
 
                                     HorizontalDivider(color = FDColors.Border.copy(alpha = 0.3f), thickness = s.separatorH)
 
-                                    // Saldo a Favor (Ficha Financiera)
-                                    val saldoAFavor = proveedorSeleccionado.saldoAFavor.coerceAtLeast(0.0)
+                                    // Saldo a Favor (Ficha Financiera) — el negativo jamás se aplana: es corrupción y se muestra.
+                                    val saldoCrudo = proveedorSeleccionado.saldoAFavor
+                                    val saldoAFavor = saldoCrudo.coerceAtLeast(0.0)
+                                    val saldoCorrupto = saldoCrudo < -0.01
                                     var modoSaldo by remember(proveedorSeleccionado.id) { mutableStateOf<String?>(null) }
                                     var montoSaldo by remember(proveedorSeleccionado.id) { mutableStateOf("") }
                                     var detalleSaldo by remember(proveedorSeleccionado.id) { mutableStateOf("") }
@@ -631,20 +893,20 @@ fun PestanaProveedores(
                                             ) {
                                                 Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                                                     Text(
-                                                        text = "SALDO A FAVOR DEL CLIENTE",
+                                                        text = "SALDO A FAVOR DEL PROVEEDOR",
                                                         style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp),
                                                         color = FDColors.TextTertiary
                                                     )
                                                     Text(
-                                                        text = if (saldoAFavor > 0.01) "Este proveedor tiene dinero pendiente a tu favor." else "Sin saldos pendientes a tu favor.",
+                                                        text = if (saldoCorrupto) "Saldo negativo en servidor: avisa a soporte, no se oculta." else if (saldoAFavor > 0.01) "Este proveedor tiene dinero pendiente a tu favor." else "Sin saldos pendientes a tu favor.",
                                                         style = FDType.BodySmall.copy(fontSize = 10.5.sp),
-                                                        color = FDColors.TextSecondary
+                                                        color = if (saldoCorrupto) FDColors.Error else FDColors.TextSecondary
                                                     )
                                                 }
                                                 Text(
-                                                    text = "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoAFavor),
+                                                    text = "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoCrudo),
                                                     style = FDType.Numeric.copy(fontSize = 18.sp, fontWeight = FontWeight.Black),
-                                                    color = if (saldoAFavor > 0.01) FDColors.Success else FDColors.TextTertiary
+                                                    color = if (saldoCorrupto) FDColors.Error else if (saldoAFavor > 0.01) FDColors.Success else FDColors.TextTertiary
                                                 )
                                             }
 
@@ -656,11 +918,13 @@ fun PestanaProveedores(
                                                     FDBotonSecundario(
                                                         texto = "COBRAR SALDO",
                                                         onClick = { modoSaldo = if (modoSaldo == "COBRAR") null else "COBRAR"; detalleSaldo = ""; montoSaldo = ""; mensajeSaldo = null },
+                                                        habilitado = !procesandoSaldo,
                                                         modifier = Modifier.weight(1f)
                                                     )
                                                     FDBotonSecundario(
                                                         texto = "DECLARAR PERDIDO",
                                                         onClick = { modoSaldo = if (modoSaldo == "PERDIDO") null else "PERDIDO"; detalleSaldo = ""; montoSaldo = ""; mensajeSaldo = null },
+                                                        habilitado = !procesandoSaldo,
                                                         modifier = Modifier.weight(1f)
                                                     )
                                                 }
@@ -685,6 +949,7 @@ fun PestanaProveedores(
                                                                 val separadores = limpio.count { it == '.' || it == ',' }
                                                                 if (separadores <= 1) montoSaldo = limpio
                                                             },
+                                                            enabled = !procesandoSaldo,
                                                             label = { Text("Monto a registrar") },
                                                             singleLine = true,
                                                             shape = FDShapes.Small,
@@ -703,6 +968,7 @@ fun PestanaProveedores(
                                                         OutlinedTextField(
                                                             value = detalleSaldo,
                                                             onValueChange = { detalleSaldo = it },
+                                                            enabled = !procesandoSaldo,
                                                             label = { Text(if (modoSaldo == "COBRAR") "Documento o comprobante del cobro" else "Motivo de la pérdida (mínimo 5 letras)") },
                                                             singleLine = true,
                                                             shape = FDShapes.Small,
@@ -860,12 +1126,42 @@ fun PestanaProveedores(
                                     verticalArrangement = Arrangement.spacedBy(0.dp)
                                 ) {
                                     item {
-                                        Text(
-                                            text = "LISTADO DE PRODUCTOS SUMINISTRADOS",
-                                            style = FDType.Label.copy(fontSize = 9.sp, letterSpacing = 1.2.sp),
-                                            color = FDColors.TextTertiary,
-                                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp)
-                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "PRODUCTOS SUMINISTRADOS",
+                                                    style = FDType.Label.copy(fontSize = 10.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Black),
+                                                    color = FDColors.TextTertiary
+                                                )
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = FDColors.Primary.copy(alpha = 0.12f)
+                                                ) {
+                                                    Text(
+                                                        text = "${productosDelProveedor.size}",
+                                                        style = FDType.Caption.copy(fontWeight = FontWeight.Bold, fontSize = 9.5.sp),
+                                                        color = FDColors.Primary,
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            FDBotonPrimario(
+                                                texto = "VINCULAR PRODUCTOS",
+                                                icono = Icons.Default.Add,
+                                                onClick = { mostrarDialogoAsignar = true },
+                                                modifier = Modifier.height(30.dp)
+                                            )
+                                        }
                                         HorizontalDivider(color = FDColors.Border, thickness = s.separatorH)
                                     }
                                     if (productosDelProveedor.isEmpty()) {
@@ -874,18 +1170,29 @@ fun PestanaProveedores(
                                                 modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Text(
-                                                    text = "Este proveedor aún no tiene productos vinculados.",
-                                                    style = FDType.BodySmall.copy(fontSize = 12.sp),
-                                                    color = FDColors.TextSecondary
-                                                )
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Este proveedor aún no tiene productos vinculados.",
+                                                        style = FDType.BodySmall.copy(fontSize = 12.sp),
+                                                        color = FDColors.TextSecondary
+                                                    )
+                                                    FDBotonSecundario(
+                                                        texto = "VINCULAR PRIMER PRODUCTO",
+                                                        icono = Icons.Default.Add,
+                                                        onClick = { mostrarDialogoAsignar = true },
+                                                        modifier = Modifier.height(30.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                     items(productosDelProveedor, key = { it.id }) { prod ->
                                         Column {
                                             Row(
-                                                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 4.dp),
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Box(
@@ -897,14 +1204,15 @@ fun PestanaProveedores(
                                                 ) {
                                                     Icon(Icons.Default.Inventory2, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall * 0.85f))
                                                 }
-                                                Spacer(Modifier.width(16.dp))
+                                                Spacer(Modifier.width(14.dp))
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
                                                         text = prod.name,
-                                                        style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 14.sp),
+                                                        style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 13.5.sp),
                                                         color = FDColors.TextPrimary
                                                     )
                                                     val especificacion = listOfNotNull(
+                                                        prod.laboratory.takeIf { it.isNotBlank() && it != "Genérico" },
                                                         prod.empaque.takeIf { it.isNotBlank() },
                                                         "${prod.content} ${prod.contentUnit}".takeIf { prod.content.isNotBlank() }
                                                     ).joinToString(" · ")
@@ -914,6 +1222,34 @@ fun PestanaProveedores(
                                                             style = FDType.Label.copy(fontSize = 9.sp, color = FDColors.TextTertiary)
                                                         )
                                                     }
+                                                }
+
+                                                // Stock, precio y acción de cambio
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                ) {
+                                                    Column(horizontalAlignment = Alignment.End) {
+                                                        Text(
+                                                            text = "Stock: ${prod.stock}u",
+                                                            style = FDType.BodySmall.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                                                            color = if (prod.stock <= prod.minStock && prod.minStock > 0) FDColors.Warning else FDColors.TextPrimary
+                                                        )
+                                                        if (prod.purchasePrice > 0) {
+                                                            Text(
+                                                                text = "$simboloMoneda ${String.format(Locale.US, "%.2f", prod.purchasePrice)}",
+                                                                style = FDType.Caption.copy(fontSize = 10.5.sp),
+                                                                color = FDColors.TextTertiary
+                                                            )
+                                                        }
+                                                    }
+
+                                                    FDBotonSecundario(
+                                                        texto = "CAMBIAR",
+                                                        icono = Icons.Default.SwapHoriz,
+                                                        onClick = { productoParaCambiar = prod },
+                                                        modifier = Modifier.height(28.dp)
+                                                    )
                                                 }
                                             }
                                             HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f), thickness = s.separatorH)
@@ -925,33 +1261,6 @@ fun PestanaProveedores(
                     }
 
                     // 4. ZÓCALO DE ACCIONES CRÍTICAS (Fijo al Bottom)
-                    // Confirmación real: borrar la ficha de una droguería jamás ocurre
-                    // por un toque accidental (los datos comerciales no se recuperan).
-                    var confirmarEliminarProv by remember(proveedorSeleccionado.id) { mutableStateOf(false) }
-                    if (confirmarEliminarProv) {
-                        AlertDialog(
-                            onDismissRequest = { confirmarEliminarProv = false },
-                            title = { Text("Eliminar a ${proveedorSeleccionado.nombre}?", style = FDType.Heading3.copy(fontWeight = FontWeight.Bold)) },
-                            text = {
-                                Text(
-                                    "Se borrarán sus datos comerciales (contacto, teléfono, correo, dirección y pedido mínimo). " +
-                                        "Esta acción no se puede deshacer. Las facturas y el historial de pagos NO se borran.",
-                                    style = FDType.Body
-                                )
-                            },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        confirmarEliminarProv = false
-                                        onEliminarProveedor(proveedorSeleccionado)
-                                    }
-                                ) { Text("SÍ, ELIMINAR", fontWeight = FontWeight.Black, color = FDColors.Error) }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { confirmarEliminarProv = false }) { Text("CANCELAR") }
-                            }
-                        )
-                    }
                     Surface(
                         color = FDColors.SurfaceElevated.copy(alpha = 0.5f),
                         border = BorderStroke(s.borderWidth, FDColors.Border.copy(alpha = 0.5f)),
@@ -964,7 +1273,7 @@ fun PestanaProveedores(
                         ) {
                             // ELIMINAR: Fijo, visible y segregado a la izquierda
                             IconButton(
-                                onClick = { confirmarEliminarProv = true },
+                                onClick = { mostrarDialogoEliminar = true },
                                 modifier = Modifier
                                     .size(s.iconLarge * 1.55f)
                                     .clip(FDShapes.Small)
@@ -986,6 +1295,33 @@ fun PestanaProveedores(
                 }
             }
         }
+    }
+
+    if (mostrarDialogoAsignar && proveedorSeleccionado != null) {
+        DialogoAsignarProductosAProveedor(
+            proveedor = proveedorSeleccionado,
+            todosLosProductos = todosLosProductos,
+            onVincularProducto = { prod, prov ->
+                onVincularProducto(prod, prov)
+            },
+            onDismiss = { mostrarDialogoAsignar = false }
+        )
+    }
+
+    productoParaCambiar?.let { prod ->
+        DialogoCambiarProveedor(
+            producto = prod,
+            proveedores = proveedores,
+            onGuardar = { nuevoProv ->
+                onVincularProducto(prod, nuevoProv)
+                productoParaCambiar = null
+            },
+            onDesvincular = {
+                onDesvincularProducto(prod)
+                productoParaCambiar = null
+            },
+            onDismiss = { productoParaCambiar = null }
+        )
     }
 }
 

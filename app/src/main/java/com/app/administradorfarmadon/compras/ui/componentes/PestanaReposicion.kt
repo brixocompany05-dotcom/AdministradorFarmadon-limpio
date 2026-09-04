@@ -155,8 +155,9 @@ fun PestanaReposicion(
                                 .flatMap { it.value }
                             if (sinProv.isEmpty()) emptyMap() else mapOf("SIN_PROVEEDOR" to sinProv)
                         }
+                        // TODOS es todos: incluye sin afiliar (la pestaña lo dice). El filtro
+                        // SIN_PROVEEDOR sigue como atajo enfocado; aquí nada se esconde.
                         else -> filtradosPorBusqueda
-                            .filterNot { esProveedorPlaceholder(it.key) }
                             .filter { it.value.isNotEmpty() }
                     }
                 }

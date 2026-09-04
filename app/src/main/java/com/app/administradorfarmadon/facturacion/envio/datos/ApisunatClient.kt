@@ -1,10 +1,12 @@
 package com.app.administradorfarmadon.facturacion.envio.datos
 
 import android.util.Log
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
-import org.json.JSONObject
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.http.Body
@@ -33,22 +35,33 @@ interface ApisunatApi {
         @Query("personaToken") personaToken: String
     ): Response<ResponseBody>
 
-    @GET("documents/{id}/getPDF/{format}")
+    @GET("documents/{id}/getPDF")
     suspend fun getDocumentPdf(
         @Path("id") documentId: String,
-        @Path("format") format: String = "ticket",
+        @Query("personaId") personaId: String,
+        @Query("personaToken") personaToken: String,
+        @Query("format") format: String = "ticket80mm"
+    ): Response<ResponseBody>
+
+    @GET("documents/{id}/getXML")
+    suspend fun getDocumentXml(
+        @Path("id") documentId: String,
+        @Query("personaId") personaId: String,
+        @Query("personaToken") personaToken: String
+    ): Response<ResponseBody>
+
+    @GET("documents/{id}/getCDR")
+    suspend fun getDocumentCdr(
+        @Path("id") documentId: String,
         @Query("personaId") personaId: String,
         @Query("personaToken") personaToken: String
     ): Response<ResponseBody>
 }
 
-/**
- * Resultado de una invocación al API de APISUNAT.
- */
 sealed class ApisunatResultado {
     data class Exito(
         val documentId: String,
-        val estadoSunat: String, // ACEPTADO | RECHAZADO | EXCEPCION | EN_PROCESO | ENVIADO
+        val estadoSunat: String,
         val xmlUrl: String = "",
         val cdrUrl: String = "",
         val pdfUrl: String = "",
@@ -70,11 +83,14 @@ sealed class ApisunatResultado {
 }
 
 class ApisunatClient(
-    baseUrl: String = ApisunatConfig.BASE_URL,
-    private val api: ApisunatApi = crearRetrofitApi(baseUrl)
+    private val api: ApisunatApi = crearRetrofitApi(ApisunatConfig.BASE_URL)
 ) {
     companion object {
         private const val TAG = "ApisunatClient"
+
+        private val moshi: Moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        private val mapType = Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
+        private val mapAdapter = moshi.adapter<Map<String, Any?>>(mapType)
 
         fun crearRetrofitApi(baseUrl: String): ApisunatApi {
             val loggingInterceptor = HttpLoggingInterceptor { mensaje ->
@@ -101,36 +117,31 @@ class ApisunatClient(
         }
     }
 
-    /**
-     * Envía una Boleta, Factura o Nota de Crédito a SUNAT vía APISUNAT (/personas/v1/sendBill).
-     */
     suspend fun emitirDocumento(payload: Map<String, Any?>): ApisunatResultado {
         return try {
             val response = api.sendBill(payload)
             procesarRespuesta(response)
         } catch (e: Exception) {
-            Log.e(TAG, "Error de red/comunicación al emitir documento: ${e.message}", e)
-            ApisunatResultado.FallaRed(e, e.message ?: "Falla de conexión con APISUNAT")
+            Log.e(TAG, "Error emitiendo documento: ${e.message}", e)
+            ApisunatResultado.FallaRed(e, e.message ?: "Falla de conexión al emitir")
         }
     }
 
-    /**
-     * Envía una comunicación de baja o anulación (/personas/v1/voidBill).
-     */
     suspend fun anularDocumento(payload: Map<String, Any?>): ApisunatResultado {
         return try {
             val response = api.voidBill(payload)
             procesarRespuesta(response)
         } catch (e: Exception) {
-            Log.e(TAG, "Error de red/comunicación al anular documento: ${e.message}", e)
-            ApisunatResultado.FallaRed(e, e.message ?: "Falla de conexión con APISUNAT")
+            Log.e(TAG, "Error comunicando baja: ${e.message}", e)
+            ApisunatResultado.FallaRed(e, e.message ?: "Falla de conexión al comunicar baja")
         }
     }
 
-    /**
-     * Consulta el estado final de un documento por su ID (/documents/{id}/getById).
-     */
-    suspend fun consultarDocumento(documentId: String, personaId: String, personaToken: String): ApisunatResultado {
+    suspend fun consultarDocumento(
+        documentId: String,
+        personaId: String,
+        personaToken: String
+    ): ApisunatResultado {
         return try {
             val response = api.getDocumentById(documentId, personaId, personaToken)
             procesarRespuesta(response)
@@ -140,7 +151,7 @@ class ApisunatClient(
         }
     }
 
-    private fun procesarRespuesta(response: Response<ResponseBody>): ApisunatResultado {
+    internal fun procesarRespuesta(response: Response<ResponseBody>): ApisunatResultado {
         val statusCode = response.code()
         val bodyString = try {
             if (response.isSuccessful) {
@@ -154,60 +165,144 @@ class ApisunatClient(
 
         if (response.isSuccessful && bodyString.isNotBlank()) {
             return try {
-                val json = JSONObject(bodyString)
-                val docId = json.optString("_id").ifBlank { json.optString("documentId", "") }
-                
-                // Determinar el estado SUNAT devuelto
-                val statusRaw = json.optString("status", "").uppercase()
-                val sunatResponse = json.optJSONObject("sunatResponse")
-                val cdrResponse = sunatResponse?.optJSONObject("cdrResponse")
-                val descripcionCdr = cdrResponse?.optString("description", "")
-                    ?: json.optString("message", "")
+                val json = mapAdapter.fromJson(bodyString) ?: emptyMap()
+                val docId = ((json["_id"] as? String) ?: (json["documentId"] as? String)).orEmpty().trim()
 
-                val estadoFinal = when {
-                    statusRaw.contains("ACEPTAD") || statusRaw == "0" -> "ACEPTADO"
-                    statusRaw.contains("RECHAZ") || statusRaw.contains("BAJA") -> "RECHAZADO"
-                    statusRaw.contains("EXCEPCION") || statusRaw.contains("EXCEPTION") -> "EXCEPCION"
-                    statusRaw.contains("ENVIADO") || statusRaw.contains("PROCESO") -> "ENVIADO"
-                    else -> if (docId.isNotBlank()) "ENVIADO" else "ACEPTADO"
+                // Determinar el estado SUNAT devuelto con igualdad estricta (cero contains engañosos)
+                val statusRaw = (json["status"] as? String).orEmpty().trim().uppercase()
+                @Suppress("UNCHECKED_CAST")
+                val sunatResponse = json["sunatResponse"] as? Map<String, Any?>
+                @Suppress("UNCHECKED_CAST")
+                val cdrResponse = sunatResponse?.get("cdrResponse") as? Map<String, Any?>
+                val descripcionCdr = (cdrResponse?.get("description") as? String).orEmpty().ifBlank {
+                    (json["message"] as? String).orEmpty()
                 }
 
-                val xmlUrl = json.optString("xml", "").ifBlank { json.optString("xmlUrl", "") }
-                val cdrUrl = json.optString("cdr", "").ifBlank { json.optString("cdrUrl", "") }
-                val pdfUrl = json.optString("pdf", "").ifBlank { json.optString("pdfUrl", "") }
+                val xmlUrl = ((json["xml"] as? String) ?: (json["xmlUrl"] as? String)).orEmpty().trim()
+                val cdrUrl = ((json["cdr"] as? String) ?: (json["cdrUrl"] as? String)).orEmpty().trim()
+                val pdfUrl = ((json["pdf"] as? String) ?: (json["pdfUrl"] as? String)).orEmpty().trim()
 
-                ApisunatResultado.Exito(
-                    documentId = docId,
-                    estadoSunat = estadoFinal,
-                    xmlUrl = xmlUrl,
-                    cdrUrl = cdrUrl,
-                    pdfUrl = pdfUrl,
-                    mensajeRespuesta = descripcionCdr,
-                    rawJson = bodyString
-                )
+                when (statusRaw) {
+                    "ACEPTADO" -> {
+                        // ACEPTADO exige docId y constancia física (CDR o XML firmado). Sin constancia no hay éxito fiscal.
+                        if (docId.isBlank() || (cdrUrl.isBlank() && xmlUrl.isBlank())) {
+                            ApisunatResultado.ErrorProveedor(
+                                codigo = statusCode,
+                                mensaje = "ACEPTADO sin constancia (falta documentId o CDR/XML de SUNAT)",
+                                esRechazoSunat = false,
+                                rawJson = bodyString
+                            )
+                        } else {
+                            ApisunatResultado.Exito(
+                                documentId = docId,
+                                estadoSunat = "ACEPTADO",
+                                xmlUrl = xmlUrl,
+                                cdrUrl = cdrUrl,
+                                pdfUrl = pdfUrl,
+                                mensajeRespuesta = descripcionCdr,
+                                rawJson = bodyString
+                            )
+                        }
+                    }
+                    "RECHAZADO" -> {
+                        if (docId.isBlank()) {
+                            ApisunatResultado.ErrorProveedor(
+                                codigo = statusCode,
+                                mensaje = "RECHAZADO sin identificador de documento: $descripcionCdr",
+                                esRechazoSunat = true,
+                                rawJson = bodyString
+                            )
+                        } else {
+                            ApisunatResultado.Exito(
+                                documentId = docId,
+                                estadoSunat = "RECHAZADO",
+                                xmlUrl = xmlUrl,
+                                cdrUrl = cdrUrl,
+                                pdfUrl = pdfUrl,
+                                mensajeRespuesta = descripcionCdr.ifBlank { "Comprobante RECHAZADO por SUNAT" },
+                                rawJson = bodyString
+                            )
+                        }
+                    }
+                    "EXCEPCION" -> {
+                        // EXCEPCION previa a SUNAT: número NO quemado, libre para reintentar tras corrección
+                        ApisunatResultado.Exito(
+                            documentId = docId,
+                            estadoSunat = "EXCEPCION",
+                            xmlUrl = xmlUrl,
+                            cdrUrl = cdrUrl,
+                            pdfUrl = pdfUrl,
+                            mensajeRespuesta = descripcionCdr.ifBlank { "Excepción técnica antes de validación SUNAT (número libre)" },
+                            rawJson = bodyString
+                        )
+                    }
+                    "PENDIENTE", "ENVIADO" -> {
+                        // ENVIADO / PENDIENTE exige docId para consulta posterior getById; sin ID es Error
+                        if (docId.isBlank()) {
+                            ApisunatResultado.ErrorProveedor(
+                                codigo = statusCode,
+                                mensaje = "Respuesta $statusRaw sin identificador de documento para seguimiento",
+                                esRechazoSunat = false,
+                                rawJson = bodyString
+                            )
+                        } else {
+                            ApisunatResultado.Exito(
+                                documentId = docId,
+                                estadoSunat = "ENVIADO",
+                                xmlUrl = xmlUrl,
+                                cdrUrl = cdrUrl,
+                                pdfUrl = pdfUrl,
+                                mensajeRespuesta = descripcionCdr,
+                                rawJson = bodyString
+                            )
+                        }
+                    }
+                    else -> {
+                        // Estados compuestos o desconocidos ("NO ACEPTADO", "BAJA_ACEPTADA", "EN_PROCESO", "")
+                        if (docId.isNotBlank() && (statusRaw == "EN_PROCESO" || statusRaw == "EN TRAMITE")) {
+                            ApisunatResultado.Exito(
+                                documentId = docId,
+                                estadoSunat = "ENVIADO",
+                                xmlUrl = xmlUrl,
+                                cdrUrl = cdrUrl,
+                                pdfUrl = pdfUrl,
+                                mensajeRespuesta = descripcionCdr,
+                                rawJson = bodyString
+                            )
+                        } else {
+                            ApisunatResultado.ErrorProveedor(
+                                codigo = statusCode,
+                                mensaje = "Estado desconocido o no procesable de proveedor: '${statusRaw.ifBlank { "VACÍO" }}'",
+                                esRechazoSunat = false,
+                                rawJson = bodyString
+                            )
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parseando JSON exitoso de APISUNAT: ${e.message}", e)
-                ApisunatResultado.Exito(
-                    documentId = "",
-                    estadoSunat = "ENVIADO",
+                ApisunatResultado.ErrorProveedor(
+                    codigo = statusCode,
+                    mensaje = "Error interpretando JSON de respuesta: ${e.message}",
+                    esRechazoSunat = false,
                     rawJson = bodyString
                 )
             }
         }
 
         // Falla HTTP o error del proveedor
+        var statusErr = ""
         val mensajeError = try {
-            val jsonErr = JSONObject(bodyString)
-            jsonErr.optString("message", "").ifBlank {
-                jsonErr.optString("error", response.message())
-            }
+            val errJson = mapAdapter.fromJson(bodyString) ?: emptyMap()
+            statusErr = (errJson["status"] as? String).orEmpty().trim().uppercase()
+            val msg = (errJson["message"] as? String) ?: (errJson["error"] as? String) ?: response.message()
+            msg.ifBlank { "Error HTTP $statusCode" }
         } catch (_: Exception) {
             response.message().ifBlank { "Error HTTP $statusCode" }
         }
 
-        val esRechazoSunat = bodyString.contains("rechaz", ignoreCase = true) ||
-                bodyString.contains("quemad", ignoreCase = true) ||
-                statusCode == 422
+        // Quemado SOLO si status == "RECHAZADO" o error semántico 422 de SUNAT. Error 400 de formato = número LIBRE.
+        val esRechazoSunat = statusErr == "RECHAZADO" || statusCode == 422
 
         return ApisunatResultado.ErrorProveedor(
             codigo = statusCode,

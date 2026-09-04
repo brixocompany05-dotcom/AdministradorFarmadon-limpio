@@ -234,9 +234,11 @@ fun DialogoNotaCredito(
                             value = montoTexto,
                             onValueChange = {
                                 montoTexto = it.filter { c -> c.isDigit() || c == '.' || c == ',' }
-                                val m = montoTexto.replace(',', '.').toDoubleOrNull()?.let { v -> Math.round(v * 100.0) / 100.0 } ?: 0.0
+                                val mParse = montoTexto.replace(',', '.').toDoubleOrNull()
+                                val m = mParse?.let { v -> Math.round(v * 100.0) / 100.0 } ?: 0.0
                                 errorMonto = when {
                                     montoTexto.isBlank() -> null
+                                    mParse == null -> "Ese monto no es un número válido (ej. 150.50)."
                                     m <= 0.0 -> "Ingresa un monto mayor a 0."
                                     m > maximoAjustableRedondeado -> "El monto supera el máximo ajustable de $simboloMoneda " + String.format(Locale.US, "%.2f", maximoAjustableRedondeado)
                                     else -> null

@@ -1,14 +1,18 @@
 package com.app.administradorfarmadon.ventas.nuevaventa.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ListAlt
@@ -18,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -35,6 +40,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.configuracion.metodospago.modelo.InstanciaPago
 import com.app.administradorfarmadon.configuracion.metodospago.modelo.TIPOS_PAGO_FIJOS
+import com.app.administradorfarmadon.configuracion.pos.modelo.AutorizacionSupervisor
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
@@ -46,6 +52,8 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.PresentacionPr
 import com.app.administradorfarmadon.inventario.compartido.modelo.stockDisponibleFisico
 import com.app.administradorfarmadon.inventario.compartido.ui.LectorCodigoBarrasCamaraDialog
 import com.app.administradorfarmadon.ventas.compartido.modelo.ClienteDeVenta
+import com.app.administradorfarmadon.ventas.compartido.modelo.ChecklistAperturaSede
+import com.app.administradorfarmadon.ventas.compartido.modelo.ItemChecklistApertura
 import com.app.administradorfarmadon.ventas.compartido.modelo.ItemVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.PagoVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
@@ -53,6 +61,7 @@ import com.app.administradorfarmadon.ventas.compartido.modelo.VentaSuspendida
 import com.app.administradorfarmadon.ventas.compartido.ui.*
 import com.app.administradorfarmadon.ventas.nuevaventa.logica.NuevaVentaUiState
 import com.app.administradorfarmadon.ventas.nuevaventa.logica.NuevaVentaViewModel
+import com.app.administradorfarmadon.ventas.nuevaventa.logica.ResultadoDocUi
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -65,7 +74,8 @@ import java.util.Locale
 @Composable
 fun SubmoduloNuevaVenta(
     simboloMoneda: String = "S/",
-    viewModel: NuevaVentaViewModel = viewModel()
+    viewModel: NuevaVentaViewModel = viewModel(),
+    onNavigate: ((String) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -117,20 +127,120 @@ fun SubmoduloNuevaVenta(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Notificaciones de advertencia de caja cerrada, facturación pendiente o errores
-            if (!uiState.cajaAbierta) {
-                POSNotificationBar(
-                    mensaje = "LA CAJA SE ENCUENTRA CERRADA. ABRE EL TURNO EN 'CIERRE DE CAJA' PARA PODER COBRAR.",
-                    tipo = TipoEstadoFarmadon.PELIGRO,
-                    icono = Icons.Default.Lock
+            // Alerta crítica: Caja abierta de una fecha anterior pendiente de cierre
+            if (uiState.estadoCaja.esDeJornadaAnterior()) {
+                Surface(
+                    color = FDColors.ErrorSubtle,
+                    shape = FDShapes.Medium,
+                    border = BorderStroke(1.5.dp, FDColors.Error.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(FDColors.Error.copy(alpha = 0.18f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = FDColors.Error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "CAJA PENDIENTE DE CIERRE: JORNADA DEL ${uiState.estadoCaja.fechaAperturaLegible()}",
+                                        style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 13.5.sp),
+                                        color = FDColors.Error
+                                    )
+                                    Text(
+                                        text = "Por control contable no se puede mezclar ventas de hoy con una caja abierta ayer. Debe cerrarse con arqueo físico antes de operar.",
+                                        style = FDType.Caption.copy(fontSize = 11.5.sp, color = FDColors.TextSecondary)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Button(
+                                onClick = { onNavigate?.invoke("caja") },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = FDColors.Error,
+                                    contentColor = Color.White
+                                ),
+                                shape = FDShapes.Small,
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.PointOfSale,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.White
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Ir a Cerrar Caja",
+                                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                                )
+                            }
+                        }
+
+                        // Fila de datos del turno rezagado: fácil de entender para cualquier persona
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(FDColors.Surface, FDShapes.Small)
+                                .border(BorderStroke(1.dp, FDColors.Border), FDShapes.Small)
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Person, null, tint = FDColors.Primary, modifier = Modifier.size(15.dp))
+                                Text("Cajero(a):", style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.TextSecondary))
+                                Text(uiState.estadoCaja.abiertoPorNombre.ifBlank { "Sin asignar" }, style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.TextPrimary))
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.AttachMoney, null, tint = FDColors.TextTertiary, modifier = Modifier.size(15.dp))
+                                Text("Fondo entregado:", style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.TextSecondary))
+                                Text("S/ %.2f".format(Locale.US, uiState.estadoCaja.fondoInicial), style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.TextPrimary))
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.ReceiptLong, null, tint = FDColors.TextTertiary, modifier = Modifier.size(15.dp))
+                                Text("Ventas acumuladas:", style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.TextSecondary))
+                                Text("${uiState.estadoCaja.cantidadVentas} ops (S/ %.2f)".format(Locale.US, uiState.estadoCaja.totalVentas), style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.Primary))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Puerta Única: Checklist de Apertura de Sede (R1/R3/R8/R12)
+            if (uiState.checklistCargado && !uiState.checklist.todoListo) {
+                ChecklistAperturaBanner(
+                    checklist = uiState.checklist,
+                    excluirItemCaja = uiState.estadoCaja.esDeJornadaAnterior(),
+                    onNavigate = onNavigate
                 )
-            } else if (!uiState.emisorCompleto) {
-                POSNotificationBar(
-                    mensaje = "FACTURACIÓN ELECTRÓNICA PENDIENTE — El administrador debe completar y verificar el emisor en Configuración → Facturación Electrónica. Hasta entonces no se puede cobrar.",
-                    tipo = TipoEstadoFarmadon.PELIGRO,
-                    icono = Icons.Default.WarningAmber
-                )
-            } else if (uiState.error != null) {
+            }
+
+            if (uiState.error != null) {
                 POSNotificationBar(
                     mensaje = uiState.error ?: "",
                     tipo = TipoEstadoFarmadon.PELIGRO,
@@ -197,7 +307,7 @@ fun SubmoduloNuevaVenta(
                                 border = BorderStroke(1.dp, FDColors.Border),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 240.dp)
+                                    .heightIn(max = 340.dp)
                                     .padding(horizontal = 14.dp)
                             ) {
                                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -297,10 +407,27 @@ fun SubmoduloNuevaVenta(
                 }
 
                 // ───────────────────────────── PANEL DERECHO: LIQUIDACIÓN (40%) ─────────────────────────────
+                val transitionError = rememberInfiniteTransition(label = "panelErrorPulse")
+                val pulsoErrorAlpha by transitionError.animateFloat(
+                    initialValue = 0.35f,
+                    targetValue = 1.0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(650, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "alphaError"
+                )
+                val hayErrorVenta = uiState.error != null
+                val bordePanel = if (hayErrorVenta) {
+                    BorderStroke(2.dp, Color(0xFFEF4444).copy(alpha = pulsoErrorAlpha))
+                } else {
+                    BorderStroke(1.dp, FDColors.Border)
+                }
+
                 Surface(
-                    color = FDColors.Surface,
+                    color = if (hayErrorVenta) Color(0xFFEF4444).copy(alpha = 0.04f) else FDColors.Surface,
                     shape = FDShapes.Medium,
-                    border = BorderStroke(1.dp, FDColors.Border),
+                    border = bordePanel,
                     modifier = Modifier
                         .weight(0.4f)
                         .fillMaxHeight()
@@ -390,51 +517,17 @@ fun SubmoduloNuevaVenta(
                                 }
                             }
 
-                            // 3. Tarjeta de Cliente
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "CLIENTE / FACTURACIÓN",
-                                    style = FDType.Label.copy(
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 0.5.sp
-                                    ),
-                                    color = FDColors.TextTertiary
-                                )
-                                Surface(
-                                    color = FDColors.InputBackground.copy(alpha = 0.5f),
-                                    shape = FDShapes.Small,
-                                    border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.3f)),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { viewModel.abrirDialogoCliente() }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.Person, null, tint = FDColors.Primary, modifier = Modifier.size(20.dp))
-                                        Spacer(Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                uiState.cliente.nombre,
-                                                style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
-                                                color = FDColors.TextPrimary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (uiState.cliente.numeroDocumento.isNotBlank()) {
-                                                Text(
-                                                    "${uiState.cliente.tipoDocumento}: ${uiState.cliente.numeroDocumento}",
-                                                    style = FDType.Caption.copy(fontSize = 11.sp),
-                                                    color = FDColors.TextSecondary
-                                                )
-                                            }
-                                        }
-                                        Icon(Icons.Default.Edit, null, tint = FDColors.TextTertiary, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
+                            // 3. Selector de Cliente Inline (RENIEC / SUNAT sin modal forzado con debounce 800ms)
+                            SelectorClientePOSInline(
+                                cliente = uiState.cliente,
+                                consultando = uiState.consultandoDoc,
+                                resultadoDoc = uiState.resultadoConsultaDoc,
+                                onConsultarDoc = { doc -> viewModel.consultarDocumentoAuto(doc) },
+                                onAplicarResultado = { res -> viewModel.aplicarResultadoCliente(res) },
+                                onLimpiarResultado = { viewModel.limpiarResultadoConsultaDoc() },
+                                onLimpiarCliente = { viewModel.limpiarCliente() },
+                                onAbrirManual = { viewModel.abrirDialogoCliente() }
+                            )
 
                             // 4. Desglose Financiero
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -448,37 +541,134 @@ fun SubmoduloNuevaVenta(
                                         style = FDType.Numeric.copy(fontSize = 13.sp)
                                     )
                                 }
-                                if (uiState.descuento > 0.0) {
+
+                                // Fila interactiva de descuento
+                                Surface(
+                                    onClick = { if (uiState.carrito.isNotEmpty()) viewModel.abrirDialogoDescuento() },
+                                    color = if (uiState.descuento > 0.0) FDColors.Success.copy(alpha = 0.08f) else FDColors.InputBackground.copy(alpha = 0.5f),
+                                    shape = FDShapes.Small,
+                                    border = BorderStroke(1.dp, if (uiState.descuento > 0.0) FDColors.Success.copy(alpha = 0.3f) else FDColors.Border.copy(alpha = 0.3f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("Descuento:", style = FDType.Body, color = FDColors.Success)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Percent,
+                                                contentDescription = null,
+                                                tint = if (uiState.descuento > 0.0) FDColors.Success else FDColors.Primary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                if (uiState.descuento > 0.0) "Descuento:" else "Aplicar Descuento",
+                                                style = FDType.Body.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                                                color = if (uiState.descuento > 0.0) FDColors.Success else FDColors.Primary
+                                            )
+                                        }
                                         Text(
-                                            "- $simboloMoneda ${String.format(Locale.US, "%.2f", uiState.descuento)}",
-                                            style = FDType.Numeric.copy(fontSize = 13.sp, color = FDColors.Success)
+                                            if (uiState.descuento > 0.0) "- $simboloMoneda ${String.format(Locale.US, "%.2f", uiState.descuento)}" else "Configurar",
+                                            style = FDType.Numeric.copy(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (uiState.descuento > 0.0) FDColors.Success else FDColors.Primary
+                                            )
                                         )
                                     }
                                 }
                             }
                         }
 
-                        // Botón Primario de Cobro
+                        // Botón Primario de Cobro y Tarjeta de Error con Reintento
                         Column(
                             modifier = Modifier
                                 .background(FDColors.SurfaceElevated)
-                                .padding(18.dp)
+                                .padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            val errorCobro = uiState.error
+                            if (errorCobro != null) {
+                                Surface(
+                                    color = Color(0xFFFEF2F2),
+                                    shape = FDShapes.Small,
+                                    border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.ErrorOutline,
+                                                contentDescription = null,
+                                                tint = Color(0xFFDC2626),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                "Error al procesar el cobro:",
+                                                style = FDType.Caption.copy(
+                                                    fontWeight = FontWeight.Black,
+                                                    color = Color(0xFFDC2626)
+                                                )
+                                            )
+                                        }
+                                        Text(
+                                            text = errorCobro,
+                                            style = FDType.Caption.copy(
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF991B1B)
+                                            )
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = { viewModel.limpiarError() },
+                                                shape = FDShapes.Small,
+                                                border = BorderStroke(1.dp, Color(0xFFDC2626).copy(alpha = 0.35f)),
+                                                modifier = Modifier.weight(1f).height(32.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("Descartar", style = FDType.Caption.copy(fontSize = 11.sp, color = Color(0xFF991B1B)))
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    viewModel.limpiarError()
+                                                    viewModel.confirmarVenta()
+                                                },
+                                                shape = FDShapes.Small,
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                                modifier = Modifier.weight(1.3f).height(32.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Reintentar Cobro", style = FDType.Caption.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             val textoBoton = when {
-                                !uiState.cajaAbierta -> "CAJA CERRADA"
-                                !uiState.emisorCompleto -> "FACTURACIÓN ELECTRÓNICA PENDIENTE"
+                                !uiState.checklist.todoListo -> "APERTURA PENDIENTE (${uiState.checklist.totalCompletados}/${uiState.checklist.totalRequisitos})"
                                 else -> "COBRAR AHORA ($simboloMoneda ${String.format(Locale.US, "%.2f", uiState.total)})"
                             }
                             FDBotonPrimario(
                                 texto = textoBoton,
                                 onClick = { viewModel.abrirOverlayCobro() },
-                                icono = if (!uiState.emisorCompleto) Icons.Default.WarningAmber else Icons.Default.Payments,
-                                habilitado = uiState.cajaAbierta && uiState.emisorCompleto && uiState.carrito.isNotEmpty() && (!uiState.requiereReceta || uiState.confirmoReceta),
+                                icono = if (!uiState.checklist.todoListo) Icons.Default.Lock else Icons.Default.Payments,
+                                habilitado = uiState.checklist.todoListo && uiState.carrito.isNotEmpty() && (!uiState.requiereReceta || uiState.confirmoReceta),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(56.dp)
@@ -526,13 +716,25 @@ fun SubmoduloNuevaVenta(
             )
         }
 
+        // Diálogo de Descuento con validación de PosConfig
+        if (uiState.mostrarDialogoDescuento) {
+            DialogoDescuento(
+                uiState = uiState,
+                simboloMoneda = simboloMoneda,
+                onDismiss = { viewModel.cerrarDialogoDescuento() },
+                onAplicar = { monto, autorizante ->
+                    viewModel.aplicarDescuento(monto, autorizante)
+                }
+            )
+        }
+
         // Diálogo de Venta Exitosa e Impresión de Ticket
         uiState.ventaExitosa?.let { venta ->
             LaunchedEffect(venta.id) {
                 val farmaciaId = SessionManager.clienteIdGarantizado
                 FacturacionEnvioWorker.encolarReintento(context, farmaciaId)
             }
-            DialogoVentaExitosa(
+            AnimacionConfetiOverlay(
                 venta = venta,
                 simboloMoneda = simboloMoneda,
                 onImprimir = { viewModel.imprimirComprobante(context) },
@@ -838,56 +1040,142 @@ private fun ResultadoBusquedaItem(
     simboloMoneda: String,
     onPresentacionClick: (PresentacionProducto) -> Unit
 ) {
+    val stockDisp = producto.stockDisponibleFisico
     Surface(
         color = FDColors.Surface,
-        modifier = Modifier.fillMaxWidth()
+        shape = FDShapes.Medium,
+        border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.6f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp, horizontal = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-            val stockDisp = producto.stockDisponibleFisico
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Encabezado del Producto: Nombre + Categoría + Stock Total
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        Icons.Default.Inventory2,
+                        contentDescription = null,
+                        tint = FDColors.Primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = producto.nombre,
+                        style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 13.5.sp),
+                        color = FDColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (producto.categoriaNombre.isNotBlank()) {
+                        Surface(
+                            color = FDColors.PrimarySubtle,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = producto.categoriaNombre,
+                                style = FDType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                color = FDColors.Primary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
                 Text(
-                    producto.nombre,
-                    style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
-                    color = FDColors.TextPrimary
-                )
-                Text(
-                    "Stock: ${stockDisp.toInt()} disp.",
-                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = if (stockDisp > 0) FDColors.Success else FDColors.Error)
+                    text = "Stock: ${stockDisp.toInt()} disp.",
+                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                    color = if (stockDisp > 0) FDColors.Success else FDColors.Error
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = 0.5.dp)
+
+            // Filas de Presentaciones individuales con precios y botones independientes
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 producto.presentaciones.forEach { pres ->
                     Surface(
-                        onClick = { onPresentacionClick(pres) },
                         color = FDColors.InputBackground,
                         shape = FDShapes.Small,
-                        border = BorderStroke(0.5.dp, FDColors.Border.copy(alpha = 0.5f))
+                        border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(pres.nombre, style = FDType.Caption.copy(fontWeight = FontWeight.Bold))
-                            Text(
-                                "$simboloMoneda ${String.format(Locale.US, "%.2f", pres.precioventa)}",
-                                style = FDType.Numeric.copy(fontSize = 11.sp, color = FDColors.Primary, fontWeight = FontWeight.Black)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    Icons.Default.Sell,
+                                    contentDescription = null,
+                                    tint = FDColors.TextSecondary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = pres.nombre,
+                                    style = FDType.Body.copy(fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp),
+                                    color = FDColors.TextPrimary
+                                )
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = "$simboloMoneda ${String.format(Locale.US, "%.2f", pres.precioventa)}",
+                                    style = FDType.Numeric.copy(fontSize = 13.sp, color = FDColors.Primary, fontWeight = FontWeight.Bold)
+                                )
+
+                                Button(
+                                    onClick = { onPresentacionClick(pres) },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (pres.precioventa > 0) FDColors.Primary else FDColors.Error,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(
+                                        if (pres.precioventa > 0) Icons.Default.AddShoppingCart else Icons.Default.Warning,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = if (pres.precioventa > 0) "+ AGREGAR" else "SIN PRECIO",
+                                        style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
         }
     }
-    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.3f))
 }
 
 @Composable
@@ -1350,7 +1638,13 @@ private fun DialogoCliente(
             modifier = Modifier.width(460.dp)
         ) {
             Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Identificación del Cliente", style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 18.sp))
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Registro Manual de Cliente", style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 18.sp))
+                    Text(
+                        "Ingresa los datos manualmente como respaldo si la consulta automática no está disponible o falla.",
+                        style = FDType.Caption.copy(fontSize = 11.sp, color = FDColors.TextSecondary)
+                    )
+                }
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("DNI", "RUC", "NINGUNO").forEach { t ->
@@ -1375,42 +1669,20 @@ private fun DialogoCliente(
                 }
 
                 if (tipoDoc != "NINGUNO") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        FDTextField(
-                            value = numDoc,
-                            onValueChange = { numDoc = it },
-                            label = "N° DE $tipoDoc",
-                            placeholder = if (tipoDoc == "DNI") "8 dígitos" else "11 dígitos",
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        Button(
-                            onClick = { onConsultar(tipoDoc, numDoc) },
-                            enabled = !consultando && numDoc.isNotBlank(),
-                            shape = FDShapes.Small,
-                            modifier = Modifier.padding(top = 18.dp).height(44.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary)
-                        ) {
-                            if (consultando) {
-                                CircularProgressIndicator(color = FDColors.PrimaryText, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("RENIEC/SUNAT", style = FDType.Caption.copy(fontWeight = FontWeight.Bold))
-                            }
-                        }
-                    }
+                    FDTextField(
+                        value = numDoc,
+                        onValueChange = { nuevo -> numDoc = nuevo.filter { it.isDigit() }.take(if (tipoDoc == "DNI") 8 else 11) },
+                        label = "N° DE $tipoDoc",
+                        placeholder = if (tipoDoc == "DNI") "8 dígitos (DNI)" else "11 dígitos (RUC)",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
                     FDTextField(
                         value = nombre,
                         onValueChange = { nombre = it },
                         label = if (tipoDoc == "RUC") "RAZÓN SOCIAL *" else "NOMBRES Y APELLIDOS *",
-                        placeholder = "Nombre completo del cliente (requerido)"
+                        placeholder = "Nombre completo o razón social (requerido)"
                     )
 
                     // Sugerencias del Directorio de Clientes
@@ -1543,3 +1815,824 @@ private fun DialogoSuspenderVenta(
         }
     }
 }
+
+@Composable
+private fun DialogoDescuento(
+    uiState: NuevaVentaUiState,
+    simboloMoneda: String,
+    onDismiss: () -> Unit,
+    onAplicar: (monto: Double, autorizante: AutorizacionSupervisor?) -> Unit
+) {
+    val subtotal = uiState.subtotal
+    val posConfig = uiState.posConfig
+
+    var modoPorcentaje by remember { mutableStateOf(true) }
+    var inputStr by remember {
+        val pctInicial = if (subtotal > 0.0 && uiState.descuento > 0.0) (uiState.descuento / subtotal) * 100.0 else 0.0
+        mutableStateOf(if (pctInicial > 0.0) String.format(Locale.US, "%.1f", pctInicial) else "")
+    }
+
+    val montoCalculado: Double = remember(inputStr, modoPorcentaje, subtotal) {
+        val num = inputStr.toDoubleOrNull() ?: 0.0
+        if (num <= 0.0) 0.0
+        else if (modoPorcentaje) kotlin.math.round((subtotal * (num / 100.0)) * 100.0) / 100.0
+        else kotlin.math.round(num * 100.0) / 100.0
+    }
+
+    val pctCalculado: Double = remember(montoCalculado, subtotal) {
+        if (subtotal > 0.0) kotlin.math.round(((montoCalculado / subtotal) * 100.0) * 10.0) / 10.0
+        else 0.0
+    }
+
+    val excedeTope = posConfig.excedeLimitesDescuento(pctCalculado, montoCalculado)
+    val puedeAplicar = montoCalculado > 0.0 && montoCalculado < subtotal && !excedeTope
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = FDShapes.Medium,
+            color = FDColors.Surface,
+            border = BorderStroke(1.dp, FDColors.Border),
+            modifier = Modifier.width(440.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Percent, contentDescription = null, tint = FDColors.Primary, modifier = Modifier.size(22.dp))
+                        Text("Aplicar Descuento", style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 18.sp))
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = FDColors.TextTertiary)
+                    }
+                }
+
+                // Resumen del Subtotal
+                Surface(
+                    color = FDColors.InputBackground,
+                    shape = FDShapes.Small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Subtotal de la venta:", style = FDType.Body, color = FDColors.TextSecondary)
+                        Text("$simboloMoneda ${String.format(Locale.US, "%.2f", subtotal)}", style = FDType.Numeric.copy(fontWeight = FontWeight.Black, fontSize = 15.sp))
+                    }
+                }
+
+                // Selector de Modo: % Porcentaje o S/ Monto fijo
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        onClick = {
+                            if (!modoPorcentaje) {
+                                modoPorcentaje = true
+                                inputStr = if (pctCalculado > 0.0) String.format(Locale.US, "%.1f", pctCalculado) else ""
+                            }
+                        },
+                        shape = FDShapes.Small,
+                        color = if (modoPorcentaje) FDColors.Primary else FDColors.InputBackground,
+                        modifier = Modifier.weight(1f).height(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                "Porcentaje (%)",
+                                style = FDType.Label.copy(fontWeight = if (modoPorcentaje) FontWeight.Black else FontWeight.Medium),
+                                color = if (modoPorcentaje) FDColors.PrimaryText else FDColors.TextSecondary
+                            )
+                        }
+                    }
+
+                    Surface(
+                        onClick = {
+                            if (modoPorcentaje) {
+                                modoPorcentaje = false
+                                inputStr = if (montoCalculado > 0.0) String.format(Locale.US, "%.2f", montoCalculado) else ""
+                            }
+                        },
+                        shape = FDShapes.Small,
+                        color = if (!modoPorcentaje) FDColors.Primary else FDColors.InputBackground,
+                        modifier = Modifier.weight(1f).height(36.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                "Monto ($simboloMoneda)",
+                                style = FDType.Label.copy(fontWeight = if (!modoPorcentaje) FontWeight.Black else FontWeight.Medium),
+                                color = if (!modoPorcentaje) FDColors.PrimaryText else FDColors.TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                // Input de Valor
+                OutlinedTextField(
+                    value = inputStr,
+                    onValueChange = { inputStr = it },
+                    label = { Text(if (modoPorcentaje) "Porcentaje de descuento (%)" else "Monto a descontar ($simboloMoneda)") },
+                    placeholder = { Text(if (modoPorcentaje) "Ej: 5" else "Ej: 10.00") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    shape = FDShapes.Small,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Equivalencia y Topes de Sede
+                Surface(
+                    color = FDColors.InputBackground.copy(alpha = 0.5f),
+                    shape = FDShapes.Small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Equivalente:", style = FDType.Caption, color = FDColors.TextSecondary)
+                            Text("- $simboloMoneda ${String.format(Locale.US, "%.2f", montoCalculado)} ($pctCalculado%)", style = FDType.Numeric.copy(fontWeight = FontWeight.Bold, color = if (excedeTope) FDColors.Error else FDColors.Success, fontSize = 12.sp))
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Tope de la sede:", style = FDType.Caption, color = FDColors.TextTertiary)
+                            Text("Máx ${posConfig.descuento.maxPct}% o $simboloMoneda ${String.format(Locale.US, "%.2f", posConfig.descuento.maxMonto)}", style = FDType.Caption.copy(fontWeight = FontWeight.Bold), color = FDColors.TextSecondary)
+                        }
+                    }
+                }
+
+                // Reglas Fijas = Permiso Directo (Cero Jefes en Cola, R2)
+                if (montoCalculado > 0.0) {
+                    if (excedeTope) {
+                        Surface(
+                            color = FDColors.Warning.copy(alpha = 0.1f),
+                            shape = FDShapes.Small,
+                            border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.WarningAmber, contentDescription = null, tint = FDColors.Warning, modifier = Modifier.size(20.dp))
+                                Column {
+                                    Text(
+                                        "DESCUENTO FUERA DE TOPE",
+                                        style = FDType.Caption.copy(fontWeight = FontWeight.Black),
+                                        color = FDColors.Warning
+                                    )
+                                    Text(
+                                        "El descuento supera el tope de la sede (${posConfig.descuento.maxPct}% o $simboloMoneda ${String.format(Locale.US, "%.2f", posConfig.descuento.maxMonto)}). Ajusta el monto o edita los topes en Configuración > Ventas/POS.",
+                                        style = FDType.Caption,
+                                        color = FDColors.TextSecondary
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Surface(
+                            color = FDColors.Success.copy(alpha = 0.08f),
+                            shape = FDShapes.Small,
+                            border = BorderStroke(1.dp, FDColors.Success.copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = FDColors.Success, modifier = Modifier.size(18.dp))
+                                Text(
+                                    "Dentro del tope de la sede. Se aplica directamente por el cajero.",
+                                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold),
+                                    color = FDColors.Success
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Botones de Acción
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (uiState.descuento > 0.0) {
+                        OutlinedButton(
+                            onClick = { onAplicar(0.0, null) },
+                            modifier = Modifier.weight(1f).height(42.dp),
+                            shape = FDShapes.Small
+                        ) {
+                            Text("Quitar", color = FDColors.Error)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        shape = FDShapes.Small
+                    ) {
+                        Text("Cancelar", color = FDColors.TextSecondary)
+                    }
+
+                    Button(
+                        onClick = { onAplicar(montoCalculado, null) },
+                        enabled = puedeAplicar,
+                        modifier = Modifier.weight(1.3f).height(42.dp),
+                        shape = FDShapes.Small,
+                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary)
+                    ) {
+                        Text("APLICAR", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChecklistAperturaBanner(
+    checklist: ChecklistAperturaSede,
+    excluirItemCaja: Boolean = false,
+    onNavigate: ((String) -> Unit)? = null
+) {
+    var expandido by remember { mutableStateOf(false) }
+    val items = remember(checklist, excluirItemCaja) {
+        val todos = checklist.obtenerItems()
+        if (excluirItemCaja) todos.filter { it.clave != "CAJA" } else todos
+    }
+    val pendientes = remember(items) { items.filter { !it.completado } }
+
+    // Si la caja de jornada anterior ya se muestra arriba y no hay otros requisitos faltantes, no duplicamos el banner
+    if (pendientes.isEmpty()) {
+        return
+    }
+
+    Surface(
+        color = FDColors.Surface,
+        shape = FDShapes.Medium,
+        border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(FDColors.Warning.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = FDColors.Warning, modifier = Modifier.size(18.dp))
+                    }
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "APERTURA DE SEDE PENDIENTE",
+                                style = FDType.Body.copy(fontWeight = FontWeight.Black, fontSize = 13.sp),
+                                color = FDColors.Warning
+                            )
+                            Surface(
+                                shape = CircleShape,
+                                color = FDColors.Warning.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    "${checklist.totalCompletados}/${checklist.totalRequisitos} listos",
+                                    style = FDType.Caption.copy(fontWeight = FontWeight.Black, fontSize = 11.sp, color = FDColors.Warning),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            "El punto de venta no puede cobrar hasta que se completen formalmente estos requisitos.",
+                            style = FDType.Caption.copy(color = FDColors.TextSecondary)
+                        )
+                    }
+                }
+
+                TextButton(onClick = { expandido = !expandido }) {
+                    Text(
+                        if (expandido) "Ocultar detalle ▲" else "Ver checklist (${pendientes.size} faltantes) ▼",
+                        style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.Primary)
+                    )
+                }
+            }
+
+            // Barra de progreso visual
+            val progreso = checklist.totalCompletados.toFloat() / checklist.totalRequisitos.toFloat()
+            LinearProgressIndicator(
+                progress = { progreso },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(CircleShape),
+                color = if (checklist.todoListo) FDColors.Success else FDColors.Warning,
+                trackColor = FDColors.InputBackground
+            )
+
+            // Resumen de ítems
+            val itemsAMostrar = if (expandido) items else pendientes
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                itemsAMostrar.forEach { item ->
+                    Surface(
+                        color = if (item.completado) FDColors.Success.copy(alpha = 0.05f) else FDColors.InputBackground.copy(alpha = 0.5f),
+                        shape = FDShapes.Small,
+                        border = BorderStroke(
+                            1.dp,
+                            if (item.completado) FDColors.Success.copy(alpha = 0.2f) else FDColors.Warning.copy(alpha = 0.3f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    if (item.completado) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = if (item.completado) FDColors.Success else FDColors.Warning,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Column {
+                                    Text(
+                                        item.titulo,
+                                        style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp, color = FDColors.TextPrimary)
+                                    )
+                                    Text(
+                                        item.detalle,
+                                        style = FDType.Caption.copy(fontSize = 11.sp, color = if (item.completado) FDColors.Success else FDColors.TextSecondary)
+                                    )
+                                }
+                            }
+
+                            if (!item.completado && item.rutaNavegacion != null && item.textoAccion != null && onNavigate != null) {
+                                Button(
+                                    onClick = { onNavigate(item.rutaNavegacion) },
+                                    shape = FDShapes.Small,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = FDColors.Primary,
+                                        contentColor = FDColors.PrimaryText
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Text(
+                                        item.textoAccion,
+                                        style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.PrimaryText)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectorClientePOSInline(
+    cliente: ClienteDeVenta,
+    consultando: Boolean,
+    resultadoDoc: ResultadoDocUi?,
+    onConsultarDoc: (String) -> Unit,
+    onAplicarResultado: (ResultadoDocUi.Encontrado) -> Unit,
+    onLimpiarResultado: () -> Unit,
+    onLimpiarCliente: () -> Unit,
+    onAbrirManual: () -> Unit
+) {
+    var inputDoc by remember { mutableStateOf(cliente.numeroDocumento) }
+
+    // Sincronizar input si el cliente asignado cambia externamente
+    LaunchedEffect(cliente.numeroDocumento) {
+        if (inputDoc != cliente.numeroDocumento) {
+            inputDoc = cliente.numeroDocumento
+        }
+    }
+
+    // Debounce estricto de 800ms tras dejar de escribir
+    LaunchedEffect(inputDoc) {
+        val numLimpio = inputDoc.filter { it.isDigit() }.trim()
+        if (numLimpio == cliente.numeroDocumento && numLimpio.isNotBlank()) {
+            return@LaunchedEffect
+        }
+        if (numLimpio.length == 8 || numLimpio.length == 11) {
+            delay(800L) // 800ms de inactividad
+            onConsultarDoc(numLimpio)
+        } else if (numLimpio.isBlank()) {
+            onLimpiarResultado()
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "CLIENTE / FACTURACIÓN",
+                style = FDType.Label.copy(
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.5.sp
+                ),
+                color = FDColors.TextTertiary
+            )
+            if (cliente.numeroDocumento.isNotBlank()) {
+                Surface(
+                    color = if (cliente.tipoDocumento == "RUC") FDColors.Warning.copy(alpha = 0.15f) else FDColors.Success.copy(alpha = 0.15f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        if (cliente.tipoDocumento == "RUC") "FACTURA ELECTRÓNICA" else "BOLETA ELECTRÓNICA",
+                        style = FDType.Caption.copy(
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (cliente.tipoDocumento == "RUC") FDColors.Warning else FDColors.Success
+                        ),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            } else {
+                Text(
+                    "CONSUMIDOR FINAL",
+                    style = FDType.Caption.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = FDColors.TextTertiary
+                    )
+                )
+            }
+        }
+
+        if (cliente.numeroDocumento.isNotBlank()) {
+            // Cliente ya asignado y confirmado a la venta: Tarjeta limpia
+            Surface(
+                color = FDColors.Primary.copy(alpha = 0.06f),
+                shape = FDShapes.Small,
+                border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(FDColors.Primary.copy(alpha = 0.12f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (cliente.tipoDocumento == "RUC") Icons.Default.Business else Icons.Default.Person,
+                            contentDescription = null,
+                            tint = FDColors.Primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            cliente.nombre,
+                            style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                            color = FDColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "${cliente.tipoDocumento}: ${cliente.numeroDocumento}",
+                            style = FDType.Caption.copy(fontSize = 11.sp),
+                            color = FDColors.TextSecondary
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            inputDoc = ""
+                            onLimpiarResultado()
+                            onLimpiarCliente()
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Quitar cliente",
+                            tint = FDColors.TextTertiary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            // Input autónomo (no se bloquea ni se mezcla con el resultado)
+            Surface(
+                color = FDColors.InputBackground.copy(alpha = 0.6f),
+                shape = FDShapes.Small,
+                border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.PersonSearch,
+                        contentDescription = null,
+                        tint = FDColors.TextTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = inputDoc,
+                        onValueChange = { nuevo ->
+                            val soloDigitos = nuevo.filter { it.isDigit() }.take(11)
+                            inputDoc = soloDigitos
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = FDType.Body.copy(
+                            color = FDColors.TextPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { innerTextField ->
+                            if (inputDoc.isBlank()) {
+                                Text(
+                                    "DNI (8 dígitos) o RUC (11 dígitos)",
+                                    style = FDType.Caption.copy(
+                                        color = FDColors.TextTertiary,
+                                        fontSize = 12.sp
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        }
+                    )
+
+                    if (inputDoc.isNotBlank()) {
+                        IconButton(
+                            onClick = {
+                                inputDoc = ""
+                                onLimpiarResultado()
+                                onLimpiarCliente()
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = "Limpiar campo",
+                                tint = FDColors.TextTertiary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = onAbrirManual,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.EditNote,
+                                contentDescription = "Llenar manual",
+                                tint = FDColors.TextTertiary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Resultado separado que nace debajo del input (Buscando, Éxito, Error)
+            AnimatedVisibility(
+                visible = consultando || resultadoDoc != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                when {
+                    consultando -> {
+                        Surface(
+                            color = FDColors.Primary.copy(alpha = 0.06f),
+                            shape = FDShapes.Small,
+                            border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.25f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.dp,
+                                    color = FDColors.Primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    "Consultando padrón oficial (RENIEC / SUNAT)...",
+                                    style = FDType.Caption.copy(
+                                        fontSize = 11.5.sp,
+                                        color = FDColors.Primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    resultadoDoc is ResultadoDocUi.Encontrado -> {
+                        Surface(
+                            color = FDColors.Success.copy(alpha = 0.08f),
+                            shape = FDShapes.Small,
+                            border = BorderStroke(1.dp, FDColors.Success.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .background(FDColors.Success.copy(alpha = 0.15f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            if (resultadoDoc.tipo == "RUC") Icons.Default.Business else Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = FDColors.Success,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = resultadoDoc.nombreCompleto,
+                                            style = FDType.Body.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.5.sp
+                                            ),
+                                            color = FDColors.TextPrimary,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Surface(
+                                                color = FDColors.Success.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${resultadoDoc.tipo} ${resultadoDoc.numero}",
+                                                    style = FDType.Caption.copy(
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = FDColors.Success
+                                                    ),
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Text(
+                                                text = if (resultadoDoc.esDeDirectorio) "Directorio Local" else "Verificado",
+                                                style = FDType.Caption.copy(
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
+                                                color = FDColors.TextSecondary
+                                            )
+                                        }
+                                        if (resultadoDoc.direccion.isNotBlank()) {
+                                            Spacer(Modifier.height(2.dp))
+                                            Text(
+                                                text = resultadoDoc.direccion,
+                                                style = FDType.Caption.copy(fontSize = 10.sp),
+                                                color = FDColors.TextTertiary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Button(
+                                    onClick = { onAplicarResultado(resultadoDoc) },
+                                    shape = FDShapes.Small,
+                                    colors = ButtonDefaults.buttonColors(containerColor = FDColors.Success),
+                                    contentPadding = PaddingValues(vertical = 6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(34.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        "Aplicar Cliente a la Venta",
+                                        style = FDType.Caption.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.5.sp,
+                                            color = Color.White
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    resultadoDoc is ResultadoDocUi.Error -> {
+                        Surface(
+                            color = FDColors.Error.copy(alpha = 0.08f),
+                            shape = FDShapes.Small,
+                            border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = FDColors.Error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "No se pudo identificar:",
+                                        style = FDType.Caption.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = FDColors.Error
+                                        )
+                                    )
+                                    Text(
+                                        text = resultadoDoc.mensaje,
+                                        style = FDType.Caption.copy(
+                                            fontSize = 10.5.sp,
+                                            color = FDColors.TextSecondary
+                                        ),
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                OutlinedButton(
+                                    onClick = onAbrirManual,
+                                    shape = FDShapes.Small,
+                                    border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.5f)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Text(
+                                        "Llenar Manual",
+                                        style = FDType.Caption.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 10.sp,
+                                            color = FDColors.Error
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+

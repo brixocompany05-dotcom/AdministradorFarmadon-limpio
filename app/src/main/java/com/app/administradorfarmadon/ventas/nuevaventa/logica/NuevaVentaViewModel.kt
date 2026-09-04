@@ -25,6 +25,7 @@ import com.app.administradorfarmadon.ventas.compartido.modelo.ItemVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.PagoVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
 import com.app.administradorfarmadon.ventas.compartido.modelo.VentaSuspendida
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -41,8 +42,32 @@ import java.util.UUID
 import com.app.administradorfarmadon.clientes.datos.ClientesRepository
 import com.app.administradorfarmadon.clientes.modelo.ClienteFarmacia
 import com.app.administradorfarmadon.facturacion.configuracion.datos.FacturacionConfigRepository
+import com.app.administradorfarmadon.facturacion.configuracion.datos.EmisorFiscal
 import com.app.administradorfarmadon.ventas.compartido.datos.BorradorVentaLocal
 import com.app.administradorfarmadon.ventas.compartido.datos.VentaBorradorLocalStore
+import com.app.administradorfarmadon.configuracion.pos.datos.PosConfigRepository
+import com.app.administradorfarmadon.configuracion.pos.modelo.AutorizacionSupervisor
+import com.app.administradorfarmadon.configuracion.pos.modelo.PosConfig
+import com.app.administradorfarmadon.configuracion.sucursales.datos.InfoPlanCliente
+import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
+import com.app.administradorfarmadon.configuracion.sucursales.datos.SucursalesRepository
+import com.app.administradorfarmadon.ventas.compartido.modelo.ChecklistAperturaSede
+
+sealed interface ResultadoDocUi {
+    data class Encontrado(
+        val tipo: String,
+        val numero: String,
+        val nombreCompleto: String,
+        val direccion: String = "",
+        val esDeDirectorio: Boolean = false
+    ) : ResultadoDocUi
+
+    data class Error(
+        val tipo: String,
+        val numero: String,
+        val mensaje: String
+    ) : ResultadoDocUi
+}
 
 /**
  * Estado UI completo para Nueva Venta / POS (R1/R3/R8/R10).
@@ -53,6 +78,13 @@ data class NuevaVentaUiState(
     val directorioClientes: List<ClienteFarmacia> = emptyList(),
     val descuento: Double = 0.0,
     val confirmoReceta: Boolean = false,
+    // Puerta Única: Checklist de Apertura de Sede (R1/R3/R8/R12)
+    val checklist: ChecklistAperturaSede = ChecklistAperturaSede(),
+    val checklistCargado: Boolean = false,
+    // Reglas de Venta y Caja POS (por sede)
+    val posConfig: PosConfig = PosConfig(),
+    val mostrarDialogoDescuento: Boolean = false,
+    val supervisorAutorizante: AutorizacionSupervisor? = null,
     // Facturación Electrónica SUNAT (FASE F2)
     val emisorCompleto: Boolean = false,
     // Búsqueda y Resultados
@@ -74,6 +106,7 @@ data class NuevaVentaUiState(
     val idempotenciaIdActual: String = "",
     // Consulta DNI/RUC
     val consultandoDoc: Boolean = false,
+    val resultadoConsultaDoc: ResultadoDocUi? = null,
     val mostrarDialogoCliente: Boolean = false,
     // Notificaciones
     val error: String? = null,
@@ -118,8 +151,8 @@ data class NuevaVentaUiState(
         }
 
     val puedeCobrar: Boolean
-        get() = cajaAbierta &&
-            emisorCompleto &&
+        get() = checklist.todoListo &&
+            !estadoCaja.esDeJornadaAnterior() &&
             carrito.isNotEmpty() &&
             (!requiereReceta || confirmoReceta) &&
             sumaPagos >= total - 0.009 &&
@@ -137,7 +170,9 @@ class NuevaVentaViewModel(
     private val cajaRepository: CajaRepository = CajaRepository(),
     private val metodosPagoRepository: MetodosPagoRepository = MetodosPagoRepository(),
     private val clientesRepository: ClientesRepository = ClientesRepository(),
-    private val facturacionConfigRepository: FacturacionConfigRepository = FacturacionConfigRepository()
+    private val facturacionConfigRepository: FacturacionConfigRepository = FacturacionConfigRepository(),
+    private val posConfigRepository: PosConfigRepository = PosConfigRepository(),
+    private val sucursalesRepository: SucursalesRepository = SucursalesRepository()
 ) : ViewModel() {
 
     companion object {
@@ -148,38 +183,99 @@ class NuevaVentaViewModel(
     val uiState: StateFlow<NuevaVentaUiState> = _uiState.asStateFlow()
 
     private var jobBusqueda: Job? = null
+    private val observadoresJobs = mutableListOf<Job>()
+    private var sucursalObserverJob: Job? = null
+
+    // Cache reactivo para cálculo puro de Checklist (R1/R3/R8)
+    private var ultimoEmisor: EmisorFiscal? = null
+    private var ultimasSucursales: List<Sucursal> = emptyList()
+    private var ultimoPlan: InfoPlanCliente = InfoPlanCliente()
 
     init {
-        iniciarObservadores()
+        observarCambiosDeSucursal()
         verificarYRecuperarBorrador()
+    }
+
+    private fun observarCambiosDeSucursal() {
+        sucursalObserverJob?.cancel()
+        sucursalObserverJob = viewModelScope.launch {
+            var ultimaSucursal: String? = null
+            SessionManager.sucursalFlow.collect { sucursal ->
+                if (sucursal != ultimaSucursal) {
+                    ultimaSucursal = sucursal
+                    reiniciarObservadoresPorCambioDeSucursal()
+                }
+            }
+        }
+    }
+
+    private fun reiniciarObservadoresPorCambioDeSucursal() {
+        observadoresJobs.forEach { it.cancel() }
+        observadoresJobs.clear()
+        _uiState.update {
+            it.copy(
+                carrito = emptyList(),
+                descuento = 0.0,
+                lineasPago = emptyList(),
+                supervisorAutorizante = null,
+                busquedaTexto = "",
+                resultadosBusqueda = emptyList(),
+                error = null,
+                mensajeExito = null
+            )
+        }
+        iniciarObservadores()
     }
 
     private fun iniciarObservadores() {
         val sucursalId = SessionManager.sucursalIdEfectiva
+        val farmaciaId = SessionManager.clienteIdGarantizado
+
+        // 0. Escuchar Reglas POS de la Sucursal (R1/R3)
+        if (sucursalId.isNotBlank()) {
+            observadoresJobs += viewModelScope.launch {
+                posConfigRepository.observar(sucursalId)
+                    .catch { Log.e(TAG, "Error escuchando posConfig: ${it.message}", it) }
+                    .collect { config ->
+                        _uiState.update { it.copy(posConfig = config) }
+                        recalcularChecklist()
+                    }
+            }
+        }
 
         // 1. Escuchar Estado de Caja
-        viewModelScope.launch {
+        observadoresJobs += viewModelScope.launch {
             cajaRepository.observarEstadoCaja()
                 .catch { Log.e(TAG, "Error escuchando estado de caja: ${it.message}", it) }
                 .collect { nuevoEstado ->
                     _uiState.update { it.copy(estadoCaja = nuevoEstado) }
+                    recalcularChecklist()
                 }
         }
 
         // 2. Escuchar Métodos de Pago Activos de la Sucursal (CRÍTICO 1)
         if (sucursalId.isNotBlank()) {
-            viewModelScope.launch {
+            observadoresJobs += viewModelScope.launch {
                 metodosPagoRepository.observarMetodosPago(sucursalId)
                     .catch { Log.e(TAG, "Error escuchando métodos de pago: ${it.message}", it) }
                     .collect { lista ->
                         val activas = lista.filter { m -> m.activa }
-                        _uiState.update { it.copy(metodosPagoDisponibles = activas) }
+                        _uiState.update { state ->
+                            val lineasValidas = state.lineasPago.filter { linea ->
+                                activas.any { it.id == linea.instanciaId || it.tipoId == linea.tipoId }
+                            }
+                            state.copy(
+                                metodosPagoDisponibles = activas,
+                                lineasPago = lineasValidas
+                            )
+                        }
+                        recalcularChecklist()
                     }
             }
         }
 
         // 3. Escuchar Ventas Suspendidas
-        viewModelScope.launch {
+        observadoresJobs += viewModelScope.launch {
             ventasRepository.observarSuspendidas()
                 .catch { Log.e(TAG, "Error escuchando suspendidas: ${it.message}", it) }
                 .collect { suspList ->
@@ -188,7 +284,7 @@ class NuevaVentaViewModel(
         }
 
         // 4. Escuchar Directorio de Clientes de la Farmacia (FASE 6)
-        viewModelScope.launch {
+        observadoresJobs += viewModelScope.launch {
             clientesRepository.observarClientes()
                 .catch { Log.e(TAG, "Error escuchando directorio de clientes: ${it.message}", it) }
                 .collect { clientes ->
@@ -197,16 +293,99 @@ class NuevaVentaViewModel(
         }
 
         // 5. Escuchar Estado de Facturación Electrónica (F2 - Regla de Oro POS)
-        val farmaciaId = SessionManager.clienteIdGarantizado
         if (farmaciaId.isNotBlank()) {
-            viewModelScope.launch {
+            observadoresJobs += viewModelScope.launch {
                 facturacionConfigRepository.observarEmisor(farmaciaId)
                     .catch { Log.e(TAG, "Error escuchando emisor fiscal: ${it.message}", it) }
                     .collect { emisor ->
+                        ultimoEmisor = emisor
                         val completo = emisor?.estaCompleta == true
                         _uiState.update { it.copy(emisorCompleto = completo) }
+                        recalcularChecklist()
                     }
             }
+        }
+
+        // 6. Escuchar Sedes para auditar estado activo y series 4/4
+        if (farmaciaId.isNotBlank()) {
+            observadoresJobs += viewModelScope.launch {
+                sucursalesRepository.observarSucursales(farmaciaId)
+                    .catch { Log.e(TAG, "Error escuchando sucursales para checklist: ${it.message}", it) }
+                    .collect { sucursales ->
+                        ultimasSucursales = sucursales
+                        recalcularChecklist()
+                    }
+            }
+        }
+
+        // 7. Escuchar Plan y Contrato de Farmacia
+        if (farmaciaId.isNotBlank()) {
+            observadoresJobs += viewModelScope.launch {
+                sucursalesRepository.observarInfoPlan(farmaciaId)
+                    .catch { Log.e(TAG, "Error escuchando plan para checklist: ${it.message}", it) }
+                    .collect { plan ->
+                        ultimoPlan = plan
+                        recalcularChecklist()
+                    }
+            }
+        }
+    }
+
+    private fun recalcularChecklist() {
+        val farmaciaId = SessionManager.clienteIdGarantizado
+        val sucursalId = SessionManager.sucursalIdEfectiva
+        val estado = _uiState.value
+
+        val farmaciaActiva = farmaciaId.isNotBlank()
+        val suscripcionValida = farmaciaActiva && !ultimoPlan.limiteNoConfigurado && ultimoPlan.planId.isNotBlank()
+        val sedeActual = ultimasSucursales.firstOrNull { it.id == sucursalId }
+            ?: ultimasSucursales.firstOrNull { it.esPrincipal }
+            ?: ultimasSucursales.firstOrNull()
+        val sedeActiva = sedeActual?.activa ?: sucursalId.isNotBlank()
+
+        val emisor = ultimoEmisor
+        val emisorCompleto = emisor?.estaCompleta == true
+        val seriesCompletas = sedeActual != null &&
+                sedeActual.serieBoleta.isNotBlank() &&
+                sedeActual.serieFactura.isNotBlank() &&
+                sedeActual.serieNotaCreditoBoleta.isNotBlank() &&
+                sedeActual.serieNotaCreditoFactura.isNotBlank()
+
+        val metodosActivos = estado.metodosPagoDisponibles
+        val tieneMetodos = metodosActivos.isNotEmpty()
+
+        val posConfigGuardado = estado.posConfig.estaVigente
+        val cajaAbierta = estado.estadoCaja.estado == CajaSesion.ESTADO_ABIERTA
+        val esDeJornadaAnterior = estado.estadoCaja.esDeJornadaAnterior()
+        val fechaCajaAnterior = if (esDeJornadaAnterior) estado.estadoCaja.fechaAperturaLegible() else ""
+
+        val checklistActualizado = ChecklistAperturaSede(
+            farmaciaActiva = farmaciaActiva,
+            farmaciaNombre = SessionManager.nombreUsuario.ifBlank { "Farmacia Activa" },
+            suscripcionValida = suscripcionValida,
+            suscripcionDetalle = ultimoPlan.planNombre,
+            sedeActiva = sedeActiva,
+            sedeNombre = sedeActual?.nombre ?: "Sede actual",
+            emisorFiscalCompleto = emisorCompleto,
+            emisorRuc = emisor?.ruc ?: "",
+            seriesFiscalesCompletas = seriesCompletas,
+            seriesDetalle = if (seriesCompletas) "${sedeActual?.serieBoleta} / ${sedeActual?.serieFactura}" else "Faltan series",
+            metodosPagoConfigurados = tieneMetodos,
+            cantidadMetodosActivos = metodosActivos.size,
+            posConfigGuardado = posConfigGuardado,
+            posConfigDetalle = if (posConfigGuardado) "Guardado por ${estado.posConfig.actualizadoPorNombre}" else "Borrador sin guardar",
+            cajaAbierta = cajaAbierta,
+            cajaDetalle = if (cajaAbierta) "Abierta (${estado.estadoCaja.abiertoPorNombre})" else "Cerrada",
+            cajaPendienteDeCierreAnterior = esDeJornadaAnterior,
+            fechaCajaPendiente = fechaCajaAnterior
+        )
+
+        _uiState.update {
+            it.copy(
+                checklist = checklistActualizado,
+                emisorCompleto = emisorCompleto,
+                checklistCargado = true
+            )
         }
     }
 
@@ -293,32 +472,45 @@ class NuevaVentaViewModel(
         }
 
         jobBusqueda = viewModelScope.launch {
-            delay(300)
+            delay(200)
             _uiState.update { it.copy(buscando = true) }
-            val farmaciaId = SessionManager.clienteIdGarantizado
-            val sucursalId = SessionManager.sucursalIdEfectiva
-            val pagina = inventarioRepository.buscarInventarioPaginado(
-                farmaciaId = farmaciaId,
-                sucursalId = sucursalId,
-                texto = texto,
-                limit = 20
-            )
-
-            // CRÍTICO 4 & 5: Auto-agregar SOLO si es coincidencia exacta de CÓDIGO (código de barras, código base, secundario o fracción -B/-U).
-            // NUNCA auto-agregar por coincidencia de texto de nombre.
-            if (pagina.productosMolde.size == 1 && esCoincidenciaExactaCodigo(pagina.productosMolde.first(), texto)) {
-                val unicoProd = pagina.productosMolde.first()
-                val presResuelta = unicoProd.resolverPresentacionPorCodigo(texto)
-                agregarItemResuelto(unicoProd, presResuelta)
-                _uiState.update { it.copy(busquedaTexto = "", buscando = false, resultadosBusqueda = emptyList()) }
-                return@launch
-            }
-
-            _uiState.update {
-                it.copy(
-                    buscando = false,
-                    resultadosBusqueda = pagina.productosMolde
+            try {
+                val farmaciaId = SessionManager.clienteIdGarantizado
+                val sucursalId = SessionManager.sucursalIdEfectiva
+                val pagina = inventarioRepository.buscarInventarioPaginado(
+                    farmaciaId = farmaciaId,
+                    sucursalId = sucursalId,
+                    texto = texto,
+                    limit = 20
                 )
+
+                // CRÍTICO 4 & 5: Auto-agregar SOLO si es coincidencia exacta de CÓDIGO (código de barras, código base, secundario o fracción -B/-U).
+                // NUNCA auto-agregar por coincidencia de texto de nombre.
+                if (pagina.productosMolde.size == 1 && esCoincidenciaExactaCodigo(pagina.productosMolde.first(), texto)) {
+                    val unicoProd = pagina.productosMolde.first()
+                    val presResuelta = unicoProd.resolverPresentacionPorCodigo(texto)
+                    agregarItemResuelto(unicoProd, presResuelta)
+                    _uiState.update { it.copy(busquedaTexto = "", buscando = false, resultadosBusqueda = emptyList()) }
+                    return@launch
+                }
+
+                _uiState.update {
+                    it.copy(
+                        buscando = false,
+                        resultadosBusqueda = pagina.productosMolde,
+                        error = null
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.e(TAG, "Error buscando productos en POS: ${e.message}", e)
+                _uiState.update {
+                    it.copy(
+                        buscando = false,
+                        resultadosBusqueda = emptyList(),
+                        error = e.message ?: "Error al buscar producto"
+                    )
+                }
             }
         }
     }
@@ -334,29 +526,42 @@ class NuevaVentaViewModel(
 
         jobBusqueda = viewModelScope.launch {
             _uiState.update { it.copy(buscando = true) }
-            val farmaciaId = SessionManager.clienteIdGarantizado
-            val sucursalId = SessionManager.sucursalIdEfectiva
-            val pagina = inventarioRepository.buscarInventarioPaginado(
-                farmaciaId = farmaciaId,
-                sucursalId = sucursalId,
-                texto = texto,
-                limit = 20
-            )
-
-            // Auto-agregar si hay match exacto de código
-            val matchExacto = pagina.productosMolde.firstOrNull { esCoincidenciaExactaCodigo(it, texto) }
-            if (matchExacto != null) {
-                val presResuelta = matchExacto.resolverPresentacionPorCodigo(texto)
-                agregarItemResuelto(matchExacto, presResuelta)
-                _uiState.update { it.copy(busquedaTexto = "", buscando = false, resultadosBusqueda = emptyList()) }
-                return@launch
-            }
-
-            _uiState.update {
-                it.copy(
-                    buscando = false,
-                    resultadosBusqueda = pagina.productosMolde
+            try {
+                val farmaciaId = SessionManager.clienteIdGarantizado
+                val sucursalId = SessionManager.sucursalIdEfectiva
+                val pagina = inventarioRepository.buscarInventarioPaginado(
+                    farmaciaId = farmaciaId,
+                    sucursalId = sucursalId,
+                    texto = texto,
+                    limit = 20
                 )
+
+                // Auto-agregar si hay match exacto de código
+                val matchExacto = pagina.productosMolde.firstOrNull { esCoincidenciaExactaCodigo(it, texto) }
+                if (matchExacto != null) {
+                    val presResuelta = matchExacto.resolverPresentacionPorCodigo(texto)
+                    agregarItemResuelto(matchExacto, presResuelta)
+                    _uiState.update { it.copy(busquedaTexto = "", buscando = false, resultadosBusqueda = emptyList()) }
+                    return@launch
+                }
+
+                _uiState.update {
+                    it.copy(
+                        buscando = false,
+                        resultadosBusqueda = pagina.productosMolde,
+                        error = null
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.e(TAG, "Error en búsqueda inmediata POS: ${e.message}", e)
+                _uiState.update {
+                    it.copy(
+                        buscando = false,
+                        resultadosBusqueda = emptyList(),
+                        error = e.message ?: "Error al buscar producto"
+                    )
+                }
             }
         }
     }
@@ -580,9 +785,43 @@ class NuevaVentaViewModel(
         persistirBorradorActual()
     }
 
+    fun abrirDialogoDescuento() {
+        _uiState.update { it.copy(mostrarDialogoDescuento = true, error = null) }
+    }
+
+    fun cerrarDialogoDescuento() {
+        _uiState.update { it.copy(mostrarDialogoDescuento = false) }
+    }
+
     fun setDescuento(monto: Double) {
+        aplicarDescuento(monto)
+    }
+
+    fun aplicarDescuento(monto: Double, autorizante: AutorizacionSupervisor? = null) {
         val d = kotlin.math.round(monto.coerceAtLeast(0.0) * 100.0) / 100.0
-        _uiState.update { it.copy(descuento = d) }
+        val subtotal = _uiState.value.subtotal
+        val config = _uiState.value.posConfig
+        val pct = if (subtotal > 0.0) (d / subtotal) * 100.0 else 0.0
+
+        if (d > 0.0) {
+            if (config.excedeLimitesDescuento(pct, d)) {
+                _uiState.update {
+                    it.copy(
+                        error = "El descuento (S/ ${String.format(Locale.US, "%.2f", d)} / ${String.format(Locale.US, "%.1f", pct)}%) supera el tope permitido para esta sede (${config.descuento.maxPct}% / S/ ${String.format(Locale.US, "%.2f", config.descuento.maxMonto)})."
+                    )
+                }
+                return
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                descuento = d,
+                supervisorAutorizante = null,
+                mostrarDialogoDescuento = false,
+                error = null
+            )
+        }
         persistirBorradorActual()
     }
 
@@ -611,14 +850,18 @@ class NuevaVentaViewModel(
         persistirBorradorActual()
     }
 
-    fun guardarClienteYEstablecer(cliente: ClienteDeVenta, guardarEnDirectorio: Boolean) {
+    fun guardarClienteYEstablecer(cliente: ClienteDeVenta, guardarEnDirectorio: Boolean = true) {
         viewModelScope.launch {
-            if (guardarEnDirectorio && cliente.tipoDocumento != "NINGUNO" && cliente.numeroDocumento.isNotBlank()) {
+            val numLimpio = cliente.numeroDocumento.filter { it.isDigit() }.trim()
+            val nomLimpio = cliente.nombre.trim()
+            val tipoLimpio = cliente.tipoDocumento.trim().uppercase()
+
+            if (tipoLimpio != "NINGUNO" && numLimpio.isNotBlank() && nomLimpio.isNotBlank() && !nomLimpio.equals("Consumidor Final", ignoreCase = true)) {
                 val ficha = ClienteFarmacia(
-                    id = cliente.numeroDocumento.trim(),
-                    tipoDocumento = cliente.tipoDocumento,
-                    numeroDocumento = cliente.numeroDocumento.trim(),
-                    nombre = cliente.nombre.trim(),
+                    id = numLimpio,
+                    tipoDocumento = tipoLimpio,
+                    numeroDocumento = numLimpio,
+                    nombre = nomLimpio,
                     creadoPor = SessionManager.nombreUsuario
                 )
                 val res = clientesRepository.guardarCliente(ficha)
@@ -626,12 +869,14 @@ class NuevaVentaViewModel(
                     _uiState.update { it.copy(error = "Venta enlazada, pero la ficha no se guardó en el directorio: ${err.message}") }
                 }
             }
-            val idEnlazado = if (cliente.tipoDocumento != "NINGUNO" && cliente.numeroDocumento.isNotBlank()) {
-                _uiState.value.directorioClientes.firstOrNull { it.numeroDocumento == cliente.numeroDocumento.trim() }?.id
-                    ?: cliente.numeroDocumento.trim()
-            } else ""
+            val clienteSaneado = cliente.copy(
+                tipoDocumento = if (numLimpio.isBlank()) "NINGUNO" else tipoLimpio,
+                numeroDocumento = numLimpio,
+                nombre = nomLimpio,
+                clienteId = numLimpio
+            )
 
-            _uiState.update { it.copy(cliente = cliente.copy(clienteId = idEnlazado), mostrarDialogoCliente = false) }
+            _uiState.update { it.copy(cliente = clienteSaneado, mostrarDialogoCliente = false) }
             persistirBorradorActual()
         }
     }
@@ -643,50 +888,65 @@ class NuevaVentaViewModel(
         // 1. Verificar si ya existe en el directorio local de la farmacia
         val existente = _uiState.value.directorioClientes.firstOrNull { it.numeroDocumento == numLimpio }
         if (existente != null) {
-            val clienteEncontrado = ClienteDeVenta(
-                tipoDocumento = existente.tipoDocumento,
-                numeroDocumento = existente.numeroDocumento,
-                nombre = existente.nombre,
-                clienteId = existente.id
-            )
             _uiState.update {
                 it.copy(
-                    cliente = clienteEncontrado,
                     consultandoDoc = false,
-                    mostrarDialogoCliente = false,
-                    mensajeExito = "Cliente del directorio: ${existente.nombre}"
+                    resultadoConsultaDoc = ResultadoDocUi.Encontrado(
+                        tipo = existente.tipoDocumento,
+                        numero = existente.numeroDocumento,
+                        nombreCompleto = existente.nombre,
+                        direccion = existente.direccion,
+                        esDeDirectorio = true
+                    )
                 )
             }
-            persistirBorradorActual()
             return
         }
 
         // 2. Si no existe en el directorio, consultar API oficial (RENIEC / SUNAT)
         viewModelScope.launch {
-            _uiState.update { it.copy(consultandoDoc = true, error = null) }
+            _uiState.update { it.copy(consultandoDoc = true, resultadoConsultaDoc = null, error = null) }
             when (val res = ApiDocumentosPeru.consultar(tipo, numLimpio)) {
                 is ResultadoConsultaDoc.Encontrado -> {
-                    val nuevoCliente = ClienteDeVenta(
-                        tipoDocumento = res.tipo,
-                        numeroDocumento = res.numero,
-                        nombre = res.nombreCompleto,
-                        clienteId = res.numero
-                    )
                     _uiState.update {
                         it.copy(
-                            cliente = nuevoCliente,
                             consultandoDoc = false,
-                            mostrarDialogoCliente = false,
-                            mensajeExito = "Cliente identificado: ${res.nombreCompleto}"
+                            resultadoConsultaDoc = ResultadoDocUi.Encontrado(
+                                tipo = res.tipo,
+                                numero = res.numero,
+                                nombreCompleto = res.nombreCompleto,
+                                direccion = res.direccion,
+                                esDeDirectorio = false
+                            )
                         )
                     }
-                    persistirBorradorActual()
+
+                    // Auto-guardar en directorio de clientes de la farmacia
+                    viewModelScope.launch {
+                        try {
+                            clientesRepository.guardarCliente(
+                                com.app.administradorfarmadon.clientes.modelo.ClienteFarmacia(
+                                    id = res.numero,
+                                    tipoDocumento = res.tipo,
+                                    numeroDocumento = res.numero,
+                                    nombre = res.nombreCompleto,
+                                    direccion = res.direccion
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "No se pudo auto-guardar en directorio: ${e.message}")
+                        }
+                    }
                 }
                 is ResultadoConsultaDoc.NoEncontrado -> {
                     _uiState.update {
                         it.copy(
                             consultandoDoc = false,
-                            error = "No se encontraron datos oficiales para el $tipo $numLimpio."
+                            resultadoConsultaDoc = ResultadoDocUi.Error(
+                                tipo = tipo,
+                                numero = numLimpio,
+                                mensaje = "No se encontró el $tipo $numLimpio en el padrón nacional."
+                            )
                         )
                     }
                 }
@@ -694,7 +954,11 @@ class NuevaVentaViewModel(
                     _uiState.update {
                         it.copy(
                             consultandoDoc = false,
-                            error = res.mensaje
+                            resultadoConsultaDoc = ResultadoDocUi.Error(
+                                tipo = tipo,
+                                numero = numLimpio,
+                                mensaje = res.mensaje
+                            )
                         )
                     }
                 }
@@ -702,7 +966,11 @@ class NuevaVentaViewModel(
                     _uiState.update {
                         it.copy(
                             consultandoDoc = false,
-                            error = res.mensaje
+                            resultadoConsultaDoc = ResultadoDocUi.Error(
+                                tipo = tipo,
+                                numero = numLimpio,
+                                mensaje = res.mensaje
+                            )
                         )
                     }
                 }
@@ -710,14 +978,168 @@ class NuevaVentaViewModel(
         }
     }
 
+    fun aplicarResultadoCliente(res: ResultadoDocUi.Encontrado) {
+        val nuevoCliente = ClienteDeVenta(
+            tipoDocumento = res.tipo,
+            numeroDocumento = res.numero,
+            nombre = res.nombreCompleto,
+            clienteId = res.numero
+        )
+        _uiState.update {
+            it.copy(
+                cliente = nuevoCliente,
+                resultadoConsultaDoc = null,
+                mensajeExito = "Cliente asignado a la venta: ${res.nombreCompleto}"
+            )
+        }
+        persistirBorradorActual()
+
+        // Si fue consultado en RENIEC/SUNAT y no estaba en el directorio de la farmacia, se incorpora automáticamente
+        if (!res.esDeDirectorio && res.numero.isNotBlank() && res.nombreCompleto.isNotBlank()) {
+            viewModelScope.launch {
+                try {
+                    clientesRepository.guardarCliente(
+                        ClienteFarmacia(
+                            id = res.numero,
+                            tipoDocumento = res.tipo,
+                            numeroDocumento = res.numero,
+                            nombre = res.nombreCompleto,
+                            direccion = res.direccion.trim()
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo auto-guardar cliente consultado en directorio: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun limpiarResultadoConsultaDoc() {
+        _uiState.update { it.copy(resultadoConsultaDoc = null) }
+    }
+
+    fun limpiarError() {
+        _uiState.update { it.copy(error = null) }
+    }
+
+    fun consultarDocumentoAuto(numero: String) {
+        val numLimpio = numero.filter { it.isDigit() }.trim()
+        if (numLimpio.isBlank()) {
+            limpiarCliente()
+            limpiarResultadoConsultaDoc()
+            return
+        }
+        // Validación estricta Perú: Solo 8 dígitos (DNI) o 11 dígitos (RUC). Prohibido buscar con otras longitudes.
+        val tipo = when (numLimpio.length) {
+            8 -> "DNI"
+            11 -> "RUC"
+            else -> {
+                limpiarResultadoConsultaDoc()
+                return
+            }
+        }
+        consultarDocumentoCliente(tipo, numLimpio)
+    }
+
+    fun asignarClienteManual(
+        tipo: String,
+        numero: String,
+        nombre: String,
+        direccion: String = "",
+        guardarEnDirectorio: Boolean = true
+    ) {
+        val numLimpio = numero.trim()
+        val nomLimpio = nombre.trim()
+        if (nomLimpio.isBlank()) return
+
+        val tipoNorm = if (tipo.isNotBlank()) tipo.trim().uppercase() else if (numLimpio.length == 11) "RUC" else "DNI"
+        val nuevoCliente = ClienteDeVenta(
+            tipoDocumento = tipoNorm,
+            numeroDocumento = numLimpio,
+            nombre = nomLimpio,
+            clienteId = numLimpio
+        )
+
+        _uiState.update {
+            it.copy(
+                cliente = nuevoCliente,
+                consultandoDoc = false,
+                mostrarDialogoCliente = false,
+                error = null,
+                mensajeExito = "Cliente asignado a la venta: $nomLimpio"
+            )
+        }
+        persistirBorradorActual()
+
+        if (guardarEnDirectorio && numLimpio.isNotBlank()) {
+            viewModelScope.launch {
+                try {
+                    clientesRepository.guardarCliente(
+                        com.app.administradorfarmadon.clientes.modelo.ClienteFarmacia(
+                            id = numLimpio,
+                            tipoDocumento = tipoNorm,
+                            numeroDocumento = numLimpio,
+                            nombre = nomLimpio,
+                            direccion = direccion.trim()
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo auto-guardar en directorio: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun limpiarCliente() {
+        _uiState.update {
+            it.copy(
+                cliente = ClienteDeVenta(
+                    tipoDocumento = "NINGUNO",
+                    numeroDocumento = "",
+                    nombre = "Consumidor Final",
+                    clienteId = ""
+                ),
+                error = null
+            )
+        }
+        persistirBorradorActual()
+    }
+
     // ───────────────────────────── FLUJO DE COBRO E IDEMPOTENCIA ─────────────────────────────
 
     fun abrirOverlayCobro() {
-        val total = _uiState.value.total
-        val idIdem = _uiState.value.idempotenciaIdActual.ifBlank { "v_${UUID.randomUUID()}" }
+        val estadoActual = _uiState.value
+        if (!estadoActual.checklist.todoListo) {
+            _uiState.update { it.copy(error = "Apertura pendiente (${estadoActual.checklist.totalCompletados}/${estadoActual.checklist.totalRequisitos}): completa el checklist de la sede antes de cobrar.") }
+            return
+        }
+        if (!estadoActual.cajaAbierta) {
+            _uiState.update { it.copy(error = "La caja está cerrada. Ábrela en 'Cierre de Caja' para cobrar.") }
+            return
+        }
+        if (estadoActual.estadoCaja.esDeJornadaAnterior()) {
+            _uiState.update { it.copy(error = "Caja pendiente de cierre del ${estadoActual.estadoCaja.fechaAperturaLegible()}: ciérrala con arqueo físico antes de cobrar hoy.") }
+            return
+        }
+        if (estadoActual.carrito.isEmpty()) {
+            _uiState.update { it.copy(error = "El carrito no tiene productos para cobrar.") }
+            return
+        }
+        if (estadoActual.requiereReceta && !estadoActual.confirmoReceta) {
+            _uiState.update { it.copy(error = "Debes confirmar la receta médica para los medicamentos que la requieren.") }
+            return
+        }
+        val total = estadoActual.total
+        val idIdem = estadoActual.idempotenciaIdActual.ifBlank { "v_${UUID.randomUUID()}" }
+
+        // Si había una consulta oficial verificada pendiente de aplicar al carrito, se auto-aplica antes de abrir el cobro
+        val resDoc = estadoActual.resultadoConsultaDoc
+        if (estadoActual.cliente.numeroDocumento.isBlank() && resDoc is ResultadoDocUi.Encontrado) {
+            aplicarResultadoCliente(resDoc)
+        }
 
         // CRÍTICO 1: Si hay EFECTIVO activo en metodosPagoDisponibles, precargarlo por defecto; si no, dejar vacío
-        val metodoEfectivoActivo = _uiState.value.metodosPagoDisponibles.firstOrNull { it.tipoId == "EFECTIVO" }
+        val metodoEfectivoActivo = estadoActual.metodosPagoDisponibles.firstOrNull { it.tipoId == "EFECTIVO" }
         val lineaDefecto = if (metodoEfectivoActivo != null) {
             listOf(
                 PagoVenta(
@@ -754,6 +1176,10 @@ class NuevaVentaViewModel(
     fun confirmarVenta() {
         val estado = _uiState.value
         if (estado.procesandoCobro) return
+        if (!estado.checklist.todoListo) {
+            _uiState.update { it.copy(error = "No se puede procesar el cobro: la apertura de la sede está incompleta. Revisa el checklist de requisitos.") }
+            return
+        }
         if (!estado.cajaAbierta) {
             _uiState.update { it.copy(error = "La caja está cerrada. Ábrela en 'Cierre de Caja' para cobrar.") }
             return
@@ -780,13 +1206,37 @@ class NuevaVentaViewModel(
                 pagos = estado.lineasPago,
                 descuento = estado.descuento,
                 confirmoReceta = estado.confirmoReceta,
-                idempotenciaId = estado.idempotenciaIdActual
+                idempotenciaId = estado.idempotenciaIdActual,
+                autorizadoPorId = "",
+                autorizadoPorNombre = "",
+                autorizadoPorRol = ""
             )
 
             res.onSuccess { ventaCompletada ->
                 val farmaciaId = SessionManager.clienteIdGarantizado
                 val sucursalId = SessionManager.sucursalIdEfectiva
                 VentaBorradorLocalStore.limpiarBorrador(farmaciaId = farmaciaId, sucursalId = sucursalId)
+
+                // R1/R3: Si la venta se emitió a un cliente identificado, asegurar su ficha en el directorio de la farmacia
+                val cli = ventaCompletada.cliente
+                val docCli = cli.numeroDocumento.trim()
+                if (docCli.isNotBlank() && !cli.nombre.equals("Consumidor Final", ignoreCase = true)) {
+                    viewModelScope.launch {
+                        try {
+                            clientesRepository.guardarCliente(
+                                ClienteFarmacia(
+                                    id = docCli,
+                                    tipoDocumento = cli.tipoDocumento,
+                                    numeroDocumento = docCli,
+                                    nombre = cli.nombre.trim()
+                                )
+                            )
+                        } catch (e: Exception) {
+                            Log.w(TAG, "No se pudo asegurar cliente de la venta en directorio: ${e.message}")
+                        }
+                    }
+                }
+
                 _uiState.update {
                     it.copy(
                         procesandoCobro = false,
@@ -805,6 +1255,7 @@ class NuevaVentaViewModel(
                 _uiState.update {
                     it.copy(
                         procesandoCobro = false,
+                        mostrarOverlayCobro = false,
                         error = err.message ?: "No se pudo registrar la venta."
                     )
                 }

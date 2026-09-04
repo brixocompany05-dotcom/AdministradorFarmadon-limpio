@@ -431,70 +431,77 @@ fun POSDenominationCounter(
     simbolo: String = "S/",
     esMoneda: Boolean = false
 ) {
-    val s = recordarMedidaAdaptativa()
     val totalRow = try { denominacion.toDouble() * cantidad } catch (e: Exception) { 0.0 }
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(60.dp)
-            .padding(vertical = 4.dp),
+            .height(52.dp)
+            .padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Label
+        // Label de Denominación
         Surface(
-            color = if (esMoneda) FDColors.InputBackground else FDColors.Primary.copy(alpha = 0.05f),
+            color = if (esMoneda) FDColors.InputBackground else FDColors.Primary.copy(alpha = 0.08f),
             shape = FDShapes.Small,
-            border = if (!esMoneda) BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.1f)) else null,
-            modifier = Modifier.size(width = 85.dp, height = 40.dp)
+            border = if (!esMoneda) BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.2f)) else null,
+            modifier = Modifier.size(width = 76.dp, height = 36.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(text = denominacion, style = FDType.Numeric.copy(fontSize = 16.sp, fontWeight = FontWeight.Black), color = if (esMoneda) FDColors.TextPrimary else FDColors.Primary)
+                Text(
+                    text = denominacion,
+                    style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Black),
+                    color = if (esMoneda) FDColors.TextPrimary else FDColors.Primary
+                )
             }
         }
-        
-        Text(text = "x", style = FDType.Body, color = FDColors.TextTertiary)
-        
-        // Counter
+
+        Text(text = "×", style = FDType.Body.copy(fontSize = 14.sp), color = FDColors.TextTertiary)
+
+        // Botones e Indicador de Cantidad
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.weight(1f)
         ) {
             Surface(
                 onClick = { if (cantidad > 0) onCantidadChange(cantidad - 1) },
                 color = FDColors.InputBackground,
                 shape = CircleShape,
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier.size(34.dp),
                 border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.5f))
             ) {
-                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(18.dp)) }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Remove, null, modifier = Modifier.size(16.dp))
+                }
             }
-            
+
             Text(
                 text = "$cantidad",
-                style = FDType.Numeric.copy(fontSize = 20.sp, fontWeight = FontWeight.Black),
+                style = FDType.Numeric.copy(fontSize = 18.sp, fontWeight = FontWeight.Black),
                 color = FDColors.TextPrimary,
-                modifier = Modifier.widthIn(min = 40.dp),
+                modifier = Modifier.widthIn(min = 36.dp),
                 textAlign = TextAlign.Center
             )
-            
+
             Surface(
                 onClick = { onCantidadChange(cantidad + 1) },
-                color = FDColors.Primary.copy(alpha = 0.08f),
+                color = FDColors.Primary.copy(alpha = 0.12f),
                 shape = CircleShape,
-                modifier = Modifier.size(36.dp),
-                border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.2f))
+                modifier = Modifier.size(34.dp),
+                border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.3f))
             ) {
-                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = FDColors.Primary) }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp), tint = FDColors.Primary)
+                }
             }
         }
 
-        // Subtotal visual
+        // Subtotal acumulado por Denominación
         Text(
             text = "$simbolo " + String.format(Locale.US, "%.2f", totalRow),
-            style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold),
+            style = FDType.Numeric.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold),
             color = if (cantidad > 0) FDColors.TextPrimary else FDColors.TextDisabled,
             modifier = Modifier.width(90.dp),
             textAlign = TextAlign.End
@@ -609,10 +616,10 @@ fun FDTextField(
         Surface(
             color = FDColors.InputBackground,
             shape = FDShapes.Small,
-            modifier = Modifier.fillMaxWidth().then(if (singleLine) Modifier.height(s.inputMinH) else Modifier.heightIn(min = s.inputMinH))
+            modifier = Modifier.fillMaxWidth().then(if (singleLine) Modifier.height(s.inputMinH) else Modifier.heightIn(min = s.inputMinH, max = 96.dp))
         ) {
             Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = if (singleLine) 0.dp else 12.dp),
+                modifier = Modifier.fillMaxWidth().then(if (singleLine) Modifier.height(s.inputMinH) else Modifier.heightIn(min = s.inputMinH, max = 96.dp)).padding(horizontal = 12.dp, vertical = if (singleLine) 0.dp else 10.dp),
                 verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {

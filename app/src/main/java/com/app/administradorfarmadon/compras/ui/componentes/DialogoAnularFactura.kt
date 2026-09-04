@@ -55,7 +55,7 @@ fun DialogoAnularFactura(
     procesando: Boolean,
     autorizadoPlata: Boolean,
     onDismiss: () -> Unit,
-    onConfirmar: (motivo: String, respuestaPlata: String?, metodoDevolucion: String?, referenciaDevolucion: String?) -> Unit
+    onConfirmar: (motivo: String, respuestaPlata: String?, metodoDevolucion: String?, referenciaDevolucion: String?, conDevolucion: Boolean) -> Unit
 ) {
     val s = recordarMedidaAdaptativa()
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
@@ -69,21 +69,25 @@ fun DialogoAnularFactura(
     var respuestaPlata by remember { mutableStateOf<String?>(null) }
     var metodoDevolucion by remember { mutableStateOf<String?>(null) }
     var referenciaDevolucion by remember { mutableStateOf("") }
+    // Si la mercadería ya se vendió, la deuda igual debe poder anularse sin tocar el estante.
+    var soloDeuda by remember { mutableStateOf(false) }
 
-    // La anulación devuelve TODO el lote de la factura o no se hace (nunca a medias).
-    // Si falta stock, un lote o el producto, se bloquea el botón con la razón real.
+    // La anulación con devolución devuelve TODO el lote o no se hace (nunca a medias).
+    // Si falta stock, lote o producto, se ofrece anular SOLO la deuda (el pedido queda recibido).
     val sinLineas = !cargandoLineas && lineas.isEmpty()
     val bloqueoDevolucion = lineas.firstOrNull { it.noVuelve > 0.01 || !it.loteExiste || !it.productoExiste }
     val puedeConfirmar = !cargandoLineas && motivoSeleccionado != null &&
         (!hayDineroEnJuego || (respuestaPlata != null && (respuestaPlata != "DEVOLUCION_RECIBIDA" || metodoDevolucion != null))) &&
-        !sinLineas && bloqueoDevolucion == null
+        !sinLineas && (bloqueoDevolucion == null || soloDeuda)
 
     val motivoBloqueo = when {
+        cargandoLineas -> "Contando el estante… espera a que termine el conteo para anular."
         sinLineas -> "Esta factura no tiene productos para devolver. No se puede anular con devolución de stock."
         bloqueoDevolucion == null -> null
-        !bloqueoDevolucion.productoExiste -> "El producto '${bloqueoDevolucion.productoNombre}' ya no existe en inventario. No se puede anular devolviendo stock."
-        !bloqueoDevolucion.loteExiste -> "El lote '${bloqueoDevolucion.loteNumero}' de '${bloqueoDevolucion.productoNombre}' ya no existe (se vendió o se borró)."
-        else -> "Falta stock para devolver el lote '${bloqueoDevolucion.loteNumero}' de '${bloqueoDevolucion.productoNombre}': la factura dice ${bloqueoDevolucion.entro.toInt()}u y hoy hay ${bloqueoDevolucion.hoy.toInt()}u."
+        soloDeuda -> null
+        !bloqueoDevolucion.productoExiste -> "El producto '${bloqueoDevolucion.productoNombre}' ya no existe en inventario. Marca solo-deuda para anular sin tocar el estante."
+        !bloqueoDevolucion.loteExiste -> "El lote '${bloqueoDevolucion.loteNumero}' de '${bloqueoDevolucion.productoNombre}' ya no existe (se vendió o se borró). Marca solo-deuda para anular sin tocar el estante."
+        else -> "Falta stock para devolver el lote '${bloqueoDevolucion.loteNumero}' de '${bloqueoDevolucion.productoNombre}': la factura dice ${bloqueoDevolucion.entro.toInt()}u y hoy hay ${bloqueoDevolucion.hoy.toInt()}u. Marca solo-deuda para anular sin tocar el estante."
     }
 
     BackHandler(enabled = true) { if (!procesando) onDismiss() }
@@ -204,7 +208,7 @@ fun DialogoAnularFactura(
 
                             // Filas de productos
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                                itemsIndexed(lineas, key = { _, it -> it.productoId + it.loteNumero }) { index, linea ->
+                                itemsIndexed(lineas, key = { index, it -> "$index|${it.productoId}|${it.loteNumero}" }) { index, linea ->
                                     FilaProducto(linea, esPar = index % 2 == 0)
                                     if (index < lineas.lastIndex) {
                                         HorizontalDivider(color = FDColors.Border.copy(alpha = 0.2f), thickness = 0.5.dp, modifier = Modifier.padding(horizontal = s.padCard))
@@ -273,6 +277,40 @@ fun DialogoAnularFactura(
                             placeholder = "Elige el motivo…"
                         )
 
+                        // ── SOLO DEUDA (cuando el estante ya no tiene lo que entró) ──
+                        if (!cargandoLineas && bloqueoDevolucion != null) {
+                            Surface(
+                                color = FDColors.WarningSubtle,
+                                shape = FDShapes.Small,
+                                border = BorderStroke(s.borderWidth * 0.8f, FDColors.Warning.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(s.padCard * 0.7f),
+                                    horizontalArrangement = Arrangement.spacedBy(s.gapSmall),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = soloDeuda,
+                                        onCheckedChange = { soloDeuda = it },
+                                        enabled = !procesando
+                                    )
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(
+                                            "Anular SOLO la deuda (no tocar el estante)",
+                                            style = FDType.BodySmall.copy(fontWeight = FontWeight.Bold),
+                                            color = FDColors.TextPrimary
+                                        )
+                                        Text(
+                                            "El stock vendido se queda vendido. Solo se anula el papel y su deuda; el pedido queda como recibido.",
+                                            style = FDType.Caption,
+                                            color = FDColors.TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // ── PLATA (solo si existe un pago real) ──
                         if (hayDineroEnJuego) {
                             val montoEnJuego = plataPagada
@@ -317,8 +355,8 @@ fun DialogoAnularFactura(
                                     )
                                     SelectorOpcion(
                                         opcionSeleccionada = metodoDevolucion,
-                                        // Coherencia: solo métodos reales que existen en el catálogo.
-                                        opciones = listOf("Efectivo", "Transferencia", "Cheque"),
+                                        // Coherencia: todos los métodos reales del mercado peruano
+                                        opciones = listOf("Efectivo", "Transferencia", "Yape", "Plin", "Cheque", "Depósito"),
                                         habilitado = !procesando,
                                         onSeleccionar = { metodoDevolucion = it },
                                         placeholder = "Elige el método…"
@@ -389,9 +427,10 @@ fun DialogoAnularFactura(
                         ResumenFila(
                             Icons.Default.Inventory2, "INVENTARIO",
                             if (cargandoLineas) "Contando…"
+                            else if (soloDeuda) "No se toca el estante: solo se anula la deuda del papel."
                             else {
                                 val textoDevuelve = "$totalDevuelve producto${if (totalDevuelve != 1) "s" else ""} se ${if (totalDevuelve == 1) "devuelve" else "devuelven"} al inventario"
-                                if (totalNoVuelve > 0) "$textoDevuelve · $totalNoVuelve sin stock para devolver: la anulación queda bloqueada"
+                                if (totalNoVuelve > 0) "$textoDevuelve · $totalNoVuelve sin stock: marca solo-deuda o la anulación queda bloqueada"
                                 else textoDevuelve
                             },
                             FDColors.Primary
@@ -445,7 +484,7 @@ fun DialogoAnularFactura(
                                 Text("CANCELAR", style = FDType.Label.copy(fontSize = s.textLabel.value.sp, fontWeight = FontWeight.Bold), color = FDColors.TextSecondary)
                             }
                             Button(
-                                onClick = { onConfirmar(motivoSeleccionado ?: "", respuestaPlata, metodoDevolucion, referenciaDevolucion) },
+                                onClick = { onConfirmar(motivoSeleccionado ?: "", respuestaPlata, metodoDevolucion, referenciaDevolucion, !soloDeuda) },
                                 enabled = !procesando && puedeConfirmar,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = FDColors.Error,

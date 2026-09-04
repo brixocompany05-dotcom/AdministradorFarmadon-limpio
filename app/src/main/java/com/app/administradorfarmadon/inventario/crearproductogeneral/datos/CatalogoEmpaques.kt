@@ -20,25 +20,37 @@ object CatalogoEmpaques {
         ),
         LIQUIDO_VOLUMEN(
             etiqueta = "Líquidos / Volumen",
-            empaquesCompatibles = listOf("Frasco", "Botella", "Gotero", "Ampolla", "Spray", "Caja", "Sachet", "Bolsa"),
+            empaquesCompatibles = listOf("Frasco", "Botella", "Gotero", "Ampolla", "Spray", "Caja", "Sachet", "Bolsa", "Unidad"),
             unidadesCompatibles = listOf("ml", "L", "Got"),
             unidadKardexSugerida = "ml"
         ),
-        TOPICOS_CREMAS(
-            etiqueta = "Tópicos / Semisólidos",
-            empaquesCompatibles = listOf("Tubo", "Pote", "Sachet", "Frasco", "Caja"),
-            unidadesCompatibles = listOf("g", "ml", "mg"),
+        TOPICOS_PESO(
+            etiqueta = "Tópicos / Masa (Gramos)",
+            empaquesCompatibles = listOf("Tubo", "Pote", "Sachet", "Frasco", "Caja", "Unidad"),
+            unidadesCompatibles = listOf("g", "mg"),
             unidadKardexSugerida = "g"
+        ),
+        TOPICOS_VOLUMEN(
+            etiqueta = "Tópicos / Volumen (Mililitros)",
+            empaquesCompatibles = listOf("Tubo", "Pote", "Sachet", "Frasco", "Caja", "Unidad"),
+            unidadesCompatibles = listOf("ml", "L"),
+            unidadKardexSugerida = "ml"
+        ),
+        DOSIS_MEDIDA(
+            etiqueta = "Dosis / UI / Medidas",
+            empaquesCompatibles = listOf("Inhalador", "Spray", "Lata", "Frasco", "Ampolla", "Caja", "Unidad"),
+            unidadesCompatibles = listOf("UI", "Dosis"),
+            unidadKardexSugerida = "Dosis"
         ),
         AEROSOLES(
             etiqueta = "Aerosoles / Inhaladores",
-            empaquesCompatibles = listOf("Inhalador", "Spray", "Lata", "Frasco", "Caja"),
+            empaquesCompatibles = listOf("Inhalador", "Spray", "Lata", "Frasco", "Caja", "Unidad"),
             unidadesCompatibles = listOf("Dosis", "ml"),
             unidadKardexSugerida = "Dosis"
         ),
         PESO_MASA(
             etiqueta = "Peso / Granel / Polvos",
-            empaquesCompatibles = listOf("Pote", "Lata", "Bolsa", "Caja", "Paquete"),
+            empaquesCompatibles = listOf("Pote", "Lata", "Bolsa", "Caja", "Paquete", "Unidad"),
             unidadesCompatibles = listOf("g", "kg", "mg", "mcg"),
             unidadKardexSugerida = "g"
         ),
@@ -116,9 +128,12 @@ object CatalogoEmpaques {
         "Dosis"
     )
 
+    private val RECHAZADOS = setOf("galón", "galon", "libra", "onza", "kit", "pch")
+
     fun normalizarEmpaque(raw: String): String {
         val limpio = raw.trim().lowercase()
-        return EMPAQUES_VALIDOS.firstOrNull { it.lowercase() == limpio } ?: raw.trim()
+        if (limpio in RECHAZADOS) return ""
+        return EMPAQUES_VALIDOS.firstOrNull { it.lowercase() == limpio } ?: ""
     }
 
     fun normalizarCategoria(raw: String): String {
@@ -128,6 +143,7 @@ object CatalogoEmpaques {
 
     fun normalizarUnidad(raw: String): String {
         val limpio = raw.trim().lowercase()
+        if (limpio in RECHAZADOS) return ""
         return when {
             limpio == "ml" || limpio.startsWith("mili") || limpio == "cc" -> "ml"
             limpio == "l" || limpio == "lt" || limpio.startsWith("litro") -> "L"
@@ -136,13 +152,13 @@ object CatalogoEmpaques {
             limpio == "kg" || limpio.startsWith("kilo") -> "kg"
             limpio == "mcg" || limpio == "ug" || limpio.startsWith("micro") -> "mcg"
             limpio == "ui" || limpio.contains("internacional") -> "UI"
-            limpio.contains("tab") || limpio.contains("comprim") || limpio.contains("past") -> "Tab"
-            limpio.contains("cap") || limpio.contains("cáp") -> "Cáp"
-            limpio.contains("sob") -> "Sob"
-            limpio.contains("par") -> "Par"
-            limpio.contains("dosis") || limpio.contains("puff") -> "Dosis"
-            limpio.contains("und") || limpio.contains("unid") || limpio == "u" -> "Und"
-            limpio.contains("got") -> "Got"
+            limpio == "tab" || limpio.startsWith("comprim") || limpio.startsWith("past") || limpio.startsWith("tableta") -> "Tab"
+            limpio == "cáp" || limpio == "cap" || limpio.startsWith("cáps") || limpio.startsWith("caps") -> "Cáp"
+            limpio == "sob" || limpio.startsWith("sobre") -> "Sob"
+            limpio == "par" || limpio == "pares" -> "Par"
+            limpio == "dosis" || limpio.contains("puff") -> "Dosis"
+            limpio == "und" || limpio == "unid" || limpio == "unidad" || limpio == "unidades" || limpio == "u" -> "Und"
+            limpio == "got" || limpio.startsWith("gota") -> "Got"
             else -> UNIDADES_MEDIDA_VALIDAS.firstOrNull { it.lowercase() == limpio } ?: ""
         }
     }
@@ -152,7 +168,9 @@ object CatalogoEmpaques {
         val e = normalizarEmpaque(empaque).lowercase()
 
         return when {
-            e in listOf("tubo", "sachet", "pote") && u in listOf("g", "mg", "ml") -> FamiliaFisica.TOPICOS_CREMAS
+            u in listOf("ui") || (e in listOf("inhalador", "spray", "ampolla") && u in listOf("ui", "dosis")) -> FamiliaFisica.DOSIS_MEDIDA
+            e in listOf("tubo", "sachet", "pote") && u in listOf("g", "mg") -> FamiliaFisica.TOPICOS_PESO
+            e in listOf("tubo", "sachet", "pote") && u in listOf("ml", "l") -> FamiliaFisica.TOPICOS_VOLUMEN
             e in listOf("inhalador", "spray") || u == "dosis" -> FamiliaFisica.AEROSOLES
             u in listOf("tab", "cáp", "sob") || e in listOf("blíster", "sobre") -> FamiliaFisica.SOLIDO_ORAL
             u in listOf("ml", "l", "got") || e in listOf("botella", "frasco", "gotero", "ampolla") -> FamiliaFisica.LIQUIDO_VOLUMEN

@@ -15,40 +15,88 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.app.administradorfarmadon.analitica_reportes.comunes.ui.DialogoDetalleVenta
+import com.app.administradorfarmadon.analitica_reportes.logica.AnaliticaViewModel
+import com.app.administradorfarmadon.analitica_reportes.modelo.AnaliticaUiState
+import com.app.administradorfarmadon.analitica_reportes.modelo.PeriodoAnalitica
+import com.app.administradorfarmadon.analitica_reportes.ui.componentes.DialogoSelectorMes
+import com.app.administradorfarmadon.analitica_reportes.ui.componentes.DialogoSelectorRangoPersonalizado
 import com.app.administradorfarmadon.analitica_reportes.ui.componentes.PestanaAnalitica
 import com.app.administradorfarmadon.analitica_reportes.ui.componentes.PestanaReportes
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.InterPremium
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * PANTALLA PRINCIPAL DE ANALÍTICA Y REPORTES — Enterprise SaaS 2026.
  *
- * Máxima comodidad visual, espacios amplios (breathing room),
- * arquitectura de alta claridad y navegación intuitiva.
+ * Arquitectura mínima y limpia conectada al ViewModel real (R4/R8/R12).
  */
 @Composable
 fun AnaliticaReportesScreen(
     pestanaInicial: String = "ANALITICA",
     onVolver: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: AnaliticaViewModel = viewModel()
 ) {
     val s = recordarMedidaAdaptativa()
-    var moduloSeleccionado by remember { mutableStateOf(pestanaInicial) }
-    var periodoSeleccionado by remember { mutableStateOf("Este Mes (Agosto 2026)") }
+    var moduloSeleccionado by remember(pestanaInicial) { mutableStateOf(pestanaInicial) }
     var selectorPeriodoAbierto by remember { mutableStateOf(false) }
 
-    val opcionesPeriodo = listOf(
-        "Hoy (21 Ago 2026)",
-        "Esta Semana",
-        "Este Mes (Agosto 2026)",
-        "Mes Anterior (Julio 2026)",
-        "Año 2026",
-        "Rango Personalizado..."
-    )
+    LaunchedEffect(pestanaInicial) {
+        moduloSeleccionado = pestanaInicial
+    }
+
+    val uiState by viewModel.uiState.collectAsState()
+    val periodoActivo by viewModel.periodoSeleccionado.collectAsState()
+    val mesSeleccionado by viewModel.mesSeleccionado.collectAsState()
+    val rangoPersonalizado by viewModel.rangoPersonalizado.collectAsState()
+    val sucursalesDisponibles by viewModel.sucursalesDisponibles.collectAsState()
+    val sedeSeleccionada by viewModel.sedeSeleccionada.collectAsState()
+    val ventaDetalle by viewModel.ventaSeleccionada.collectAsState()
+    val feedbackMsg by viewModel.mensajeFeedback.collectAsState()
+
+    var dialogoMesAbierto by remember { mutableStateOf(false) }
+    var dialogoRangoAbierto by remember { mutableStateOf(false) }
+
+    val textoPeriodo = when (periodoActivo) {
+        PeriodoAnalitica.MES -> {
+            if (mesSeleccionado != null) {
+                val nombresMeses = listOf("Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Dic")
+                "Mes: ${nombresMeses.getOrElse(mesSeleccionado!!.second - 1) { "${mesSeleccionado!!.second}" }} ${mesSeleccionado!!.first}"
+            } else "Mes Específico"
+        }
+        PeriodoAnalitica.PERSONALIZADO -> {
+            if (rangoPersonalizado != null) {
+                val sdf = SimpleDateFormat("dd/MM/yy", Locale.US).apply { timeZone = AnaliticaViewModel.TIMEZONE_LIMA }
+                "${sdf.format(Date(rangoPersonalizado!!.first))} - ${sdf.format(Date(rangoPersonalizado!!.second))}"
+            } else "Personalizado"
+        }
+        else -> periodoActivo.label
+    }
+
+    val nombreSedeActiva = if (sedeSeleccionada == "TODAS") {
+        "Todas las sedes"
+    } else {
+        sucursalesDisponibles.find { it.id == sedeSeleccionada }?.nombre ?: "Sede"
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(feedbackMsg) {
+        feedbackMsg?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.limpiarFeedback()
+        }
+    }
 
     BackHandler(enabled = true) {
         onVolver()
@@ -56,6 +104,7 @@ fun AnaliticaReportesScreen(
 
     Scaffold(
         containerColor = FDColors.Background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
     ) { paddingValues ->
         Column(
@@ -63,226 +112,367 @@ fun AnaliticaReportesScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // ── HEADER PRINCIPAL CON ESPACIO AMPLIO Y ELEGANTE ────────────────────
+            // ── TOPBAR PRINCIPAL SOBRE FONDO BASE (CONTRASTE PERFECTO CON CARDS) ───
             Surface(
-                color = FDColors.Surface,
+                color = FDColors.Background,
                 border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 14.dp)
+                        .padding(horizontal = 18.dp, vertical = 10.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Título con Icono y Descripción Clara
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        // ── PESTAÑAS PRINCIPALES (CONTROL SEGMENTADO DESTACADO) ──────
+                        Surface(
+                            color = FDColors.Surface,
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, FDColors.Border),
+                            modifier = Modifier.padding(vertical = 2.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .background(
-                                        color = FDColors.SurfaceElevated,
-                                        shape = RoundedCornerShape(12.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                modifier = Modifier.padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Analytics,
-                                    contentDescription = null,
-                                    tint = FDColors.TextPrimary,
-                                    modifier = Modifier.size(22.dp)
+                                val pestanas = listOf(
+                                    "ANALITICA" to "Analítica de Farmacia",
+                                    "REPORTES" to "Centro de Reportes"
                                 )
-                            }
-                            Column {
-                                Text(
-                                    text = "Analítica & Reportes",
-                                    style = FDType.Heading1.copy(
-                                        fontSize = 19.sp,
-                                        fontFamily = InterPremium,
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = FDColors.TextPrimary
-                                )
-                                Text(
-                                    text = "Métricas en tiempo real, análisis de rentabilidad y exportación de documentos",
-                                    style = FDType.BodySmall.copy(
-                                        fontSize = 12.5.sp,
-                                        fontFamily = InterPremium
-                                    ),
-                                    color = FDColors.TextSecondary
-                                )
+                                pestanas.forEach { (clave, titulo) ->
+                                    val esSeleccionada = moduloSeleccionado == clave
+                                    Surface(
+                                        color = if (esSeleccionada) FDColors.Primary else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.clickable { moduloSeleccionado = clave }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (clave == "ANALITICA") Icons.Default.Analytics else Icons.Default.Assessment,
+                                                contentDescription = null,
+                                                tint = if (esSeleccionada) FDColors.PrimaryText else FDColors.TextTertiary,
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                            Text(
+                                                text = titulo,
+                                                style = FDType.Label.copy(
+                                                    fontSize = 13.sp,
+                                                    fontWeight = if (esSeleccionada) FontWeight.Bold else FontWeight.SemiBold,
+                                                    fontFamily = InterPremium
+                                                ),
+                                                color = if (esSeleccionada) FDColors.PrimaryText else FDColors.TextSecondary
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
-                        // Selector de Período Amplio y Cómodo
-                        Box {
-                            Surface(
-                                color = FDColors.SurfaceElevated,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, FDColors.Border),
-                                modifier = Modifier.clickable { selectorPeriodoAbierto = true }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DateRange,
-                                        contentDescription = null,
-                                        tint = FDColors.TextSecondary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = periodoSeleccionado,
-                                        style = FDType.Label.copy(
-                                            fontSize = 12.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = InterPremium
-                                        ),
-                                        color = FDColors.TextPrimary
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = null,
-                                        tint = FDColors.TextTertiary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
+                        // ── SELECTORES DE SEDE Y PERÍODO (SIEMPRE VISIBLES Y AMPLIOS) ───
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            var selectorSedeAbierto by remember { mutableStateOf(false) }
 
-                            DropdownMenu(
-                                expanded = selectorPeriodoAbierto,
-                                onDismissRequest = { selectorPeriodoAbierto = false },
-                                modifier = Modifier.background(FDColors.SurfaceElevated)
-                            ) {
-                                opcionesPeriodo.forEach { opcion ->
+                            // Selector de Sede (Siempre Visible)
+                            Box {
+                                Surface(
+                                    color = FDColors.SurfaceElevated,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, FDColors.Border),
+                                    modifier = Modifier.clickable { selectorSedeAbierto = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Storefront,
+                                            contentDescription = null,
+                                            tint = FDColors.Primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = nombreSedeActiva,
+                                            style = FDType.Label.copy(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontFamily = InterPremium
+                                            ),
+                                            color = FDColors.TextPrimary,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            tint = FDColors.TextTertiary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = selectorSedeAbierto,
+                                    onDismissRequest = { selectorSedeAbierto = false },
+                                    modifier = Modifier.background(FDColors.SurfaceElevated)
+                                ) {
                                     DropdownMenuItem(
                                         text = {
                                             Text(
-                                                text = opcion,
+                                                text = "Todas las sedes",
                                                 style = FDType.Body.copy(fontSize = 13.sp),
-                                                color = if (opcion == periodoSeleccionado) FDColors.TextPrimary else FDColors.TextSecondary,
-                                                fontWeight = if (opcion == periodoSeleccionado) FontWeight.Bold else FontWeight.Normal
+                                                color = if (sedeSeleccionada == "TODAS") FDColors.TextPrimary else FDColors.TextSecondary,
+                                                fontWeight = if (sedeSeleccionada == "TODAS") FontWeight.Bold else FontWeight.Normal
                                             )
                                         },
                                         onClick = {
-                                            periodoSeleccionado = opcion
-                                            selectorPeriodoAbierto = false
+                                            viewModel.seleccionarSede("TODAS")
+                                            selectorSedeAbierto = false
                                         }
                                     )
+                                    sucursalesDisponibles.forEach { suc ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = if (suc.activa) suc.nombre else "${suc.nombre} (Inactiva)",
+                                                    style = FDType.Body.copy(fontSize = 13.sp),
+                                                    color = if (sedeSeleccionada == suc.id) FDColors.TextPrimary else FDColors.TextSecondary,
+                                                    fontWeight = if (sedeSeleccionada == suc.id) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            onClick = {
+                                                viewModel.seleccionarSede(suc.id)
+                                                selectorSedeAbierto = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Selector de Período (Siempre Visible)
+                            Box {
+                                Surface(
+                                    color = FDColors.SurfaceElevated,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, FDColors.Border),
+                                    modifier = Modifier.clickable { selectorPeriodoAbierto = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DateRange,
+                                            contentDescription = null,
+                                            tint = FDColors.Primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = textoPeriodo,
+                                            style = FDType.Label.copy(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontFamily = InterPremium
+                                            ),
+                                            color = FDColors.TextPrimary,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            tint = FDColors.TextTertiary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = selectorPeriodoAbierto,
+                                    onDismissRequest = { selectorPeriodoAbierto = false },
+                                    modifier = Modifier.background(FDColors.SurfaceElevated)
+                                ) {
+                                    PeriodoAnalitica.entries.forEach { opcion ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = opcion.label,
+                                                    style = FDType.Body.copy(fontSize = 13.sp),
+                                                    color = if (opcion == periodoActivo) FDColors.TextPrimary else FDColors.TextSecondary,
+                                                    fontWeight = if (opcion == periodoActivo) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            },
+                                            onClick = {
+                                                selectorPeriodoAbierto = false
+                                                when (opcion) {
+                                                    PeriodoAnalitica.MES -> dialogoMesAbierto = true
+                                                    PeriodoAnalitica.PERSONALIZADO -> dialogoRangoAbierto = true
+                                                    else -> viewModel.seleccionarPeriodo(opcion)
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Spacer(Modifier.height(16.dp))
+                    if (dialogoMesAbierto) {
+                        DialogoSelectorMes(
+                            anioInicial = mesSeleccionado?.first ?: 0,
+                            mesInicial = mesSeleccionado?.second ?: 0,
+                            onDismiss = { dialogoMesAbierto = false },
+                            onConfirmar = { anio, mes ->
+                                viewModel.seleccionarMesEspecifico(anio, mes)
+                                dialogoMesAbierto = false
+                            }
+                        )
+                    }
 
-                    // ── PESTAÑAS PRINCIPALES CÓMODAS (Underline Tabs) ────────────────
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(28.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        TabNavegacionSaaS(
-                            label = "📊 Analítica de la Farmacia",
-                            subLabel = "Resumen de ventas, margen y rendimiento",
-                            selected = moduloSeleccionado == "ANALITICA",
-                            onClick = { moduloSeleccionado = "ANALITICA" }
+                    if (dialogoRangoAbierto) {
+                        DialogoSelectorRangoPersonalizado(
+                            inicioMsInicial = rangoPersonalizado?.first ?: 0L,
+                            finMsInicial = rangoPersonalizado?.second ?: 0L,
+                            onDismiss = { dialogoRangoAbierto = false },
+                            onConfirmar = { iniMs, finMs ->
+                                viewModel.seleccionarRangoPersonalizado(iniMs, finMs)
+                                dialogoRangoAbierto = false
+                            }
                         )
-                        TabNavegacionSaaS(
-                            label = "📄 Centro de Reportes",
-                            subLabel = "Generar y descargar reportes oficiales",
-                            selected = moduloSeleccionado == "REPORTES",
-                            onClick = { moduloSeleccionado = "REPORTES" }
-                        )
+                    }
+
+                    val exitoState = uiState as? AnaliticaUiState.Exito
+                    if (exitoState != null && exitoState.esParcial) {
+                        Surface(
+                            color = Color(0xFFFFFBEB),
+                            border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.WarningAmber,
+                                        contentDescription = null,
+                                        tint = Color(0xFFD97706),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "Información Parcial: Fuentes pendientes por red: ${exitoState.fuentesFallidas.keys.joinToString { it.label }}",
+                                        style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                                        color = Color(0xFF92400E)
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { viewModel.recargar() },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Reintentar", style = FDType.Label.copy(fontSize = 11.sp), color = Color(0xFFB45309))
+                                }
+                            }
+                        }
                     }
                 }
             }
 
             HorizontalDivider(
-                color = FDColors.Border.copy(alpha = 0.35f),
+                color = FDColors.Border.copy(alpha = 0.3f),
                 thickness = s.separatorH
             )
 
-            // ── WORKSPACE PRINCIPAL ESPACIOSO ────────────────────────────────────
+            val exitoActual = uiState as? AnaliticaUiState.Exito
+            if (exitoActual?.estaActualizando == true) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.5.dp),
+                    color = FDColors.Primary,
+                    trackColor = FDColors.Primary.copy(alpha = 0.12f)
+                )
+            }
+
+            // ── WORKSPACE PRINCIPAL ESPACIOSO Y DE ALTA DENSIDAD ────────────────
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .background(FDColors.Background)
-                    .padding(horizontal = 24.dp, vertical = 20.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Crossfade(
                     targetState = moduloSeleccionado,
                     label = "AnaliticaReportesTransition"
                 ) { modulo ->
+                    val etiquetaPeriodoVigente = if (uiState is AnaliticaUiState.Exito && (uiState as AnaliticaUiState.Exito).periodoEtiqueta.isNotBlank()) {
+                        (uiState as AnaliticaUiState.Exito).periodoEtiqueta
+                    } else textoPeriodo
+
                     when (modulo) {
                         "ANALITICA" -> PestanaAnalitica(
-                            periodo = periodoSeleccionado,
-                            s = s
+                            uiState = uiState,
+                            periodo = etiquetaPeriodoVigente,
+                            sedeNombre = nombreSedeActiva,
+                            s = s,
+                            onBuscarComprobante = { numero -> viewModel.buscarVentaParaDrillDown(numero) },
+                            onVerDetalleVenta = { venta -> viewModel.seleccionarVenta(venta) },
+                            onReintentar = { viewModel.recargar() },
+                            onSeleccionarSede = { sedeId -> viewModel.seleccionarSede(sedeId) }
                         )
                         "REPORTES" -> PestanaReportes(
-                            periodoInicial = periodoSeleccionado,
-                            s = s
+                            uiState = uiState,
+                            periodoInicial = etiquetaPeriodoVigente,
+                            sedeNombre = nombreSedeActiva,
+                            s = s,
+                            onReintentar = { viewModel.recargar() }
                         )
                         else -> PestanaAnalitica(
-                            periodo = periodoSeleccionado,
-                            s = s
+                            uiState = uiState,
+                            periodo = etiquetaPeriodoVigente,
+                            sedeNombre = nombreSedeActiva,
+                            s = s,
+                            onBuscarComprobante = { numero -> viewModel.buscarVentaParaDrillDown(numero) },
+                            onVerDetalleVenta = { venta -> viewModel.seleccionarVenta(venta) },
+                            onReintentar = { viewModel.recargar() },
+                            onSeleccionarSede = { sedeId -> viewModel.seleccionarSede(sedeId) }
                         )
                     }
                 }
             }
         }
     }
-}
 
-@Composable
-private fun TabNavegacionSaaS(
-    label: String,
-    subLabel: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.Start
-    ) {
-        Text(
-            text = label,
-            style = FDType.Label.copy(
-                fontSize = 14.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                fontFamily = InterPremium
-            ),
-            color = if (selected) FDColors.TextPrimary else FDColors.TextTertiary
-        )
-        Text(
-            text = subLabel,
-            style = FDType.BodySmall.copy(
-                fontSize = 11.sp,
-                fontFamily = InterPremium
-            ),
-            color = if (selected) FDColors.TextSecondary else Color.Transparent
-        )
-        Spacer(Modifier.height(6.dp))
-        Box(
-            modifier = Modifier
-                .width(48.dp)
-                .height(3.dp)
-                .background(
-                    color = if (selected) FDColors.Primary else Color.Transparent,
-                    shape = RoundedCornerShape(2.dp)
-                )
+    // Modal de Auditoría / Drill-down
+    if (ventaDetalle != null) {
+        val devolucionesActuales = (uiState as? AnaliticaUiState.Exito)?.listaDevoluciones ?: emptyList()
+        DialogoDetalleVenta(
+            venta = ventaDetalle!!,
+            devoluciones = devolucionesActuales,
+            onCerrar = { viewModel.cerrarDetalleVenta() }
         )
     }
 }

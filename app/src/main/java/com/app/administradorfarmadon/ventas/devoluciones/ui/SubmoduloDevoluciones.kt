@@ -566,7 +566,7 @@ private fun DialogoDevolucionExitosa(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("¡Devolución Procesada!", style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 20.sp))
-                    Text("Nota de Crédito: ${devolucion.id}", style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.Primary))
+                    Text("Nota de Crédito: ${devolucion.numeroCompleto.ifBlank { devolucion.id }}", style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.Primary))
                 }
 
                 Surface(

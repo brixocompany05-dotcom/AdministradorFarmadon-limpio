@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.ventas.compartido.datos.TicketComprobantePdf
 import com.app.administradorfarmadon.ventas.compartido.datos.VentasRepository
+import com.app.administradorfarmadon.ventas.compartido.modelo.DevolucionVenta
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -13,16 +14,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Estado UI de Ventas del Día (R8 Verdad Vigente).
- * Todas las métricas y resúmenes se computan en vivo sobre la lista real.
+ * Cuadre contable del día: neto = brutas de hoy − reembolsos de hoy.
+ * Los reembolsos de hoy incluyen devoluciones de ventas de ayer cobradas hoy en caja,
+ * por eso se observan las devoluciones del día y no solo lo devuelto dentro de cada venta.
+ * Así coincide con Caja (puntero neto) y con Analítica HOY.
  */
 data class VentasDiaUiState(
     val ventas: List<Venta> = emptyList(),
+    val devolucionesDia: List<DevolucionVenta> = emptyList(),
     val cargando: Boolean = true,
     val error: String? = null,
     val mensajeExito: String? = null,
@@ -34,15 +40,19 @@ data class VentasDiaUiState(
     val procesandoAnulacion: Boolean = false,
     val ventaAAnular: Venta? = null
 ) {
-    // 1. Total Ventas Neto: COMPLETADA -> total, DEVOLUCION_PARCIAL -> (total - totalDevuelto), DEVOLUCION_TOTAL/ANULADA -> 0.0
-    val totalVentasNeto: Double
+    // Brutas del día: suma de totales no anulados (con descuento ya aplicado).
+    val totalVentasBrutas: Double
         get() = kotlin.math.round(
-            ventas.filter { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL && it.estado != Venta.ESTADO_ANULADA }
-                .sumOf { v ->
-                    if (v.estado == Venta.ESTADO_DEVOLUCION_PARCIAL) (v.total - v.totalDevuelto).coerceAtLeast(0.0)
-                    else v.total
-                } * 100.0
+            ventas.filter { it.estado != Venta.ESTADO_ANULADA }.sumOf { it.total } * 100.0
         ) / 100.0
+
+    // Reembolsos efectuados HOY (notas de crédito del día, aunque sean de ventas de ayer).
+    val totalDevolucionesDia: Double
+        get() = kotlin.math.round(devolucionesDia.sumOf { it.montoReembolso } * 100.0) / 100.0
+
+    // Neto del día que cuadra con caja y con Analítica HOY (sin piso artificial para auditar días con más reembolsos que ventas).
+    val totalVentasNeto: Double
+        get() = kotlin.math.round((totalVentasBrutas - totalDevolucionesDia) * 100.0) / 100.0
 
     // 2. N° Operaciones registradas válidas (no anuladas)
     val totalOperaciones: Int
@@ -51,38 +61,58 @@ data class VentasDiaUiState(
     val totalOperacionesValidas: Int
         get() = ventas.count { it.estado != Venta.ESTADO_DEVOLUCION_TOTAL && it.estado != Venta.ESTADO_ANULADA }
 
-    // 3. Ticket Promedio (divide entre operaciones válidas que aportan al neto)
+    // 3. Ticket Promedio neto del día (si el neto es negativo o cero por reembolsos cruzados, muestra 0 para no confundir).
     val ticketPromedio: Double
-        get() = if (totalOperacionesValidas > 0) kotlin.math.round((totalVentasNeto / totalOperacionesValidas) * 100.0) / 100.0 else 0.0
+        get() = if (totalOperacionesValidas > 0 && totalVentasNeto > 0.0) kotlin.math.round((totalVentasNeto / totalOperacionesValidas) * 100.0) / 100.0 else 0.0
 
     // 4. Descuentos sumados
     val totalDescuentos: Double
         get() = kotlin.math.round(ventas.filter { it.estado != Venta.ESTADO_ANULADA }.sumOf { it.descuento } * 100.0) / 100.0
 
-    // 5. Devoluciones sumadas
+    // 5. Devoluciones del día (reembolsos hoy). Coincide con Caja y Analítica.
     val totalDevoluciones: Double
-        get() = kotlin.math.round(ventas.filter { it.estado != Venta.ESTADO_ANULADA }.sumOf { it.totalDevuelto } * 100.0) / 100.0
+        get() = totalDevolucionesDia
 
-    // 6. Total con devolución
+    // 6. Reembolsos emitidos hoy (notas de crédito del día).
     val totalConDevolucion: Int
+        get() = devolucionesDia.size
+
+    // Ventas de hoy que tienen alguna devolución acumulada (informativo por comprobante).
+    val ventasConDevolucionAcumulada: Int
         get() = ventas.count { it.estado == Venta.ESTADO_DEVOLUCION_PARCIAL || it.estado == Venta.ESTADO_DEVOLUCION_TOTAL }
 
     // 7. Total anuladas
     val totalAnuladas: Int
         get() = ventas.count { it.estado == Venta.ESTADO_ANULADA }
 
-    // 8. Desglose por métodos de pago reales (calculado a partir de pagos de ventas válidas)
+    // 8. Recaudado NETO por método: cobros netos (vuelto descontado del efectivo) − reembolsos de hoy. Coincide con Caja y Analítica.
     val ventasPorMetodo: Map<String, Double>
         get() {
             val mapa = mutableMapOf<String, Double>()
+            fun red2(x: Double) = kotlin.math.round(x * 100.0) / 100.0
             ventas.filter { it.estado != Venta.ESTADO_ANULADA }.forEach { v ->
+                var vueltoRestante = red2(v.vuelto.coerceAtLeast(0.0))
                 v.pagos.forEach { p ->
-                    val actual = mapa[p.tipoId] ?: 0.0
-                    mapa[p.tipoId] = kotlin.math.round((actual + p.monto) * 100.0) / 100.0
+                    val clave = p.tipoId.trim().ifBlank { "SIN_ESPECIFICAR" }
+                    val netoLinea = if (p.tipoId == "EFECTIVO" && vueltoRestante > 0.0) {
+                        val asignado = minOf(vueltoRestante, p.monto)
+                        vueltoRestante = red2(vueltoRestante - asignado)
+                        red2(p.monto - asignado)
+                    } else red2(p.monto)
+                    mapa[clave] = red2((mapa[clave] ?: 0.0) + netoLinea)
                 }
+            }
+            devolucionesDia.forEach { d ->
+                val clave = d.metodoReembolso.trim().ifBlank { "SIN_ESPECIFICAR" }
+                val actual = mapa[clave] ?: 0.0
+                mapa[clave] = kotlin.math.round((actual - d.montoReembolso) * 100.0) / 100.0
             }
             return mapa
         }
+
+    /** Métodos con movimiento hoy para el filtro (brutos + reembolsos). */
+    val metodosDisponibles: List<String>
+        get() = ventasPorMetodo.keys.sorted()
 
     // 9. Lista de ventas filtradas en memoria (Cero queries complejas)
     val ventasFiltradas: List<Venta>
@@ -128,35 +158,65 @@ class VentasDiaViewModel(
     val uiState: StateFlow<VentasDiaUiState> = _uiState.asStateFlow()
 
     private var jobObservador: Job? = null
+    private var sucursalObserverJob: Job? = null
 
     init {
-        reconectar()
+        observarCambiosDeSucursal()
+    }
+
+    private fun observarCambiosDeSucursal() {
+        sucursalObserverJob?.cancel()
+        sucursalObserverJob = viewModelScope.launch {
+            var ultimaSucursal: String? = null
+            com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalFlow.collect { sucursal ->
+                if (sucursal != ultimaSucursal) {
+                    ultimaSucursal = sucursal
+                    _uiState.update { it.copy(ventas = emptyList(), devolucionesDia = emptyList(), ventaSeleccionada = null, cargando = true) }
+                    reconectar()
+                }
+            }
+        }
     }
 
     /**
-     * Reconecta el listener en vivo de ventas del día.
-     * Al entrar a la pestaña o cruzar medianoche, re-calcula la fecha actual (R8/N1).
+     * Reconecta los listeners vivos del día: ventas + devoluciones (R8).
+     * Al entrar a la pestaña o cruzar medianoche, re-calcula la fecha actual.
+     * El neto del día = brutas de hoy − reembolsos de hoy (cuadra con caja y analítica).
      */
     fun reconectar() {
         jobObservador?.cancel()
         _uiState.update { it.copy(cargando = true, error = null) }
 
         jobObservador = viewModelScope.launch {
-            ventasRepository.observarVentasDelDia()
+            combine(
+                ventasRepository.observarVentasDelDia(),
+                ventasRepository.observarDevolucionesDelDia()
+            ) { ventas, devs -> ventas to devs }
                 .catch { err ->
                     Log.e(TAG, "Error observando ventas del día: ${err.message}", err)
                     _uiState.update { it.copy(cargando = false, error = err.message ?: "No se pudieron cargar las ventas del día.") }
                 }
-                .collect { listaVentas ->
+                .collect { (listaVentas, listaDevs) ->
                     _uiState.update { estadoPrevio ->
                         // Mantener la venta seleccionada actualizada si sufrió algún cambio
                         val selActualizada = estadoPrevio.ventaSeleccionada?.let { sel ->
                             listaVentas.firstOrNull { it.id == sel.id }
                         }
+                        // Si el filtro de método quedó sin movimiento hoy, volver a TODOS para no dejar lista vacía fantasma.
+                        val filtroMetodoVigente = if (estadoPrevio.filtroMetodo != "TODOS") {
+                            val metodosAhora = mutableSetOf<String>()
+                            listaVentas.filter { it.estado != Venta.ESTADO_ANULADA }.forEach { v ->
+                                v.pagos.forEach { metodosAhora.add(it.tipoId.trim().ifBlank { "SIN_ESPECIFICAR" }) }
+                            }
+                            listaDevs.forEach { metodosAhora.add(it.metodoReembolso.trim().ifBlank { "SIN_ESPECIFICAR" }) }
+                            if (estadoPrevio.filtroMetodo in metodosAhora) estadoPrevio.filtroMetodo else "TODOS"
+                        } else "TODOS"
                         estadoPrevio.copy(
                             ventas = listaVentas,
+                            devolucionesDia = listaDevs,
                             cargando = false,
-                            ventaSeleccionada = selActualizada
+                            ventaSeleccionada = selActualizada,
+                            filtroMetodo = filtroMetodoVigente
                         )
                     }
                 }

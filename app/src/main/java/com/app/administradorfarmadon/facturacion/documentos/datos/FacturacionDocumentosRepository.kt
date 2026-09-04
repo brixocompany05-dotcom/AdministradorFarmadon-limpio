@@ -23,11 +23,110 @@ class FacturacionDocumentosRepository(
         private const val TAG = "FacturacionDocsRepo"
     }
 
+    data class MetricasFiscales(
+        val totalDocumentos: Int = 0,
+        val totalAceptados: Int = 0,
+        val totalPendientes: Int = 0,
+        val totalEnviados: Int = 0,
+        val totalRequierenAtencion: Int = 0,
+        val totalAnulados: Int = 0,
+        val montoTotalFacturado: Double = 0.0,
+        val baseGravadaTotal: Double = 0.0,
+        val igvTotal: Double = 0.0,
+        val totalBoletas: Int = 0,
+        val totalFacturas: Int = 0,
+        val totalNotasCredito: Int = 0,
+        val totalBajas: Int = 0
+    )
+
     /**
-     * Escucha viva de los documentos fiscales emitidos por la farmacia (Regla R8 - Verdad Vigente).
-     * Lee directamente de `farmacias/{farmaciaId}/facturacion_documentos` ordenado cronológicamente.
+     * Consulta atómica agregada en Google Cloud Firestore:
+     * Obtiene los totales reales de comprobantes emitidos en el servidor (sin descargar miles de documentos).
+     * Garantiza la verdad absoluta (R12) de las métricas aunque la vista solo renderice los 50 más recientes.
      */
-    fun observarDocumentos(farmaciaId: String): Flow<List<FacturacionDocumento>> = callbackFlow {
+    suspend fun obtenerMetricasFiscales(farmaciaId: String): MetricasFiscales {
+        if (farmaciaId.isBlank()) return MetricasFiscales()
+        return try {
+            val ref = FarmadonPaths.facturacionDocumentos(db, farmaciaId)
+
+            // Conteo aggregate en el servidor de Firestore (escalar, ultra rápido y veraz)
+            val total = ref.count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+            if (total == 0) return MetricasFiscales()
+
+            val totalAceptados = ref.whereEqualTo("estadoEnvio", FacturacionDocumento.ESTADO_ACEPTADO)
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalPendientes = ref.whereEqualTo("estadoEnvio", FacturacionDocumento.ESTADO_PENDIENTE)
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalEnviados = ref.whereEqualTo("estadoEnvio", FacturacionDocumento.ESTADO_ENVIADO)
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalRechazados = ref.whereEqualTo("estadoEnvio", FacturacionDocumento.ESTADO_RECHAZADO)
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalAnulados = ref.whereEqualTo("estadoEnvio", FacturacionDocumento.ESTADO_ANULADO)
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalBoletas = ref.whereEqualTo("tipo", "BOLETA")
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalFacturas = ref.whereEqualTo("tipo", "FACTURA")
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalNotasCredito = ref.whereEqualTo("tipo", "NOTA_CREDITO")
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            val totalBajas = ref.whereEqualTo("tipo", "COMUNICACION_BAJA")
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+
+            // Suma del monto total facturado de los comprobantes aceptados
+            var montoFacturado = 0.0
+            try {
+                val sumQuery = ref.whereEqualTo("estadoEnvio", FacturacionDocumento.ESTADO_ACEPTADO)
+                    .aggregate(com.google.firebase.firestore.AggregateField.sum("total"))
+                    .get(com.google.firebase.firestore.AggregateSource.SERVER).await()
+                montoFacturado = (sumQuery.get(com.google.firebase.firestore.AggregateField.sum("total")) as? Number)?.toDouble() ?: 0.0
+            } catch (e: Exception) {
+                Log.w(TAG, "Fallback calculando suma de facturado: ${e.message}")
+                val snap = ref.whereEqualTo("estadoEnvio", FacturacionDocumento.ESTADO_ACEPTADO).get().await()
+                montoFacturado = snap.documents.filter {
+                    val tipo = it.getString("tipo") ?: ""
+                    tipo != "NOTA_CREDITO" && tipo != "COMUNICACION_BAJA"
+                }.sumOf { (it.get("total") as? Number)?.toDouble() ?: 0.0 }
+            }
+
+            val montoRedondeado = kotlin.math.round(montoFacturado * 100.0) / 100.0
+            val baseGravada = kotlin.math.round((montoRedondeado / 1.18) * 100.0) / 100.0
+            val igv = kotlin.math.round((montoRedondeado - baseGravada) * 100.0) / 100.0
+
+            MetricasFiscales(
+                totalDocumentos = total,
+                totalAceptados = totalAceptados,
+                totalPendientes = totalPendientes,
+                totalEnviados = totalEnviados,
+                totalRequierenAtencion = totalRechazados,
+                totalAnulados = totalAnulados,
+                montoTotalFacturado = montoRedondeado,
+                baseGravadaTotal = baseGravada,
+                igvTotal = igv,
+                totalBoletas = totalBoletas,
+                totalFacturas = totalFacturas,
+                totalNotasCredito = totalNotasCredito,
+                totalBajas = totalBajas
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculando métricas fiscales agregadas: ${e.message}", e)
+            MetricasFiscales()
+        }
+    }
+
+    /**
+     * Escucha viva paginada de los documentos fiscales emitidos por la farmacia (Regla R8 - Verdad Vigente).
+     * Lee un lote inicial de 50 documentos para que la interfaz cargue al instante y sea 100% fluida,
+     * sin congelamientos ni jaloneo por descargar miles de registros en la memoria del dispositivo.
+     */
+    fun observarDocumentos(farmaciaId: String, limite: Long = 50): Flow<List<FacturacionDocumento>> = callbackFlow {
         if (farmaciaId.isBlank()) {
             trySend(emptyList())
             awaitClose {}
@@ -36,6 +135,7 @@ class FacturacionDocumentosRepository(
 
         val ref = FarmadonPaths.facturacionDocumentos(db, farmaciaId)
             .orderBy("fechaMs", Query.Direction.DESCENDING)
+            .limit(limite)
 
         val listener = ref.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -55,6 +155,29 @@ class FacturacionDocumentosRepository(
         }
 
         awaitClose { listener.remove() }
+    }
+
+    /**
+     * Carga el siguiente lote de comprobantes fiscales usando un cursor cronológico en Firestore.
+     */
+    suspend fun cargarSiguientePagina(
+        farmaciaId: String,
+        ultimoDocMs: Long,
+        limite: Long = 50
+    ): List<FacturacionDocumento> {
+        if (farmaciaId.isBlank() || ultimoDocMs <= 0L) return emptyList()
+        return try {
+            val snap = FarmadonPaths.facturacionDocumentos(db, farmaciaId)
+                .orderBy("fechaMs", Query.Direction.DESCENDING)
+                .startAfter(ultimoDocMs)
+                .limit(limite)
+                .get().await()
+
+            snap.documents.mapNotNull { parseDocumento(it.id, it.data) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cargando siguiente página de documentos fiscales: ${e.message}", e)
+            emptyList()
+        }
     }
 
     /**

@@ -553,4 +553,62 @@ class LotesDevolucionCanjeRepository(
             Result.failure(e)
         }
     }
+
+    suspend fun resolverReclamo(
+        clienteId: String,
+        reclamoId: String,
+        nuevoEstado: String,
+        motivoResolucion: String,
+        consecuencia: String = "",
+        documentosEnlazados: List<String> = emptyList(),
+        usuarioEmail: String = "",
+        usuarioNombre: String = ""
+    ): Result<Unit> {
+        val f = SessionManager.clienteIdGarantizado
+        if (clienteId != f) return Result.failure(SecurityException("Aislamiento entre farmacias: el registro no pertenece a tu farmacia."))
+        if (reclamoId.isBlank()) return Result.failure(IllegalArgumentException("Identificador de reclamo inválido."))
+
+        val estadoLimpio = when (nuevoEstado.trim().uppercase()) {
+            "APROBADO", "APROBADO_NOTA_CREDITO" -> "APROBADO_NOTA_CREDITO"
+            "CANJE_COMPLETADO", "CANJE" -> "CANJE_COMPLETADO"
+            "RECHAZADO", "RECHAZADO_DISPUTA" -> "RECHAZADO_DISPUTA"
+            else -> nuevoEstado.trim().uppercase()
+        }
+        if (estadoLimpio.contains("RECHAZADO", ignoreCase = true) && motivoResolucion.trim().length < 5) {
+            return Result.failure(IllegalArgumentException("El motivo de rechazo del reclamo debe tener al menos 5 caracteres."))
+        }
+
+        return try {
+            val tiendaRef = FarmadonPaths.sucursal(db, clienteId, SessionManager.sucursalIdEfectiva)
+            val reclamoRef = tiendaRef.collection("reclamos_proveedores").document(reclamoId)
+            val ahoraMs = HoraServidor.ahoraMs()
+            val fechaLegible = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ahoraMs))
+
+            db.runTransaction { tx ->
+                val snap = tx.get(reclamoRef)
+                if (!snap.exists()) throw IllegalStateException("El expediente de reclamo no existe.")
+                val estadoActual = (snap.getString("estado") ?: "EN_REVISION_DROGUERIA").uppercase()
+                if (estadoActual in listOf("APROBADO", "RECHAZADO", "APROBADO_NOTA_CREDITO", "CANJE_COMPLETADO", "RECHAZADO_DISPUTA")) {
+                    throw IllegalStateException("Este reclamo ya fue cerrado con resolución '$estadoActual'. Las resoluciones aprobadas o rechazadas son inmutables.")
+                }
+
+                val updates = mapOf<String, Any>(
+                    "estado" to estadoLimpio,
+                    "fechaResolucionStr" to fechaLegible,
+                    "fechaResolucionMs" to ahoraMs,
+                    "observacionesResolucion" to motivoResolucion.trim(),
+                    "consecuenciaResolucion" to consecuencia.trim(),
+                    "documentosEnlazados" to documentosEnlazados,
+                    "resueltoPorEmail" to usuarioEmail,
+                    "resueltoPorNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
+                    "actualizadoEl" to FieldValue.serverTimestamp()
+                )
+                tx.update(reclamoRef, updates)
+            }.await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resolviendo reclamo $reclamoId: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
 }

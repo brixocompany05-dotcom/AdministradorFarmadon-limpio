@@ -15,7 +15,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -57,20 +56,9 @@ fun PasoDatosNegocioForm(
     val fPassConfirm = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
 
-    // Autofoco: prioriza primer campo vacío; evita carrera con navegación (delay breve)
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(300)
-        val target = when {
-            state.nombreFarmacia.isBlank() -> fNombre
-            state.dueno.isBlank() -> fDueno
-            state.email.isBlank() && !esCorreccion -> fEmail
-            state.telefono.isBlank() -> fTel
-            state.ruc.isBlank() -> fRuc
-            !esCorreccion && state.contrasena.isBlank() -> fPass
-            else -> null
-        }
-        try { target?.requestFocus() } catch (_: Exception) {}
-    }
+    // Cero auto-foco ni auto-apertura de teclado al entrar:
+    // Permite que la persona lea la pantalla cómodamente primero. El teclado solo
+    // se abre cuando la persona toca explícitamente un campo de texto.
 
     // REGLA DE PRODUCTO: el país se elige PRIMERO; hasta entonces todo el resto
     // del formulario permanece bloqueado (moneda, prefijo y documento dependen de él).

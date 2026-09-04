@@ -17,6 +17,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.administradorfarmadon.compras.ui.componentes.DialogoCambiarProveedor
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
@@ -41,6 +42,7 @@ fun FilaProductoDetalleProveedor(
     onVincular: ((PharmProduct, Proveedor) -> Unit)?
 ) {
     val tienePedido = cantPedir > 0
+    var mostrarDialogoCambiar by remember { mutableStateOf(false) }
     val stockActual = prod.stock
     val stockMinimo = prod.minStock
     val esAgotado = stockActual <= 0
@@ -96,13 +98,27 @@ fun FilaProductoDetalleProveedor(
                     prod.category.takeIf { it.isNotBlank() }
                 ).joinToString("  ·  ")
                 val subTexto = if (detalleSub.isNotBlank()) "$detalleSub  ·  $empaqueStr" else empaqueStr
-                Text(
-                    text = subTexto,
-                    style = FDType.BodySmall.copy(fontSize = 11.sp),
-                    color = FDColors.TextTertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = subTexto,
+                        style = FDType.BodySmall.copy(fontSize = 11.sp),
+                        color = FDColors.TextTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (!esSinProveedor) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = "Cambiar proveedor",
+                            tint = FDColors.TextTertiary.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { mostrarDialogoCambiar = true }
+                        )
+                    }
+                }
             }
 
             Text(
@@ -145,37 +161,19 @@ fun FilaProductoDetalleProveedor(
                 contentAlignment = Alignment.CenterEnd
             ) {
                 if (esSinProveedor) {
-                    var menuVincular by remember { mutableStateOf(false) }
-                    Box {
-                        Surface(
-                            color = FDColors.Primary.copy(alpha = 0.10f),
-                            shape = RoundedCornerShape(s.radiusInput * 0.55f),
-                            border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.4f)),
-                            modifier = Modifier.clickable { menuVincular = true }
+                    Surface(
+                        color = FDColors.Primary.copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(s.radiusInput * 0.55f),
+                        border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.4f)),
+                        modifier = Modifier.clickable { mostrarDialogoCambiar = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp)
-                            ) {
-                                Icon(Icons.Default.Link, null, tint = FDColors.Primary, modifier = Modifier.size(14.dp))
-                                Text("VINCULAR", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black), color = FDColors.Primary)
-                                Icon(Icons.Default.ArrowDropDown, null, tint = FDColors.Primary, modifier = Modifier.size(15.dp))
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = menuVincular,
-                            onDismissRequest = { menuVincular = false }
-                        ) {
-                            proveedores.forEach { prov ->
-                                DropdownMenuItem(
-                                    text = { Text(prov.nombre, fontSize = 13.sp) },
-                                    onClick = {
-                                        menuVincular = false
-                                        onVincular?.invoke(prod, prov)
-                                    }
-                                )
-                            }
+                            Icon(Icons.Default.Link, null, tint = FDColors.Primary, modifier = Modifier.size(14.dp))
+                            Text("VINCULAR", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black), color = FDColors.Primary)
                         }
                     }
                 } else if (tienePedido) {
@@ -226,5 +224,17 @@ fun FilaProductoDetalleProveedor(
             }
         }
         HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f))
+    }
+
+    if (mostrarDialogoCambiar) {
+        DialogoCambiarProveedor(
+            producto = prod,
+            proveedores = proveedores,
+            onGuardar = { nuevoProv ->
+                onVincular?.invoke(prod, nuevoProv)
+                mostrarDialogoCambiar = false
+            },
+            onDismiss = { mostrarDialogoCambiar = false }
+        )
     }
 }

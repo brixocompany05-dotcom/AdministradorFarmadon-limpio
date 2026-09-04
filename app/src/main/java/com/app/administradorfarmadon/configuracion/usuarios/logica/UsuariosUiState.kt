@@ -1,4 +1,4 @@
-﻿package com.app.administradorfarmadon.configuracion.usuarios.logica
+package com.app.administradorfarmadon.configuracion.usuarios.logica
 
 import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 import com.app.administradorfarmadon.configuracion.usuarios.datos.RolFarmacia
@@ -73,7 +73,12 @@ data class UsuariosUiState(
     val hayCambiosSinGuardar: Boolean
         get() {
             return if (esModoCreacion) {
-                formNombre.isNotBlank() || formDni.isNotBlank() || formEmail.isNotBlank() || formPassword.isNotBlank() || formPermisosModulos.isNotEmpty()
+                formNombre.trim().isNotBlank() ||
+                formDni.trim().isNotBlank() ||
+                formTelefono.trim().isNotBlank() ||
+                formEmail.trim().isNotBlank() ||
+                formPassword.isNotBlank() ||
+                (formPermisosModulos.isNotEmpty() && formPermisosModulos.any { it.value == false })
             } else {
                 val u = usuarioSeleccionado ?: return false
                 formNombre.trim() != u.nombre.trim() ||

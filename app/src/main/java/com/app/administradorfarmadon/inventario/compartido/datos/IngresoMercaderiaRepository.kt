@@ -9,12 +9,15 @@ import com.app.administradorfarmadon.compras.datos.ItemRecepcionEntrega
 import com.app.administradorfarmadon.compras.saldoafavor.datos.SaldoAFavorFirestore
 import com.app.administradorfarmadon.inventario.compartido.logica.CostoLoteCalculator
 import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 /**
@@ -78,6 +81,7 @@ class IngresoMercaderiaRepository(
         numeroFactura: String = "",
         condicionPago: String = "Contado",
         fechaVencimientoPago: String = "",
+        fechaEmisionPapel: String = "",
         montoFactura: Double = 0.0,
         montoPagadoEnRecepcion: Double = 0.0,
         metodoPago: String = "",
@@ -106,20 +110,41 @@ class IngresoMercaderiaRepository(
         val numFacturaLimpio = numeroFactura.trim().uppercase()
 
         // Validaciones raíz — antes de tocar Firestore
-        if (esRecepcionPedido && numFacturaLimpio.isBlank()) {
-            return Result.failure(IllegalArgumentException("El número de factura del proveedor es obligatorio."))
+        if (numFacturaLimpio.isBlank()) {
+            return Result.failure(IllegalArgumentException("El número de comprobante no puede estar vacío. Escribe el número de factura o 'S/C' si ingresa sin comprobante."))
+        }
+        if (fechaEmisionPapel.trim().isNotBlank()) {
+            val fechaPapelLimpia = fechaEmisionPapel.trim()
+            try {
+                val sdfVerif = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).apply {
+                    isLenient = false
+                    timeZone = TimeZone.getTimeZone("America/Lima")
+                }
+                val datePapel = sdfVerif.parse(fechaPapelLimpia)
+                val msPapel = datePapel?.time ?: 0L
+                val calHoyLima = Calendar.getInstance(TimeZone.getTimeZone("America/Lima")).apply {
+                    timeInMillis = HoraServidor.ahoraMs()
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                    set(Calendar.MILLISECOND, 999)
+                }
+                val finDeHoyMs = calHoyLima.timeInMillis
+                if (msPapel > finDeHoyMs) {
+                    return Result.failure(IllegalArgumentException("La fecha de emisión del documento ($fechaPapelLimpia) no puede ser posterior a la fecha de hoy."))
+                }
+            } catch (e: Exception) {
+                return Result.failure(IllegalArgumentException("La fecha de emisión '$fechaPapelLimpia' debe tener formato válido dd/MM/yyyy."))
+            }
         }
         val itemsConIngreso = items.filter { it.cantidadTotal > 0 }
         if (itemsConIngreso.isEmpty()) {
             return Result.failure(IllegalArgumentException("No llegaron unidades en esta recepción. Si nada llegó, CANCELA o DESCARTA la orden; no se puede asentar un ingreso vacío."))
         }
-        // R3: el dinero jamás se ignora en silencio. Sin número de factura no hay asiento de
-        // pago posible; un monto pagado o saldo a favor sin factura quedaría sin registro.
         val hayDineroSinFactura = montoPagadoEnRecepcion > 0.01 || pagosRecepcion.isNotEmpty() || saldoAFavorUsado > 0.01
-        if (numFacturaLimpio.isBlank() && hayDineroSinFactura) {
+        if ((numFacturaLimpio == "S/C" || numFacturaLimpio.startsWith("S/C")) && hayDineroSinFactura) {
             return Result.failure(IllegalArgumentException(
-                "Registraste dinero (pago o saldo a favor) sin número de factura; ese pago quedaría sin asiento. " +
-                    "Escribe el número de factura del proveedor para registrar el pago, o deja el pago en 0.00."
+                "Ingreso S/C sin comprobante no puede tener pagos registrados ni saldo a favor. Registra el número de factura para pagar o deja el pago en 0.00."
             ))
         }
         if (esRecepcionPedido && itemsConIngreso.all { it.cantidadComprada == 0 }) {
@@ -155,6 +180,8 @@ class IngresoMercaderiaRepository(
                 var currentItemsRaw: List<Map<String, Any>> = emptyList()
                 var pedidoEstadoActual = ""
                 var recepcionesPrevias: List<Map<String, Any>> = emptyList()
+                val esFacturaFormal = numFacturaLimpio != "S/C" && !numFacturaLimpio.startsWith("S/C")
+
                 if (esRecepcionPedido) {
                     if (pedidoSnap == null || !pedidoSnap.exists()) throw IllegalStateException("La orden de compra no existe en la sucursal actual.")
                     pedidoEstadoActual = pedidoSnap.getString("estado") ?: "ENVIADO"
@@ -175,32 +202,37 @@ class IngresoMercaderiaRepository(
                         if (item.cantidadTotal > 0 && saldo <= 0 && !(item.cantidadComprada == 0 && item.bonificacionGratis > 0)) throw IllegalArgumentException("'${item.productoNombre}' ya está COMPLETO en esta orden. No puede recibir más unidades compradas (evita duplicar stock). Si es regalo, ponlo solo en REG.")
                         if (item.cantidadComprada > saldo) throw IllegalArgumentException("'${item.productoNombre}' solo quedan $saldo por recibir. Ingresaste ${item.cantidadComprada} compradas. Si ${item.cantidadComprada - saldo} son de regalo, ponlas en REG no en CANT.")
                     }
-                    if (idempotenciaId.isNotBlank()) {
-                        @Suppress("UNCHECKED_CAST")
-                        recepcionesPrevias = (pedidoSnap.get("recepciones") as? List<Map<String, Any>>) ?: emptyList()
-                        if (recepcionesPrevias.any { it["id"] == idempotenciaId }) return@runTransaction
-                    }
+                    val huellaPagos = pagosRecepcion.joinToString("+") { "${it.metodoPago.trim().uppercase()}_${it.monto}_${it.numeroOperacion.trim()}" }
+                    val huellaEntrega = "rec_${pedidoId ?: "suelto"}_${numFacturaLimpio}_${montoFactura}_${montoPagadoEnRecepcion}_${metodoPago.trim().uppercase()}_${huellaPagos}_${saldoAFavorUsado}_${condicionPago.trim().uppercase()}_${fechaVencimientoPago.trim()}_${itemsConIngreso.joinToString("_") { "${it.productoId}_${it.cantidadTotal}_${it.cantidadComprada}_${it.bonificacionGratis}_${it.costoUnitarioReal}_${it.costoTotalReal}_${it.loteNumero.trim().uppercase()}_${it.vencimiento.trim()}" }}"
+                    val idEntregaFinal = if (idempotenciaId.isNotBlank()) idempotenciaId.trim() else "rec_" + Math.abs(huellaEntrega.hashCode()).toString()
+
+                    @Suppress("UNCHECKED_CAST")
+                    recepcionesPrevias = (pedidoSnap.get("recepciones") as? List<Map<String, Any>>) ?: emptyList()
+                    if (recepcionesPrevias.any { it["id"] == idEntregaFinal || (idempotenciaId.isNotBlank() && it["id"] == idempotenciaId.trim()) }) return@runTransaction
                     proveedorIdTx = pedidoSnap.getString("proveedorId") ?: ""
                     proveedorNombreTx = pedidoSnap.getString("proveedorNombre") ?: ""
                     proveedorRucTx = pedidoSnap.getString("proveedorRuc") ?: ""
                 } else {
                     // Directo suelto — proveedor viene de los params de factura
-                    proveedorIdTx = proveedorIdFactura
-                    proveedorNombreTx = proveedorNombreFactura
-                    proveedorRucTx = rucProveedorFactura
+                    proveedorIdTx = proveedorIdFactura.trim()
+                    proveedorNombreTx = proveedorNombreFactura.trim()
+                    proveedorRucTx = rucProveedorFactura.trim()
+                    if (proveedorNombreTx.isBlank() || listOf("SIN PROVEEDOR", "DROGUERÍA GENERAL", "DROGUERIA GENERAL", "SIN ASIGNAR").any { proveedorNombreTx.equals(it, ignoreCase = true) }) {
+                        throw IllegalArgumentException("Selecciona un proveedor real con RUC de 11 dígitos para asentar el ingreso.")
+                    }
+                    if (esFacturaFormal && (proveedorRucTx.isBlank() || !proveedorRucTx.all { it.isDigit() } || proveedorRucTx.length != 11)) {
+                        throw IllegalArgumentException("Un comprobante formal ($numFacturaLimpio) exige el RUC de 11 dígitos del proveedor.")
+                    }
                 }
 
                 var facturaRef: com.google.firebase.firestore.DocumentReference? = null
                 var facturaSnapExists = false
                 var effectiveFacturaId: String? = null
                 var esReusoFactura = false
-                // REGLA DURA de transacción Firestore: TODAS las lecturas van ANTES de
-                // cualquier escritura. La foto de la factura en reuso se toma AQUÍ
-                // (zona de lecturas) y se reutiliza en la sección 2 —jamás se relee
-                // después de escribir productos (eso abortaría la recepción completa).
                 var facturaSnapReuso: com.google.firebase.firestore.DocumentSnapshot? = null
-                if (numFacturaLimpio.isNotBlank()) {
-                    val provKey = when {
+                var provKey = ""
+                if (esFacturaFormal) {
+                    provKey = when {
                         proveedorIdTx.isNotBlank() -> proveedorIdTx.trim()
                         proveedorNombreTx.isNotBlank() -> proveedorNombreTx.trim().uppercase().replace("/", "-").replace(" ", "_").replace(".", "__DOT__")
                         else -> ""
@@ -346,7 +378,7 @@ class IngresoMercaderiaRepository(
                         "entradas" to historialEntradas,
                         "costoCompra" to costoTotalFinalLote,
                         "costoUnitario" to costoUnitarioFinalLote,
-                        "ultimaEntrada" to FieldValue.serverTimestamp()
+                        "ultimaEntrada" to Timestamp(Date(ahoraMs))
                     )
                     if (cantBloqueadaExistente > 0) loteFinalData["cantidadBloqueada"] = cantBloqueadaExistente
                     if (!motivoBloqueoExistente.isNullOrBlank()) loteFinalData["motivoBloqueo"] = motivoBloqueoExistente
@@ -356,7 +388,7 @@ class IngresoMercaderiaRepository(
                     (loteActualData?.get("ventasRegistradas") as? Number)?.let { loteFinalData["ventasRegistradas"] = it.toDouble() }
                     loteActualData?.get("fechaIngreso")?.let { loteFinalData["fechaIngreso"] = it }
                     loteActualData?.get("createdAt")?.let { loteFinalData["createdAt"] = it }
-                    if (loteActualData == null) loteFinalData["fechaIngreso"] = FieldValue.serverTimestamp()
+                    if (loteActualData == null) loteFinalData["fechaIngreso"] = Timestamp(Date(ahoraMs))
                     currentLotes[keyLoteDestino] = loteFinalData
                     val nuevoStockDisponible = currentLotes.values.sumOf { (it as? Map<*, *>)?.get("cantidad") as? Double ?: (it as? Map<*, *>)?.get("cantidad")?.let { n -> (n as? Number)?.toDouble() } ?: 0.0 }
                     val nuevoStockTotal = currentLotes.values.sumOf {
@@ -456,7 +488,7 @@ class IngresoMercaderiaRepository(
                 }
 
                 // ── 2. Factura inmutable ──
-                if (numFacturaLimpio.isNotBlank() && effectiveFacturaId != null && facturaRef != null && !facturaSnapExists) {
+                if (esFacturaFormal && effectiveFacturaId != null && facturaRef != null && !facturaSnapExists) {
                     val saldoUsado = saldoAFavorUsado.coerceAtLeast(0.0)
                     val hayPagoNuevo = montoPagadoEnRecepcion > 0.01 || saldoUsado > 0.01 || pagosRecepcion.isNotEmpty()
 
@@ -624,9 +656,27 @@ class IngresoMercaderiaRepository(
                             )
                         }
 
+                        val tipoDocCalculado = when {
+                            numFacturaLimpio.startsWith("F") -> "FACTURA"
+                            numFacturaLimpio.startsWith("B") -> "BOLETA"
+                            numFacturaLimpio.startsWith("G") -> "GUIA"
+                            else -> "FACTURA"
+                        }
+                        val serieCalculada = if (numFacturaLimpio.contains("-")) numFacturaLimpio.substringBefore("-") else ""
+                        val correlativoCalculado = if (numFacturaLimpio.contains("-")) numFacturaLimpio.substringAfter("-") else numFacturaLimpio
+                        val baseCalculada = if (tipoDocCalculado == "FACTURA") Math.round((montoTotalDoc / 1.18) * 100.0) / 100.0 else montoTotalDoc
+                        val igvCalculado = if (tipoDocCalculado == "FACTURA") Math.round((montoTotalDoc - baseCalculada) * 100.0) / 100.0 else 0.0
+
                         val facturaData = mapOf(
                             "id" to effectiveFacturaId,
                             "numeroFactura" to numFacturaLimpio,
+                            "tipoDoc" to tipoDocCalculado,
+                            "serie" to serieCalculada,
+                            "correlativo" to correlativoCalculado,
+                            "montoBase" to baseCalculada,
+                            "montoIgv" to igvCalculado,
+                            "fechaEmision" to (if (fechaEmisionPapel.trim().isNotBlank()) fechaEmisionPapel.trim() else ""),
+                            "fechaRecepcion" to fechaLegible,
                             "proveedorId" to proveedorIdTx,
                             "proveedorNombre" to proveedorNombreTx,
                             "rucProveedor" to proveedorRucTx,
@@ -665,6 +715,7 @@ class IngresoMercaderiaRepository(
                         "usuarioNombre" to (usuarioNombre.ifBlank { SessionManager.nombreUsuario }),
                         "usuarioEmail" to usuarioEmail,
                         "numeroFactura" to numFacturaLimpio,
+                        "fechaEmisionPapel" to (if (fechaEmisionPapel.trim().isNotBlank()) fechaEmisionPapel.trim() else ""),
                         "condicionPago" to condicionPago,
                         "fechaVencimientoPago" to fechaVencimientoPago,
                         "montoFactura" to (if (montoFactura > 0) montoFactura else redondear2(totalCostoCalculado)),
@@ -697,10 +748,11 @@ class IngresoMercaderiaRepository(
                     }
                     val montoPrevio = pedidoSnap?.getDouble("montoFacturadoReal") ?: 0.0
                     val montoEstaEntrega = if (montoFactura > 0) montoFactura else redondear2(totalCostoCalculado)
-                    // Factura ya existente (reuso en entrega parcial): el papel ya contabilizó
-                    // su total; el monto facturado del pedido no se suma otra vez (evita duplicar
-                    // la deuda reflejada). Factura nueva: se acumula porque es otro documento.
-                    val nuevoMontoFacturado = if (esReusoFactura) {
+                    // S/C = ingreso sin papel contable ni deuda. No altera montoFacturadoReal.
+                    // Factura ya existente (reuso en entrega parcial): el papel ya contabilizó su total.
+                    val nuevoMontoFacturado = if (!esFacturaFormal) {
+                        montoPrevio
+                    } else if (esReusoFactura) {
                         if (montoPrevio > 0.0) montoPrevio else montoEstaEntrega
                     } else {
                         redondear2(montoPrevio + montoEstaEntrega)
@@ -925,7 +977,7 @@ class IngresoMercaderiaRepository(
                             if (entradas.isEmpty()) loteNuevo.remove("entradas")
                             loteNuevo["costoUnitario"] = nuevoCostoUnit
                             loteNuevo["costoCompra"] = nuevoCostoUnit * (nuevaCantidad + cantBloq)
-                            loteNuevo["ultimaEntrada"] = FieldValue.serverTimestamp()
+                            loteNuevo["ultimaEntrada"] = Timestamp(Date(ahoraMs))
                             if (kotlin.math.abs(nuevaCantidad) < 0.001 && cantBloq < 0.001 && entradas.isEmpty()) {
                                 currentLotes.remove(key)
                             } else {
@@ -1010,10 +1062,13 @@ class IngresoMercaderiaRepository(
                         if (conDevolucion) {
                             @Suppress("UNCHECKED_CAST")
                             val itemsPed = (pedidoSnap.get("items") as? List<Map<String, Any>>) ?: emptyList()
+                            val recibidoPorProducto = itemsRaw.groupBy { it["productoId"] as? String ?: "" }
+                                .mapValues { (_, filas) ->
+                                    filas.sumOf { (it["cantidadTotal"] as? Number)?.toDouble() ?: 0.0 }.toInt()
+                                }
                             val updatedItems = itemsPed.map { raw ->
                                 val pid = raw["productoId"] as? String ?: ""
-                                val cantMap = itemsRaw.find { (it["productoId"] as? String) == pid }
-                                val cantFact = (cantMap?.get("cantidadTotal") as? Number)?.toDouble()?.toInt() ?: 0
+                                val cantFact = recibidoPorProducto[pid] ?: 0
                                 val prev = (raw["cantidadRecibida"] as? Number)?.toInt() ?: 0
                                 raw.toMutableMap().apply { put("cantidadRecibida", (prev - cantFact).coerceAtLeast(0)) }
                             }

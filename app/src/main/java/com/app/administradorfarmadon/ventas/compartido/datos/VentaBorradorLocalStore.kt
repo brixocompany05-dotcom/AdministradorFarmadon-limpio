@@ -150,4 +150,13 @@ object VentaBorradorLocalStore {
         if (farmaciaId.isBlank() || sucursalId.isBlank()) return
         sp.edit().remove(clave(farmaciaId, sucursalId)).apply()
     }
+
+    /**
+     * Higiene total: elimina todos los borradores locales en disco al cerrar sesión
+     * o cambiar de cuenta, garantizando que ninguna sucursal o farmacia deje datos en memoria/disco.
+     */
+    fun limpiarTodo(context: Context? = null) {
+        if (context != null) init(context)
+        prefs?.edit()?.clear()?.apply()
+    }
 }

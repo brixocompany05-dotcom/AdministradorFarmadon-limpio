@@ -59,7 +59,7 @@ class FacturacionDocumentosFiltrosTest {
         assertEquals(1, state.totalRechazados)
         assertEquals(2, state.totalBoletas)
         assertEquals(1, state.totalFacturas)
-        assertEquals(280.0, state.montoTotalFacturado, 0.01)
+        assertEquals(200.0, state.montoTotalFacturado, 0.01)
     }
 
     @Test

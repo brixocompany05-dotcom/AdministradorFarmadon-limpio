@@ -53,4 +53,21 @@ class RecepcionMercaderiaEstadoTest {
         assertEquals(0, estado.unidadesPendientesDespues)
         assertTrue(estado.facturaContinua)
     }
+
+    @Test
+    fun `fecha de emision del papel se inicializa desde la factura existente y se actualiza`() {
+        val factura = FacturaCompra(
+            id = "proveedor-1__F-100",
+            numeroFactura = "F-100",
+            fechaEmision = "15/08/2026"
+        )
+        val estado = RecepcionMercaderiaEstado(
+            pedido = PedidoCompra(id = "pedido-1"),
+            facturaExistente = factura
+        )
+
+        assertEquals("15/08/2026", estado.fechaEmisionPapel)
+        estado.onFechaEmisionPapelChanged("20/08/2026")
+        assertEquals("20/08/2026", estado.fechaEmisionPapel)
+    }
 }

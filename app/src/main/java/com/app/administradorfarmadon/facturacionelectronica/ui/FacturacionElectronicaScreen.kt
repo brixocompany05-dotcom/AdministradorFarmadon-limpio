@@ -39,23 +39,43 @@ import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDBotonPrimario
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.InterPremium
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.facturacion.configuracion.logica.FacturacionConfigViewModel
 import com.app.administradorfarmadon.facturacion.configuracion.ui.ContenidoConfiguracionFiscal
+import com.app.administradorfarmadon.facturacion.configuracion.ui.DialogBloqueoGuardando
+import com.app.administradorfarmadon.facturacion.configuracion.ui.PestanaAuditoria
 import com.app.administradorfarmadon.facturacion.documentos.logica.FacturacionDocumentosUiState
 import com.app.administradorfarmadon.facturacion.documentos.logica.FacturacionDocumentosViewModel
 import com.app.administradorfarmadon.facturacion.envio.datos.ReporteEnvioLote
 import com.app.administradorfarmadon.facturacion.envio.worker.FacturacionEnvioWorker
 import com.app.administradorfarmadon.ventas.compartido.modelo.FacturacionDocumento
+import androidx.activity.compose.BackHandler
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 @Composable
 fun FacturacionElectronicaScreen(
+    pestanaInicial: Int = 0,
     onVolver: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    viewModel: FacturacionDocumentosViewModel = viewModel()
+    viewModel: FacturacionDocumentosViewModel = viewModel(),
+    configViewModel: FacturacionConfigViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val configState by configViewModel.uiState.collectAsStateWithLifecycle()
+
+    // ── BLINDAJE ANTI-SALIDA: PROHIBIDO RETROCEDER MIENTRAS SE GUARDA EN FIREBASE / APISUNAT ──
+    BackHandler(enabled = configState.guardando) {
+        // Bloquear tecla/gesto de retroceso de Android
+    }
+
+    DialogBloqueoGuardando(visible = configState.guardando)
+
+    LaunchedEffect(pestanaInicial) {
+        if (pestanaInicial in 0..3) {
+            viewModel.setPestana(pestanaInicial)
+        }
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -80,13 +100,18 @@ fun FacturacionElectronicaScreen(
                 if (onVolver != null) {
                     IconButton(
                         onClick = onVolver,
+                        enabled = !configState.guardando,
                         modifier = Modifier
                             .size(42.dp)
                             .clip(FDShapes.Medium)
                             .background(FDColors.Surface)
                             .border(1.dp, FDColors.Border, FDShapes.Medium)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver", tint = FDColors.TextPrimary)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver",
+                            tint = if (!configState.guardando) FDColors.TextPrimary else FDColors.TextTertiary
+                        )
                     }
                 }
 
@@ -187,10 +212,16 @@ fun FacturacionElectronicaScreen(
             }
 
             // ── 2. PESTAÑAS ENTERPRISE (Underline Tabs) ──
+            val labelAuditoria = if (configState.historial.isNotEmpty()) {
+                "Auditoría (${configState.historial.size})"
+            } else {
+                "Auditoría"
+            }
             val pestanas = listOf(
                 "Documentos (${state.totalDocumentos})",
                 "Resumen",
-                "Emisor Fiscal"
+                "Emisor Fiscal",
+                labelAuditoria
             )
 
             TabRow(
@@ -217,11 +248,25 @@ fun FacturacionElectronicaScreen(
                 }
             }
 
-            // ── 3. CONTENIDO SEGÚN PESTAÑA ──
-            when (state.pestanaActual) {
-                0 -> PestanaDocumentos(state = state, viewModel = viewModel, isWide = isWide)
-                1 -> PestanaResumen(state = state)
-                2 -> PestanaEmisor(isWide = isWide)
+            // ── 3. CONTENIDO SEGÚN PESTAÑA (OCUPA TODO EL ALTO DISPONIBLE HASTA EL BOTTOM BAR) ──
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                when (state.pestanaActual) {
+                    0 -> PestanaDocumentos(state = state, viewModel = viewModel, isWide = isWide)
+                    1 -> PestanaResumen(state = state)
+                    2 -> PestanaEmisor(
+                        isWide = isWide,
+                        configViewModel = configViewModel,
+                        onIrAAuditoria = { viewModel.setPestana(3) }
+                    )
+                    3 -> PestanaAuditoria(
+                        state = configState,
+                        isWide = isWide
+                    )
+                }
             }
         }
 
@@ -293,18 +338,27 @@ private fun PestanaDocumentos(
             OutlinedTextField(
                 value = state.busquedaTexto,
                 onValueChange = { viewModel.setBusquedaTexto(it) },
-                placeholder = { Text("Buscar por número, cliente o serie...") },
-                leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary) },
+                placeholder = { Text("Buscar por número, cliente o serie...", fontSize = 12.5.sp, color = FDColors.TextTertiary) },
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(18.dp)) },
                 trailingIcon = {
                     if (state.busquedaTexto.isNotBlank()) {
                         IconButton(onClick = { viewModel.setBusquedaTexto("") }) {
-                            Icon(Icons.Default.Close, null, tint = FDColors.TextTertiary)
+                            Icon(Icons.Default.Close, null, tint = FDColors.TextTertiary, modifier = Modifier.size(18.dp))
                         }
                     }
                 },
                 singleLine = true,
-                shape = FDShapes.Medium,
-                modifier = Modifier.weight(1f)
+                textStyle = FDType.Body.copy(fontSize = 13.sp, color = FDColors.TextPrimary),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = FDColors.Primary,
+                    unfocusedBorderColor = FDColors.Border,
+                    focusedContainerColor = FDColors.Background,
+                    unfocusedContainerColor = FDColors.Background
+                ),
+                shape = RoundedCornerShape(0.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 42.dp)
             )
 
             // Selector por Tipo
@@ -401,7 +455,8 @@ private fun PestanaDocumentos(
         ) {
             val estados = listOf(
                 "TODOS" to "Todos (${state.totalDocumentos})",
-                "PENDIENTE" to "🟡 En cola (${state.totalPendientesEnCola})",
+                "PENDIENTE" to "🟡 En cola (${state.totalSoloPendientes})",
+                FacturacionDocumento.ESTADO_ENVIADO to "⏳ En trámite (${state.totalEnviados})",
                 "ATENCION" to "🔴 Requieren atención (${state.totalRequierenAtencion})",
                 FacturacionDocumento.ESTADO_ACEPTADO to "🟢 Aceptadas (${state.totalAceptados})",
                 FacturacionDocumento.ESTADO_ANULADO to "⚪ Anuladas (${state.totalAnulados})"
@@ -423,7 +478,30 @@ private fun PestanaDocumentos(
 
         // Cuerpo: Lista (60%) + Detalle (40%) si pantalla ancha
         val listaFiltrada = state.documentosFiltrados
-        if (listaFiltrada.isEmpty()) {
+        if (state.cargando && state.documentos.isEmpty()) {
+            Surface(
+                color = FDColors.Surface,
+                shape = FDShapes.Medium,
+                border = BorderStroke(1.dp, FDColors.Border),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(FDSpacing.sm)
+                    ) {
+                        CircularProgressIndicator(color = FDColors.Primary, modifier = Modifier.size(36.dp))
+                        Text(
+                            text = "Sincronizando bandeja fiscal con el servidor...",
+                            style = FDType.BodySmall,
+                            color = FDColors.TextSecondary
+                        )
+                    }
+                }
+            }
+        } else if (listaFiltrada.isEmpty()) {
             Surface(
                 color = FDColors.Surface,
                 shape = FDShapes.Medium,
@@ -477,6 +555,41 @@ private fun PestanaDocumentos(
                             onClick = { viewModel.seleccionarDocumento(doc) }
                         )
                     }
+
+                    if (state.documentos.size < state.totalDocumentos && !state.finDeLista) {
+                        item {
+                            Surface(
+                                color = FDColors.Surface,
+                                shape = FDShapes.Medium,
+                                border = BorderStroke(1.dp, FDColors.Border),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Mostrando ${state.documentos.size} de ${state.totalDocumentos} comprobantes",
+                                        style = FDType.Caption,
+                                        color = FDColors.TextSecondary
+                                    )
+                                    TextButton(
+                                        onClick = { viewModel.cargarMas() },
+                                        enabled = !state.cargandoMas
+                                    ) {
+                                        if (state.cargandoMas) {
+                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = FDColors.Primary)
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Cargando...", style = FDType.Label.copy(fontSize = 11.sp), color = FDColors.Primary)
+                                        } else {
+                                            Text("CARGAR MÁS (+50)", style = FDType.Label.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp), color = FDColors.Primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Detalle derecho (40%)
@@ -512,6 +625,41 @@ private fun PestanaDocumentos(
                         seleccionado = doc.id == state.documentoSeleccionado?.id,
                         onClick = { viewModel.seleccionarDocumento(doc) }
                     )
+                }
+
+                if (state.documentos.size < state.totalDocumentos && !state.finDeLista) {
+                    item {
+                        Surface(
+                            color = FDColors.Surface,
+                            shape = FDShapes.Medium,
+                            border = BorderStroke(1.dp, FDColors.Border),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Mostrando ${state.documentos.size} de ${state.totalDocumentos} comprobantes",
+                                    style = FDType.Caption,
+                                    color = FDColors.TextSecondary
+                                )
+                                TextButton(
+                                    onClick = { viewModel.cargarMas() },
+                                    enabled = !state.cargandoMas
+                                ) {
+                                    if (state.cargandoMas) {
+                                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = FDColors.Primary)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Cargando...", style = FDType.Label.copy(fontSize = 11.sp), color = FDColors.Primary)
+                                    } else {
+                                        Text("CARGAR MÁS (+50)", style = FDType.Label.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp), color = FDColors.Primary)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -611,9 +759,9 @@ private fun TarjetaDocumentoItem(
 @Composable
 private fun BadgeEstadoDoc(estado: String, numeroQuemado: Boolean = false) {
     val (color, label) = when {
-        numeroQuemado || estado == FacturacionDocumento.ESTADO_RECHAZADO -> FDColors.Error to "🔴 REQUIERE ATENCIÓN"
+        numeroQuemado || estado == FacturacionDocumento.ESTADO_RECHAZADO -> FDColors.Error to "🔴 RECHAZADO"
         estado == FacturacionDocumento.ESTADO_ACEPTADO -> FDColors.Success to "🟢 ACEPTADO"
-        estado == FacturacionDocumento.ESTADO_ENVIADO -> FDColors.Warning to "🟡 ENVIANDO"
+        estado == FacturacionDocumento.ESTADO_ENVIADO -> FDColors.Info to "⏳ EN TRÁMITE"
         estado == FacturacionDocumento.ESTADO_ANULADO -> FDColors.TextTertiary to "⚪ ANULADO"
         else -> FDColors.Warning to "🟡 EN COLA"
     }
@@ -726,6 +874,32 @@ private fun PanelDetalleDocumento(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+        } else if (doc.estadoEnvio == FacturacionDocumento.ESTADO_ENVIADO) {
+            Surface(
+                color = FDColors.Info.copy(alpha = 0.1f),
+                shape = FDShapes.Medium,
+                border = BorderStroke(1.dp, FDColors.Info),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(FDSpacing.md), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.HourglassTop, null, tint = FDColors.Info, modifier = Modifier.size(18.dp))
+                        Text("COMPROBANTE EN TRÁMITE ANTE SUNAT", style = FDType.Label.copy(fontWeight = FontWeight.Bold), color = FDColors.Info)
+                    }
+                    Text(
+                        text = "El comprobante ya fue recibido por la pasarela (ID: ${doc.documentIdProveedor.ifBlank { "Asignado" }}). Esperando respuesta y CDR oficial.",
+                        style = FDType.Caption,
+                        color = FDColors.TextPrimary
+                    )
+                    FDBotonPrimario(
+                        texto = if (state.enviandoDocId == doc.id) "Consultando en SUNAT..." else "CONSULTAR ESTADO EN SUNAT",
+                        onClick = { onEnviar(doc) },
+                        cargando = state.enviandoDocId == doc.id,
+                        icono = Icons.Default.Refresh,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         } else if (doc.estadoEnvio == FacturacionDocumento.ESTADO_ACEPTADO) {
             Surface(
                 color = FDColors.Success.copy(alpha = 0.1f),
@@ -744,7 +918,9 @@ private fun PanelDetalleDocumento(
                                 try {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(doc.pdfUrl))
                                     context.startActivity(intent)
-                                } catch (_: Exception) {}
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "No se pudo abrir el visor de PDF: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                }
                             },
                             shape = FDShapes.Medium,
                             modifier = Modifier.fillMaxWidth()
@@ -760,7 +936,9 @@ private fun PanelDetalleDocumento(
                                 try {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(doc.cdrUrl))
                                     context.startActivity(intent)
-                                } catch (_: Exception) {}
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "No se pudo descargar el CDR: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                }
                             },
                             shape = FDShapes.Medium,
                             modifier = Modifier.fillMaxWidth()
@@ -769,6 +947,13 @@ private fun PanelDetalleDocumento(
                             Spacer(Modifier.width(8.dp))
                             Text("Descargar Constancia CDR (XML)")
                         }
+                    }
+                    if (doc.pdfUrl.isBlank() && doc.cdrUrl.isBlank()) {
+                        Text(
+                            text = "⚠️ Constancia digital no disponible en el servidor (falta CDR/PDF).",
+                            style = FDType.Caption.copy(fontWeight = FontWeight.SemiBold),
+                            color = FDColors.Warning
+                        )
                     }
                 }
             }
@@ -953,6 +1138,7 @@ private fun PestanaResumen(state: FacturacionDocumentosUiState) {
             TarjetaMetrica(
                 titulo = "MONTO FACTURADO",
                 valor = "S/ ${String.format(Locale.US, "%.2f", state.montoTotalFacturado)}",
+                subtitulo = "Base: S/ ${String.format(Locale.US, "%.2f", state.baseGravadaTotal)} | IGV: S/ ${String.format(Locale.US, "%.2f", state.igvTotal)}",
                 icono = Icons.Default.Payments,
                 color = FDColors.Success,
                 modifier = Modifier.weight(1f)
@@ -1023,7 +1209,8 @@ private fun TarjetaMetrica(
     valor: String,
     icono: ImageVector,
     color: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    subtitulo: String = ""
 ) {
     Surface(
         color = FDColors.Surface,
@@ -1044,6 +1231,9 @@ private fun TarjetaMetrica(
                 Icon(icono, null, tint = color, modifier = Modifier.size(20.dp))
             }
             Text(valor, style = FDType.Heading1.copy(fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
+            if (subtitulo.isNotBlank()) {
+                Text(subtitulo, style = FDType.Caption.copy(fontSize = 10.sp), color = FDColors.TextSecondary)
+            }
         }
     }
 }
@@ -1075,8 +1265,16 @@ private fun FilaConteoTipo(titulo: String, cantidad: Int, icono: ImageVector, mo
 // ─────────────────────────────────────────────
 
 @Composable
-private fun PestanaEmisor(isWide: Boolean) {
-    ContenidoConfiguracionFiscal(isWide = isWide)
+private fun PestanaEmisor(
+    isWide: Boolean,
+    configViewModel: FacturacionConfigViewModel,
+    onIrAAuditoria: () -> Unit
+) {
+    ContenidoConfiguracionFiscal(
+        isWide = isWide,
+        viewModel = configViewModel,
+        onIrAAuditoria = onIrAAuditoria
+    )
 }
 
 // ─────────────────────────────────────────────
@@ -1281,6 +1479,20 @@ private fun DialogoResultadoLote(
                         }
                     }
 
+                    if (reporte.enTramite.isNotEmpty()) {
+                        Surface(
+                            color = FDColors.Info.copy(alpha = 0.12f),
+                            shape = FDShapes.Medium,
+                            border = BorderStroke(1.dp, FDColors.Info),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(FDSpacing.sm)) {
+                                Text("⏳ En trámite", style = FDType.Label.copy(fontWeight = FontWeight.Bold), color = FDColors.Info)
+                                Text("${reporte.enTramite.size}", style = FDType.Heading1.copy(fontWeight = FontWeight.Black), color = FDColors.Info)
+                            }
+                        }
+                    }
+
                     if (reporte.requierenAtencion.isNotEmpty()) {
                         Surface(
                             color = FDColors.Warning.copy(alpha = 0.12f),
@@ -1321,7 +1533,31 @@ private fun DialogoResultadoLote(
                                     Icon(Icons.Default.CheckCircle, null, tint = FDColors.Success, modifier = Modifier.size(16.dp))
                                     Text(item.numeroCompleto, style = FDType.BodySmall.copy(fontWeight = FontWeight.Bold))
                                 }
-                                Text("Aceptado por SUNAT", style = FDType.Caption, color = FDColors.Success)
+                                Text(item.motivo.ifBlank { "Aceptado por SUNAT con CDR" }, style = FDType.Caption, color = FDColors.Success)
+                            }
+                        }
+                    }
+
+                    items(reporte.enTramite) { item ->
+                        Surface(
+                            color = FDColors.Info.copy(alpha = 0.08f),
+                            shape = FDShapes.Small,
+                            border = BorderStroke(1.dp, FDColors.Info.copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.HourglassTop, null, tint = FDColors.Info, modifier = Modifier.size(16.dp))
+                                    Text(item.numeroCompleto, style = FDType.BodySmall.copy(fontWeight = FontWeight.Bold))
+                                }
+                                Text("En trámite (esperando CDR)", style = FDType.Caption, color = FDColors.Info)
                             }
                         }
                     }

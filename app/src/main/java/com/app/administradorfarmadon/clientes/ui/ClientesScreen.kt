@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
@@ -52,7 +52,6 @@ fun ClientesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
-    var mostrarConfirmarEliminar by remember { mutableStateOf<ClienteFarmacia?>(null) }
 
     // Auto-limpieza de mensajes temporales
     LaunchedEffect(uiState.mensajeExito, uiState.error) {
@@ -68,7 +67,7 @@ fun ClientesScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // ── CABECERA PRINCIPAL ──
+        // ── CABECERA PRINCIPAL (CONSULTA INFORMATIVA) ──
         Surface(
             color = FDColors.Surface,
             shape = FDShapes.Medium,
@@ -84,37 +83,18 @@ fun ClientesScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    IconButton(onClick = onVolver) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Volver", tint = FDColors.TextPrimary)
-                    }
                     Column {
                         Text("Directorio de Clientes", style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 18.sp))
-                        Text("Fichas de clientes y registro de compras unificado de la farmacia", style = FDType.Caption, color = FDColors.TextSecondary)
+                        Text("Consulta de clientes e historial de compras registrado desde Punto de Venta (POS)", style = FDType.Caption, color = FDColors.TextSecondary)
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    FDSearchField(
-                        busqueda = uiState.filtroTexto,
-                        onBusquedaChange = { viewModel.setFiltroTexto(it) },
-                        placeholder = "Buscar por nombre, DNI, RUC o teléfono...",
-                        modifier = Modifier.width(340.dp)
-                    )
-
-                    Button(
-                        onClick = { viewModel.abrirDialogoCrear() },
-                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary),
-                        shape = FDShapes.Small,
-                        modifier = Modifier.height(44.dp)
-                    ) {
-                        Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("NUEVO CLIENTE", style = FDType.Label.copy(fontWeight = FontWeight.Black))
-                    }
-                }
+                FDSearchField(
+                    busqueda = uiState.filtroTexto,
+                    onBusquedaChange = { viewModel.setFiltroTexto(it) },
+                    placeholder = "Buscar por nombre, DNI, RUC o teléfono...",
+                    modifier = Modifier.width(380.dp)
+                )
             }
         }
 
@@ -141,9 +121,13 @@ fun ClientesScreen(
                 .fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // ───────────────────────────── PANEL IZQUIERDO: TABLA DE CLIENTES (55%) ─────────────────────────────
             POSSurfacePanel(
-                titulo = "Clientes Registrados (${uiState.clientesFiltrados.size})",
+                titulo = if (uiState.filtroTexto.isBlank()) {
+                    val total = if (uiState.totalClientesServidor > 0) uiState.totalClientesServidor else uiState.clientes.size
+                    "Clientes Registrados ($total)"
+                } else {
+                    "Clientes Encontrados (${uiState.clientesFiltrados.size})"
+                },
                 modifier = Modifier.weight(0.55f)
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -155,7 +139,7 @@ fun ClientesScreen(
                         POSEmptyState(
                             icono = Icons.Default.PeopleOutline,
                             titulo = if (uiState.clientes.isEmpty()) "Directorio Vacío" else "Sin coincidencias",
-                            subtitulo = if (uiState.clientes.isEmpty()) "Registra tu primer cliente usando el botón 'NUEVO CLIENTE'." else "Prueba con otro término de búsqueda."
+                            subtitulo = if (uiState.clientes.isEmpty()) "Los clientes se registran automáticamente al identificarlos durante una venta en el Punto de Venta (POS)." else "Prueba con otro término de búsqueda."
                         )
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
@@ -279,13 +263,16 @@ fun ClientesScreen(
                                         Text(cliente.nombre, style = FDType.Heading3.copy(fontWeight = FontWeight.Black, fontSize = 16.sp), color = FDColors.TextPrimary)
                                         Text("${cliente.tipoDocumento}: ${cliente.numeroDocumento}", style = FDType.Caption.copy(fontSize = 11.5.sp), color = FDColors.TextSecondary)
                                     }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        IconButton(onClick = { viewModel.abrirDialogoEditar(cliente) }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.Edit, "Editar", tint = FDColors.Primary, modifier = Modifier.size(18.dp))
-                                        }
-                                        IconButton(onClick = { mostrarConfirmarEliminar = cliente }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.DeleteOutline, "Eliminar", tint = FDColors.Error, modifier = Modifier.size(18.dp))
-                                        }
+                                    Surface(
+                                        color = FDColors.PrimarySubtle,
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "${cliente.tipoDocumento} REGISTRADO",
+                                            style = FDType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                            color = FDColors.Primary,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
                                     }
                                 }
 
@@ -307,7 +294,7 @@ fun ClientesScreen(
                             }
                         }
 
-                        // Métricas del Cliente
+                        // Métricas del Cliente (Verdad Financiera)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -333,6 +320,18 @@ fun ClientesScreen(
                                 Column(modifier = Modifier.padding(10.dp)) {
                                     Text("COMPROBANTES", style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary)
                                     Text("${uiState.totalOperacionesCliente} compras", style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Black))
+                                }
+                            }
+
+                            Surface(
+                                color = FDColors.Surface,
+                                shape = FDShapes.Small,
+                                border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.5f)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text("TICKET PROMEDIO", style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black), color = FDColors.TextTertiary)
+                                    Text("$simboloMoneda ${String.format(Locale.US, "%.2f", uiState.ticketPromedioCliente)}", style = FDType.Numeric.copy(fontSize = 15.sp, fontWeight = FontWeight.Black, color = FDColors.TextPrimary))
                                 }
                             }
                         }
@@ -408,217 +407,6 @@ fun ClientesScreen(
                 }
             }
         }
-
-        // ── DIÁLOGO CREAR / EDITAR CLIENTE ──
-        if (uiState.mostrarDialogoCrearEditar) {
-            DialogoCrearEditarCliente(
-                clienteInicial = uiState.clienteEnEdicion,
-                consultando = uiState.consultandoDoc,
-                onDismiss = { viewModel.cerrarDialogoCrearEditar() },
-                onConsultar = { tipo, num, onRes -> viewModel.consultarDocumentoOficial(tipo, num, onRes) },
-                onGuardar = { viewModel.guardarCliente(it) }
-            )
-        }
-
-        // ── DIÁLOGO DE CONFIRMACIÓN DE ELIMINACIÓN ──
-        mostrarConfirmarEliminar?.let { c ->
-            Dialog(onDismissRequest = { mostrarConfirmarEliminar = null }) {
-                Surface(
-                    shape = FDShapes.Medium,
-                    color = FDColors.Surface,
-                    border = BorderStroke(1.dp, FDColors.Border),
-                    modifier = Modifier.width(400.dp)
-                ) {
-                    Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Text("Eliminar Cliente", style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 18.sp), color = FDColors.Error)
-                        Text(
-                            "¿Estás seguro de eliminar al cliente '${c.nombre}' (${c.tipoDocumento} ${c.numeroDocumento}) del directorio? El historial de compras ya emitidas no se borrará.",
-                            style = FDType.Body,
-                            color = FDColors.TextSecondary
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(onClick = { mostrarConfirmarEliminar = null }, modifier = Modifier.weight(1f).height(42.dp), shape = FDShapes.Small) {
-                                Text("Cancelar", color = FDColors.TextSecondary)
-                            }
-                            Button(
-                                onClick = {
-                                    viewModel.eliminarCliente(c.id)
-                                    mostrarConfirmarEliminar = null
-                                },
-                                modifier = Modifier.weight(1.2f).height(42.dp),
-                                shape = FDShapes.Small,
-                                colors = ButtonDefaults.buttonColors(containerColor = FDColors.Error)
-                            ) {
-                                Text("ELIMINAR", style = FDType.Label.copy(fontWeight = FontWeight.Black))
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
-// ───────────────────────────── DIÁLOGO CREAR / EDITAR CLIENTE ─────────────────────────────
-
-@Composable
-private fun DialogoCrearEditarCliente(
-    clienteInicial: ClienteFarmacia?,
-    consultando: Boolean,
-    onDismiss: () -> Unit,
-    onConsultar: (tipo: String, num: String, onRes: (nombre: String, direccion: String) -> Unit) -> Unit,
-    onGuardar: (ClienteFarmacia) -> Unit
-) {
-    val esEdicion = clienteInicial != null
-    var tipoDoc by remember { mutableStateOf(clienteInicial?.tipoDocumento ?: "DNI") }
-    var numDoc by remember { mutableStateOf(clienteInicial?.numeroDocumento ?: "") }
-    var nombre by remember { mutableStateOf(clienteInicial?.nombre ?: "") }
-    var telefono by remember { mutableStateOf(clienteInicial?.telefono ?: "") }
-    var direccion by remember { mutableStateOf(clienteInicial?.direccion ?: "") }
-    var notas by remember { mutableStateOf(clienteInicial?.notas ?: "") }
-
-    val docValido = if (tipoDoc == "DNI") Regex("^\\d{8}$").matches(numDoc.trim()) else Regex("^\\d{11}$").matches(numDoc.trim())
-    val guardarHabilitado = docValido && nombre.trim().isNotBlank()
-
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = FDShapes.Large,
-            color = FDColors.Surface,
-            border = BorderStroke(1.dp, FDColors.Border),
-            modifier = Modifier.width(480.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    if (esEdicion) "Editar Ficha de Cliente" else "Nuevo Cliente",
-                    style = FDType.Heading2.copy(fontWeight = FontWeight.Black, fontSize = 18.sp)
-                )
-
-                // Selector Tipo de Documento
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("DNI", "RUC").forEach { t ->
-                        val sel = tipoDoc == t
-                        Surface(
-                            onClick = { if (!esEdicion) tipoDoc = t },
-                            color = if (sel) FDColors.Primary else FDColors.InputBackground,
-                            shape = FDShapes.Small,
-                            modifier = Modifier.weight(1f).height(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    t,
-                                    style = FDType.Label.copy(
-                                        fontSize = 11.sp,
-                                        fontWeight = if (sel) FontWeight.Black else FontWeight.Bold
-                                    ),
-                                    color = if (sel) FDColors.PrimaryText else FDColors.TextSecondary
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Número de Documento + Botón de Consulta Oficial RENIEC/SUNAT
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FDTextField(
-                        value = numDoc,
-                        onValueChange = { if (!esEdicion) numDoc = it },
-                        label = "N° DE $tipoDoc *",
-                        placeholder = if (tipoDoc == "DNI") "8 dígitos" else "11 dígitos",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    Button(
-                        onClick = {
-                            onConsultar(tipoDoc, numDoc) { nom, dir ->
-                                nombre = nom
-                                if (dir.isNotBlank()) direccion = dir
-                            }
-                        },
-                        enabled = !consultando && numDoc.trim().isNotBlank(),
-                        shape = FDShapes.Small,
-                        modifier = Modifier.padding(top = 18.dp).height(44.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary)
-                    ) {
-                        if (consultando) {
-                            CircularProgressIndicator(color = FDColors.PrimaryText, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("RENIEC/SUNAT", style = FDType.Caption.copy(fontWeight = FontWeight.Bold))
-                        }
-                    }
-                }
-
-                FDTextField(
-                    value = nombre,
-                    onValueChange = { nombre = it },
-                    label = if (tipoDoc == "RUC") "RAZÓN SOCIAL *" else "NOMBRES Y APELLIDOS *",
-                    placeholder = "Nombre completo del cliente"
-                )
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FDTextField(
-                        value = telefono,
-                        onValueChange = { telefono = it },
-                        label = "TELÉFONO (OPCIONAL)",
-                        placeholder = "987 654 321",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    FDTextField(
-                        value = direccion,
-                        onValueChange = { direccion = it },
-                        label = "DIRECCIÓN (OPCIONAL)",
-                        placeholder = "Av. Principal 123",
-                        modifier = Modifier.weight(1.3f)
-                    )
-                }
-
-                FDTextField(
-                    value = notas,
-                    onValueChange = { notas = it },
-                    label = "NOTAS (OPCIONAL)",
-                    placeholder = "Alergias, preferencias o referencias",
-                    singleLine = false,
-                    minLines = 2
-                )
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f).height(44.dp), shape = FDShapes.Small) {
-                        Text("Cancelar", color = FDColors.TextSecondary)
-                    }
-                    Button(
-                        onClick = {
-                            val c = ClienteFarmacia(
-                                id = numDoc.trim(),
-                                tipoDocumento = tipoDoc,
-                                numeroDocumento = numDoc.trim(),
-                                nombre = nombre.trim(),
-                                telefono = telefono.trim(),
-                                direccion = direccion.trim(),
-                                notas = notas.trim(),
-                                fechaMs = clienteInicial?.fechaMs ?: 0L
-                            )
-                            onGuardar(c)
-                        },
-                        enabled = guardarHabilitado,
-                        modifier = Modifier.weight(1.3f).height(44.dp),
-                        shape = FDShapes.Small,
-                        colors = ButtonDefaults.buttonColors(containerColor = FDColors.Primary)
-                    ) {
-                        Text("GUARDAR CLIENTE", style = FDType.Label.copy(fontWeight = FontWeight.Black))
-                    }
-                }
-            }
-        }
-    }
-}

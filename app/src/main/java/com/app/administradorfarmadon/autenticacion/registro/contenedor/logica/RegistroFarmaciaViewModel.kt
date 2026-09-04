@@ -480,8 +480,12 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
                 }
                 _state.update { it.copy(paso2 = it.paso2.copy(aviso = aviso)) }
             } catch (e: Exception) {
-                val mensaje = mapearErrorAViso(e)
-                _state.update { it.copy(paso2 = it.paso2.copy(aviso = mensaje)) }
+                if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    _state.update { it.copy(paso2 = it.paso2.copy(aviso = null)) }
+                } else {
+                    val mensaje = mapearErrorAViso(e)
+                    _state.update { it.copy(paso2 = it.paso2.copy(aviso = mensaje)) }
+                }
             }
         }
     }
@@ -500,7 +504,7 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
                     .get(com.google.firebase.firestore.Source.SERVER)
                     .await()
                 val planMuerto = !planDoc.exists() ||
-                        planDoc.getBoolean("activo") != true ||
+                        planDoc.getBoolean("activo") == false ||
                         planDoc.getBoolean("eliminado") == true
                 if (planMuerto) {
                     _state.update { cs ->
@@ -514,8 +518,12 @@ class RegistroFarmaciaViewModel @JvmOverloads constructor(
                     }
                 }
             } catch (e: Exception) {
-                val mensaje = mapearErrorAViso(e)
-                _state.update { it.copy(paso2 = it.paso2.copy(aviso = mensaje)) }
+                if (e is FirebaseFirestoreException && e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    _state.update { it.copy(paso2 = it.paso2.copy(aviso = null)) }
+                } else {
+                    val mensaje = mapearErrorAViso(e)
+                    _state.update { it.copy(paso2 = it.paso2.copy(aviso = mensaje)) }
+                }
             }
         }
     }

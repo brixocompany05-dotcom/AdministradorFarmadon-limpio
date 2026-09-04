@@ -150,12 +150,26 @@ data class ComprasUiState(
             return unidades.mapValues { (id, u) -> ProductoEnCamino(u, ordenes[id]?.toList() ?: emptyList()) }
         }
 
-    // ── OBTENER EL PROVEEDOR COMERCIAL (DISTINTO DEL LABORATORIO FABRICANTE) ──
     fun resolverProveedorProducto(p: PharmProduct): String {
+        // 1. Vinculación oficial por ID en Firestore (tiempo real)
+        if (p.proveedorId.isNotBlank()) {
+            val matchId = proveedores.find { it.id == p.proveedorId }
+            if (matchId != null) return matchId.nombre
+        }
+        // 2. Vinculación por nombre o RUC guardado en el producto
         val prov = p.proveedor.trim().takeUnless { esPlaceholderProveedor(it) }
-        if (!prov.isNullOrBlank()) return prov
-        val match = proveedores.find { it.nombre.equals(p.laboratory, ignoreCase = true) }
-        if (match != null) return match.nombre
+        if (!prov.isNullOrBlank()) {
+            val match = proveedores.find {
+                it.nombre.equals(prov, ignoreCase = true) ||
+                (it.idFiscal.isNotBlank() && it.idFiscal == prov) ||
+                it.id == prov
+            }
+            if (match != null) return match.nombre
+            return prov
+        }
+        // 3. Fallback por laboratorio SOLO si coincide con un proveedor existente en catálogo
+        val matchLab = proveedores.find { it.nombre.equals(p.laboratory, ignoreCase = true) }
+        if (matchLab != null) return matchLab.nombre
         if (p.laboratory.isNotBlank() && !esPlaceholderProveedor(p.laboratory)) return p.laboratory
         return "Droguería General / Sin Asignar"
     }
@@ -166,21 +180,23 @@ data class ComprasUiState(
             .any { it.equals(nombre.trim(), ignoreCase = true) }
 
     // ── DEUDA CONTABLE VINCULADA POR PROVEEDOR (las anuladas deben 0 por construcción) ──
+    private fun facturaPerteneceAProveedor(factura: FacturaCompra, proveedor: Proveedor): Boolean {
+        if (factura.proveedorId.isNotBlank() && factura.proveedorId == proveedor.id) return true
+        if (factura.rucProveedor.isNotBlank() && proveedor.idFiscal.isNotBlank() && factura.rucProveedor == proveedor.idFiscal) return true
+        if (factura.proveedorNombre.isNotBlank() && proveedor.nombre.isNotBlank() &&
+            factura.proveedorNombre.trim().equals(proveedor.nombre.trim(), ignoreCase = true)) return true
+        return false // Estricto por proveedorId, RUC o Nombre idéntico. Cero falsedades.
+    }
+
     fun deudaPendienteProveedor(proveedor: Proveedor): Double {
         return facturas
-            .filter {
-                (it.proveedorId == proveedor.id || it.proveedorNombre.equals(proveedor.nombre, ignoreCase = true)) &&
-                        !it.esAnulada && !it.esTotalmentePagada
-            }
+            .filter { facturaPerteneceAProveedor(it, proveedor) && !it.esAnulada && !it.esTotalmentePagada }
             .sumOf { it.saldoPendienteReal }
     }
 
     fun facturasPendientesCountProveedor(proveedor: Proveedor): Int {
         return facturas
-            .count {
-                (it.proveedorId == proveedor.id || it.proveedorNombre.equals(proveedor.nombre, ignoreCase = true)) &&
-                        !it.esAnulada && !it.esTotalmentePagada
-            }
+            .count { facturaPerteneceAProveedor(it, proveedor) && !it.esAnulada && !it.esTotalmentePagada }
     }
 
     // ── PRODUCTOS AGRUPADOS POR PROVEEDOR COMERCIAL ──
@@ -204,7 +220,7 @@ data class ComprasUiState(
             val resultado = mutableListOf<PedidoProveedor>()
             pedidosPorProveedor.forEach { (provNombre, carro) ->
                 val prodsProv = todosLosProductos.filter { resolverProveedorProducto(it) == provNombre }
-                val provEntidad = proveedores.find { it.nombre.equals(provNombre, ignoreCase = true) }
+                val provEntidad = proveedores.find { (it.id.isNotBlank() && (it.id == provNombre || it.idFiscal == provNombre)) || it.nombre.equals(provNombre, ignoreCase = true) }
                 val items = prodsProv.mapNotNull { p ->
                     val cant = carro[p.id] ?: 0
                     if (cant > 0) {
@@ -242,17 +258,35 @@ data class ComprasUiState(
         get() {
             val prov = proveedorSeleccionado ?: return emptyList()
             val idsDeFacturasDelProv = facturas
-                .filter { it.proveedorId == prov.id || it.proveedorNombre.equals(prov.nombre, ignoreCase = true) }
+                .filter { facturaPerteneceAProveedor(it, prov) }
                 .flatMap { it.items }
                 .map { it.productoId }
                 .filter { it.isNotBlank() }
                 .toSet()
 
             return todosLosProductos.filter { p ->
-                idsDeFacturasDelProv.contains(p.id) ||
+                // 1. Asignado directamente a este proveedor (por ID o por Nombre/RUC)
+                val asignadoAEste = (p.proveedorId.isNotBlank() && p.proveedorId == prov.id) ||
+                    (p.proveedor.isNotBlank() && (
                         p.proveedor.equals(prov.nombre, ignoreCase = true) ||
-                        p.laboratory.equals(prov.nombre, ignoreCase = true) ||
-                        resolverProveedorProducto(p).equals(prov.nombre, ignoreCase = true)
+                        p.proveedor == prov.id ||
+                        (prov.idFiscal.isNotBlank() && p.proveedor == prov.idFiscal)
+                    ))
+                if (asignadoAEste) return@filter true
+
+                // 2. Si ya está asignado explícitamente a OTRO proveedor real, no pertenece a este
+                val asignadoAOtro = (p.proveedorId.isNotBlank() && p.proveedorId != prov.id) ||
+                    (p.proveedor.isNotBlank() && proveedores.any { otro ->
+                        otro.id != prov.id && (
+                            otro.id == p.proveedorId ||
+                            otro.nombre.equals(p.proveedor, ignoreCase = true) ||
+                            (otro.idFiscal.isNotBlank() && otro.idFiscal == p.proveedor)
+                        )
+                    })
+                if (asignadoAOtro) return@filter false
+
+                // 3. Fallback histórico si no tiene otro asignado: productos adquiridos en facturas de este proveedor
+                idsDeFacturasDelProv.contains(p.id)
             }
         }
 

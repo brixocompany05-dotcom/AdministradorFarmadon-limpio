@@ -1,6 +1,7 @@
 package com.app.administradorfarmadon.facturacion.configuracion.datos
 
 import android.util.Log
+import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.app.administradorfarmadon.facturacion.envio.datos.ApisunatConfig
@@ -68,6 +69,33 @@ data class EmisorFiscal(
         return faltantes
     }
 }
+
+/**
+ * Un campo que cambió en el emisor (auditoría). El token jamás se guarda
+ * completo aquí: solo máscara (**** + últimos 4).
+ */
+data class DetalleCambioEmisor(
+    val campo: String = "",
+    val antes: String = "",
+    val despues: String = ""
+)
+
+/**
+ * Acta append-only de un guardado del emisor: qué cambió, quién, cuándo.
+ * Vive en facturacion_config/emisor/historial/{autoId}.
+ */
+data class ActaCambioEmisor(
+    val id: String = "",
+    val fechaMs: Long = 0L,
+    val fechaLegible: String = "",
+    val usuarioEmail: String = "",
+    val usuarioNombre: String = "",
+    val sedeId: String = "principal",
+    val resultado: String = "", // VERIFICADO | FALLO_VERIFICACION
+    val verificadoOk: Boolean = false,
+    val ultimoError: String = "",
+    val cambios: List<DetalleCambioEmisor> = emptyList()
+)
 
 class FacturacionConfigRepository(
     private val db: FirebaseFirestore = FarmadonFirestore.db
@@ -149,6 +177,108 @@ class FacturacionConfigRepository(
     }
 
     /**
+     * Compara el emisor anterior con el nuevo y devuelve la lista de cambios.
+     * Función pura (sin Firebase) para que el cálculo sea testeable y exacto.
+     * El token se compara por presencia y se registra enmascarado, jamás completo.
+     */
+    fun calcularCambiosEmisor(antes: EmisorFiscal?, despues: EmisorFiscal): List<DetalleCambioEmisor> {
+        if (antes == null) {
+            return listOf(
+                DetalleCambioEmisor("RUC", "", despues.ruc.trim()),
+                DetalleCambioEmisor("Razón Social", "", despues.razonSocial.trim()),
+                DetalleCambioEmisor("Dirección Fiscal", "", despues.direccionFiscal.trim()),
+                DetalleCambioEmisor("Persona ID", "", despues.personaId.trim()),
+                DetalleCambioEmisor("Persona Token", "", enmascararToken(despues.personaToken)),
+                DetalleCambioEmisor("Modo", "", despues.modo)
+            )
+        }
+        val cambios = mutableListOf<DetalleCambioEmisor>()
+        if (antes.ruc.trim() != despues.ruc.trim()) {
+            cambios.add(DetalleCambioEmisor("RUC", antes.ruc.trim(), despues.ruc.trim()))
+        }
+        if (antes.razonSocial.trim() != despues.razonSocial.trim()) {
+            cambios.add(DetalleCambioEmisor("Razón Social", antes.razonSocial.trim(), despues.razonSocial.trim()))
+        }
+        if (antes.direccionFiscal.trim() != despues.direccionFiscal.trim()) {
+            cambios.add(DetalleCambioEmisor("Dirección Fiscal", antes.direccionFiscal.trim(), despues.direccionFiscal.trim()))
+        }
+        if (antes.personaId.trim() != despues.personaId.trim()) {
+            cambios.add(DetalleCambioEmisor("Persona ID", antes.personaId.trim(), despues.personaId.trim()))
+        }
+        if (antes.personaToken.trim() != despues.personaToken.trim()) {
+            cambios.add(DetalleCambioEmisor("Persona Token", enmascararToken(antes.personaToken), enmascararToken(despues.personaToken)))
+        }
+        if (antes.modo != despues.modo) {
+            cambios.add(DetalleCambioEmisor("Modo", antes.modo, despues.modo))
+        }
+        return cambios
+    }
+
+    fun enmascararToken(token: String): String {
+        val t = token.trim()
+        if (t.isBlank()) return "(vacío)"
+        if (t.length <= 4) return "****"
+        return "****" + t.takeLast(4)
+    }
+
+    /**
+     * Escucha viva del historial de cambios del emisor (auditoría, R8).
+     * Ordenados del más reciente al más antiguo en memoria (cero índices compuestos).
+     */
+    fun observarHistorialEmisor(farmaciaId: String, limite: Int = 50): Flow<List<ActaCambioEmisor>> = callbackFlow {
+        if (farmaciaId.isBlank()) {
+            trySend(emptyList())
+            awaitClose {}
+            return@callbackFlow
+        }
+        val ref = FarmadonPaths.facturacionEmisorHistorial(db, farmaciaId)
+        val listener = ref.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "Error escuchando historial del emisor: ${error.message}", error)
+                close(error)
+                return@addSnapshotListener
+            }
+            val lista = snapshot?.documents?.mapNotNull { doc ->
+                parseActa(doc.id, doc.data)
+            }?.sortedByDescending { it.fechaMs }?.take(limite) ?: emptyList()
+            trySend(lista)
+        }
+        awaitClose { listener.remove() }
+    }
+
+    private fun parseActa(id: String, data: Map<String, Any?>?): ActaCambioEmisor? {
+        if (data == null) return null
+        return try {
+            val fechaMs = (data["fechaMs"] as? Number)?.toLong()
+                ?: (data["fecha"] as? com.google.firebase.Timestamp)?.toDate()?.time
+                ?: 0L
+            @Suppress("UNCHECKED_CAST")
+            val cambiosRaw = data["cambios"] as? List<Map<String, Any?>> ?: emptyList()
+            ActaCambioEmisor(
+                id = id,
+                fechaMs = fechaMs,
+                fechaLegible = (data["fechaLegible"] as? String).orEmpty(),
+                usuarioEmail = (data["usuarioEmail"] as? String).orEmpty(),
+                usuarioNombre = (data["usuarioNombre"] as? String).orEmpty(),
+                sedeId = (data["sedeId"] as? String)?.ifBlank { "principal" } ?: "principal",
+                resultado = (data["resultado"] as? String).orEmpty(),
+                verificadoOk = (data["verificadoOk"] as? Boolean) ?: false,
+                ultimoError = (data["ultimoError"] as? String).orEmpty(),
+                cambios = cambiosRaw.map {
+                    DetalleCambioEmisor(
+                        campo = (it["campo"] as? String).orEmpty(),
+                        antes = (it["antes"] as? String).orEmpty(),
+                        despues = (it["despues"] as? String).orEmpty()
+                    )
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parseando acta del emisor $id: ${e.message}", e)
+            null
+        }
+    }
+
+    /**
      * Realiza una llamada de validación real contra el endpoint lastDocument de APISUNAT.
      * Cero tokens expuestos en logs (Regla 4).
      */
@@ -207,6 +337,27 @@ class FacturacionConfigRepository(
         if (farmaciaId.isBlank()) {
             return Result.failure(IllegalArgumentException("ID de farmacia no válido."))
         }
+
+        // 1. Control de Rol: Solo Dueño o Administrador
+        val rolActual = SessionManager.rol
+        val esAdminODueno = rolActual.equals("Administrador", ignoreCase = true) ||
+                rolActual.equals("Dueño", ignoreCase = true) ||
+                rolActual.equals("Dueno", ignoreCase = true)
+        if (!esAdminODueno) {
+            return Result.failure(
+                IllegalStateException("Acceso denegado: Solo el Dueño o un Administrador tiene autorización para modificar la configuración fiscal.")
+            )
+        }
+
+        // 2. Control de Sede: Solo la Sede Principal
+        val sedeActiva = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId }
+        if (!sedeActiva.equals("principal", ignoreCase = true)) {
+            return Result.failure(
+                IllegalStateException("Solo la sede principal puede guardar el emisor fiscal. Las sucursales usan automáticamente estos datos.")
+            )
+        }
+
+        // 3. Validación de integridad de campos
         val rucLimpio = emisor.ruc.trim()
         if (rucLimpio.length != 11 || !rucLimpio.all { it.isDigit() }) {
             return Result.failure(IllegalArgumentException("El RUC debe tener exactamente 11 dígitos numéricos."))
@@ -224,7 +375,7 @@ class FacturacionConfigRepository(
             return Result.failure(IllegalArgumentException("El token de APISUNAT es obligatorio."))
         }
 
-        // Ejecutar prueba real de conexión
+        // 4. Ejecutar prueba real de conexión con APISUNAT ANTES de alterar Firestore
         val resultadoPing = pingApisunat(emisor.personaId, emisor.personaToken)
         val verificado = resultadoPing.isSuccess
         val errorDetalle = if (verificado) "" else (resultadoPing.exceptionOrNull()?.message ?: "Error desconocido de APISUNAT")
@@ -247,6 +398,8 @@ class FacturacionConfigRepository(
             "direccionFiscal" to emisorGuardar.direccionFiscal,
             "personaId" to emisorGuardar.personaId,
             "personaToken" to emisorGuardar.personaToken,
+            "token" to emisorGuardar.personaToken,
+            "apisNetPeToken" to emisorGuardar.personaToken,
             "modo" to emisorGuardar.modo,
             "verificadoOk" to emisorGuardar.verificadoOk,
             "ultimoError" to emisorGuardar.ultimoError,
@@ -255,12 +408,109 @@ class FacturacionConfigRepository(
         )
 
         return try {
-            docRef.set(data, SetOptions.merge()).await()
-            if (verificado) {
-                Result.success(emisorGuardar)
-            } else {
-                Result.failure(IllegalStateException("Credenciales guardadas, pero la verificación fiscal falló: $errorDetalle"))
+            // Foto del "antes" para el acta de auditoría (qué cambió).
+            val antesSnap = try {
+                docRef.get().await()
+            } catch (_: Exception) {
+                null
             }
+            val emisorAntes = if (antesSnap != null && antesSnap.exists()) {
+                obtenerEmisor(farmaciaId)
+            } else {
+                null
+            }
+            val cambios = calcularCambiosEmisor(emisorAntes, emisorGuardar)
+
+            val sedeId = SessionManager.sucursalIdEfectiva.ifBlank { SessionManager.sucursalId.ifBlank { "principal" } }
+            val actaRef = FarmadonPaths.facturacionEmisorHistorial(db, farmaciaId).document()
+            val ahoraMs = System.currentTimeMillis()
+            val sdfLegible = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.getDefault()).apply {
+                timeZone = java.util.TimeZone.getTimeZone("America/Lima")
+            }
+            val fechaLegibleInicial = sdfLegible.format(java.util.Date(ahoraMs))
+
+            // Si APISUNAT RECHAZÓ las credenciales:
+            // Prohibido sobreescribir la configuración activa en Firestore con datos erróneos.
+            // Se registra el intento fallido en Auditoría para trazabilidad de quién intentó cambiar y a qué hora.
+            if (!verificado) {
+                try {
+                    actaRef.set(
+                        mapOf(
+                            "id" to actaRef.id,
+                            "usuarioEmail" to usuarioEmail.trim(),
+                            "usuarioNombre" to SessionManager.nombreUsuario.ifBlank { "Administrador" },
+                            "sedeId" to sedeId,
+                            "resultado" to "FALLO_VERIFICACION",
+                            "verificadoOk" to false,
+                            "ultimoError" to errorDetalle,
+                            "cambios" to cambios.map {
+                                mapOf("campo" to it.campo, "antes" to it.antes, "despues" to it.despues)
+                            },
+                            "fecha" to FieldValue.serverTimestamp(),
+                            "fechaMs" to ahoraMs,
+                            "fechaLegible" to fechaLegibleInicial,
+                            "sedeLegible" to if (sedeId.equals("principal", ignoreCase = true)) "Sede Principal" else sedeId
+                        )
+                    ).await()
+                } catch (_: Exception) {}
+
+                return Result.failure(
+                    IllegalStateException("Conexión rechazada por APISUNAT: $errorDetalle. Los datos NO se guardaron para evitar romper la facturación de la farmacia. Corrija los datos e intente nuevamente.")
+                )
+            }
+
+            // APISUNAT ACEPTÓ: Guardado atómico (Emisor + Espejo Token + Acta de Auditoría)
+            val batch = db.batch()
+            batch.set(docRef, data, SetOptions.merge())
+            if (emisorGuardar.personaToken.isNotBlank()) {
+                batch.set(
+                    FarmadonPaths.farmacia(db, farmaciaId),
+                    mapOf(
+                        "apisNetPeToken" to emisorGuardar.personaToken,
+                        "tokenApisNetPe" to emisorGuardar.personaToken,
+                        "apiToken" to emisorGuardar.personaToken,
+                        "token" to emisorGuardar.personaToken
+                    ),
+                    SetOptions.merge()
+                )
+            }
+            batch.set(
+                actaRef,
+                mapOf(
+                    "id" to actaRef.id,
+                    "usuarioEmail" to usuarioEmail.trim(),
+                    "usuarioNombre" to SessionManager.nombreUsuario.ifBlank { "Administrador" },
+                    "sedeId" to sedeId,
+                    "resultado" to "VERIFICADO",
+                    "verificadoOk" to true,
+                    "ultimoError" to "",
+                    "cambios" to cambios.map {
+                        mapOf("campo" to it.campo, "antes" to it.antes, "despues" to it.despues)
+                    },
+                    "fecha" to FieldValue.serverTimestamp(),
+                    "fechaMs" to ahoraMs,
+                    "fechaLegible" to fechaLegibleInicial,
+                    "sedeLegible" to if (sedeId.equals("principal", ignoreCase = true)) "Sede Principal" else sedeId
+                )
+            )
+            batch.commit().await()
+
+            // Sincronizar fecha y hora real del servidor
+            try {
+                val actaFresca = actaRef.get().await()
+                val msServidor = actaFresca.getTimestamp("fecha")?.toDate()?.time ?: 0L
+                if (msServidor > 0L) {
+                    actaRef.set(
+                        mapOf(
+                            "fechaMs" to msServidor,
+                            "fechaLegible" to sdfLegible.format(java.util.Date(msServidor))
+                        ),
+                        SetOptions.merge()
+                    ).await()
+                }
+            } catch (_: Exception) {}
+
+            Result.success(emisorGuardar)
         } catch (e: Exception) {
             Log.e(TAG, "Error persistiendo emisor fiscal en Firestore: ${e.message}", e)
             Result.failure(e)

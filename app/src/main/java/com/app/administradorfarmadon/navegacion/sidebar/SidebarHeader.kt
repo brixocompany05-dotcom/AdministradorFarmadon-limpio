@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -35,6 +35,7 @@ fun SidebarHeader(
     planNombre: String,
     isLoading: Boolean = false,
     esItinerante: Boolean = false,
+    planPermiteMultiSede: Boolean = true,
     sucursales: List<Sucursal> = emptyList(),
     onCambiarSucursal: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
@@ -83,134 +84,165 @@ fun SidebarHeader(
             )
         }
 
-        // Sede y Estado
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (isLoading) {
-                Box(
-                    modifier = Modifier
-                        .width(120.dp)
-                        .height(14.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(SidebarTheme.Border.copy(alpha = alpha))
-                )
-            } else if (esItinerante && sucursales.size > 1) {
-                var menuSedesExpandido by remember { mutableStateOf(false) }
-                Box {
+        // Selector de Sede — Look Apple Selector Premium
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(SidebarTheme.Border.copy(alpha = alpha))
+            )
+        } else if (esItinerante && planPermiteMultiSede && sucursales.filter { it.activa }.size > 1) {
+            var menuSedesExpandido by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Surface(
+                    onClick = { menuSedesExpandido = true },
+                    shape = RoundedCornerShape(10.dp),
+                    color = SidebarTheme.ActiveBg.copy(alpha = 0.08f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SidebarTheme.Border.copy(alpha = 0.55f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { menuSedesExpandido = true }
-                            .padding(vertical = 1.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = sucursalNombre,
-                            color = SidebarTheme.Accent,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(SidebarTheme.Accent.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Storefront,
+                                    contentDescription = null,
+                                    tint = SidebarTheme.Accent,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "SEDE ACTIVA",
+                                    style = FDType.Label.copy(
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp
+                                    ),
+                                    color = SidebarTheme.TextSecondary.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = sucursalNombre,
+                                    color = SidebarTheme.TextPrimary,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                         Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Cambiar sede activa",
-                            tint = SidebarTheme.Accent,
+                            imageVector = Icons.Default.UnfoldMore,
+                            contentDescription = "Cambiar sede",
+                            tint = SidebarTheme.TextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
+                }
 
-                    DropdownMenu(
-                        expanded = menuSedesExpandido,
-                        onDismissRequest = { menuSedesExpandido = false },
-                        modifier = Modifier
-                            .background(SidebarTheme.Background)
-                            .border(0.8.dp, SidebarTheme.Border, RoundedCornerShape(8.dp))
-                    ) {
-                        sucursales.filter { it.activa }.forEach { sede ->
-                            val seleccionada = sede.nombre == sucursalNombre
-                            DropdownMenuItem(
-                                text = {
+                DropdownMenu(
+                    expanded = menuSedesExpandido,
+                    onDismissRequest = { menuSedesExpandido = false },
+                    modifier = Modifier
+                        .background(SidebarTheme.Background)
+                        .border(1.dp, SidebarTheme.Border, RoundedCornerShape(12.dp))
+                        .padding(vertical = 4.dp)
+                ) {
+                    sucursales.filter { it.activa }.forEach { sede ->
+                        val seleccionada = sede.nombre == sucursalNombre
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (seleccionada) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = SidebarTheme.Accent,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    } else {
+                                        Spacer(Modifier.size(15.dp))
+                                    }
                                     Text(
                                         text = sede.nombre,
-                                        style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
+                                        style = FDType.BodySmall.copy(
                                             fontWeight = if (seleccionada) FontWeight.Bold else FontWeight.Normal,
-                                            fontSize = 12.sp
+                                            fontSize = 12.5.sp
                                         ),
                                         color = if (seleccionada) SidebarTheme.Accent else SidebarTheme.TextPrimary
                                     )
-                                },
-                                onClick = {
-                                    onCambiarSucursal(sede.id, sede.nombre)
-                                    menuSedesExpandido = false
                                 }
-                            )
-                        }
+                            },
+                            onClick = {
+                                onCambiarSucursal(sede.id, sede.nombre)
+                                menuSedesExpandido = false
+                            }
+                        )
                     }
                 }
-            } else if (sucursalNombre.isNotBlank()) {
-                Text(
-                    text = sucursalNombre,
-                    color = SidebarTheme.TextSecondary,
-                    fontSize = 11.5.sp,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Badge de Plan y estado Online
-        if (isLoading || planNombre.isNotBlank()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        } else if (sucursalNombre.isNotBlank()) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = SidebarTheme.ActiveBg.copy(alpha = 0.04f),
+                border = androidx.compose.foundation.BorderStroke(0.8.dp, SidebarTheme.Border.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                if (isLoading) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .width(80.dp)
-                            .height(16.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(SidebarTheme.Border.copy(alpha = alpha))
-                    )
-                } else {
-                    Surface(
-                        color = SidebarTheme.Border.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(4.dp),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, SidebarTheme.Border)
+                            .size(22.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(SidebarTheme.Accent.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "PLAN ${planNombre.uppercase()}",
-                            color = SidebarTheme.TextPrimary,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            maxLines = 1,
-                            softWrap = false
+                        Icon(
+                            imageVector = Icons.Default.Storefront,
+                            contentDescription = null,
+                            tint = SidebarTheme.Accent,
+                            modifier = Modifier.size(13.dp)
                         )
                     }
-                }
-
-                if (!isLoading) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF34C759))
+                    Column {
+                        Text(
+                            text = "SEDE",
+                            style = FDType.Label.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp),
+                            color = SidebarTheme.TextSecondary.copy(alpha = 0.7f)
                         )
                         Text(
-                            text = "En línea",
-                            color = SidebarTheme.TextSecondary.copy(alpha = 0.8f),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
+                            text = sucursalNombre,
+                            color = SidebarTheme.TextPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }

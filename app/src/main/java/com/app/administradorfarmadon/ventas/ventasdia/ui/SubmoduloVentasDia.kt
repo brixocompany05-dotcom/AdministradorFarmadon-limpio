@@ -85,15 +85,16 @@ fun SubmoduloVentasDia(
             )
         }
 
-        // 1. FILA DE MÉTRICAS PRINCIPALES EN VIVO (6 ITEMS)
+        // 1. FILA DE MÉTRICAS DEL DÍA EN VIVO (cuadra con Caja y Analítica: neto = brutas − reembolsos de hoy)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             POSMetricCard(
-                titulo = "Ventas Totales (Neto)",
+                titulo = "Ventas Netas del Día",
                 valor = String.format(Locale.US, "%.2f", uiState.totalVentasNeto),
                 simbolo = simboloMoneda,
+                subtitulo = "Brutas $simboloMoneda ${String.format(Locale.US, "%.2f", uiState.totalVentasBrutas)}",
                 icono = Icons.Default.Payments,
                 modifier = Modifier.weight(1f)
             )
@@ -120,7 +121,7 @@ fun SubmoduloVentasDia(
                 modifier = Modifier.weight(0.9f)
             )
             POSMetricCard(
-                titulo = "Devoluciones",
+                titulo = "Reembolsos Hoy",
                 valor = String.format(Locale.US, "%.2f", uiState.totalDevoluciones),
                 simbolo = simboloMoneda,
                 tipo = if (uiState.totalDevoluciones > 0.0) TipoEstadoFarmadon.PELIGRO else TipoEstadoFarmadon.NEUTRO,
@@ -128,7 +129,7 @@ fun SubmoduloVentasDia(
                 modifier = Modifier.weight(0.95f)
             )
             POSMetricCard(
-                titulo = "Con Devolución",
+                titulo = "Notas Hoy",
                 valor = "${uiState.totalConDevolucion}",
                 tipo = if (uiState.totalConDevolucion > 0) TipoEstadoFarmadon.ALERTA else TipoEstadoFarmadon.NEUTRO,
                 icono = Icons.AutoMirrored.Filled.AssignmentReturn,
@@ -136,7 +137,7 @@ fun SubmoduloVentasDia(
             )
         }
 
-        // 2. FILA DE RECAUDACIÓN POR MÉTODOS DE PAGO REALES (Solo métodos que existieron en el día)
+        // 2. FILA DE RECAUDACIÓN NETA POR MÉTODO (cobros − reembolsos de hoy, cuadra con Cierre de Caja)
         if (uiState.ventasPorMetodo.isNotEmpty()) {
             Surface(
                 color = FDColors.InputBackground.copy(alpha = 0.35f),
@@ -149,7 +150,7 @@ fun SubmoduloVentasDia(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        "RECAUDADO POR MÉTODO:",
+                        "RECAUDADO NETO POR MÉTODO:",
                         style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black),
                         color = FDColors.TextTertiary
                     )
@@ -234,6 +235,44 @@ fun SubmoduloVentasDia(
                                         style = FDType.Label.copy(fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Black else FontWeight.Bold),
                                         color = if (isSel) FDColors.PrimaryText else FDColors.TextSecondary
                                     )
+                                }
+                            }
+                        }
+                    }
+
+                    // Filtro por método de pago (usa el mismo neto del día; TODOS + métodos con movimiento hoy)
+                    if (uiState.metodosDisponibles.isNotEmpty()) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val opcionesMetodo = listOf("TODOS") + uiState.metodosDisponibles
+                            items(opcionesMetodo) { metodo ->
+                                val isSel = uiState.filtroMetodo == metodo
+                                val nombre = when (metodo) {
+                                    "TODOS" -> "Todos los métodos"
+                                    "EFECTIVO" -> "Efectivo"
+                                    "YAPE" -> "Yape"
+                                    "PLIN" -> "Plin"
+                                    "TARJETA_POS" -> "Tarjeta"
+                                    "TRANSFERENCIA" -> "Transferencia"
+                                    "CHEQUE" -> "Cheque"
+                                    else -> metodo
+                                }
+                                Surface(
+                                    onClick = { viewModel.setFiltroMetodo(metodo) },
+                                    color = if (isSel) FDColors.Primary.copy(alpha = 0.12f) else FDColors.InputBackground,
+                                    shape = FDShapes.Small,
+                                    border = BorderStroke(1.dp, if (isSel) FDColors.Primary else FDColors.Border.copy(alpha = 0.4f)),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 10.dp)) {
+                                        Text(
+                                            nombre,
+                                            style = FDType.Label.copy(fontSize = 10.5.sp, fontWeight = if (isSel) FontWeight.Black else FontWeight.Bold),
+                                            color = if (isSel) FDColors.Primary else FDColors.TextSecondary
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -586,10 +625,14 @@ private fun DetalleVentaContenido(
                             )
                         }
 
-                        if (venta.totalDevuelto > 0.0) {
+                        if (venta.totalDevueltoProrrateado > 0.0) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Devoluciones:", style = FDType.Caption, color = FDColors.Error)
-                                Text("- $simbolo ${String.format(Locale.US, "%.2f", venta.totalDevuelto)}", style = FDType.Numeric.copy(fontSize = 12.sp, color = FDColors.Error))
+                                Text("Devoluciones (reembolso real):", style = FDType.Caption, color = FDColors.Error)
+                                Text("- $simbolo ${String.format(Locale.US, "%.2f", venta.totalDevueltoProrrateado)}", style = FDType.Numeric.copy(fontSize = 12.sp, color = FDColors.Error))
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Neto del comprobante:", style = FDType.Caption, color = FDColors.TextSecondary)
+                                Text("$simbolo ${String.format(Locale.US, "%.2f", venta.totalNetoComprobante)}", style = FDType.Numeric.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
                             }
                         }
 

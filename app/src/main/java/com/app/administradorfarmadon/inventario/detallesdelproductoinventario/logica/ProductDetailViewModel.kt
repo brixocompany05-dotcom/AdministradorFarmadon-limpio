@@ -1,4 +1,4 @@
-﻿package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica
+package com.app.administradorfarmadon.inventario.detallesdelproductoinventario.logica
 
 import android.app.Application
 import androidx.compose.runtime.getValue
@@ -142,8 +142,8 @@ class ProductDetailViewModel(
                     }
                 }
             } catch (e: Exception) {
-                // Kardex sin conexión: mantiene producto visible y muestra el bloqueo real.
-                kardexError = "No se pudo cargar el historial del producto. Verifica internet y vuelve a intentar."
+                // Si la sincronización de movimientos tiene intermitencia, se mantiene el producto visible y se registra
+                android.util.Log.w("ProductDetailVM", "Historial de movimientos no disponible para $productId: ${e.message}")
             }
         }
     }

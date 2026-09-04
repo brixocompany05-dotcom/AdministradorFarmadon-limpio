@@ -3,7 +3,9 @@ package com.app.administradorfarmadon.facturacion.configuracion.logica
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal
 import com.app.administradorfarmadon.configuracion.sucursales.datos.SucursalesRepository
+import com.app.administradorfarmadon.facturacion.configuracion.datos.ActaCambioEmisor
 import com.app.administradorfarmadon.facturacion.configuracion.datos.EmisorFiscal
 import com.app.administradorfarmadon.facturacion.configuracion.datos.FacturacionConfigRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,7 +33,10 @@ data class FacturacionConfigUiState(
     val esAdmin: Boolean = false,
     val esSedePrincipal: Boolean = false,
     val puedeEditar: Boolean = false,
-    val formularioModificado: Boolean = false
+    val formularioModificado: Boolean = false,
+    val sedes: List<Sucursal> = emptyList(),
+    val historial: List<ActaCambioEmisor> = emptyList(),
+    val cargandoHistorial: Boolean = false
 ) {
     /**
      * Regla 3: Estado derivado, nunca declarado.
@@ -81,18 +86,12 @@ class FacturacionConfigViewModel(
     }
 
     private fun cargarDatos() {
-        viewModelScope.launch {
+        if (_uiState.value.formRuc.isBlank()) {
             _uiState.update { it.copy(cargando = true) }
+        }
 
-            // Regla 5: Ejecutar asegurarSeriesFaltantes al abrir la pantalla para backfill de sedes
-            try {
-                if (farmaciaId.isNotBlank()) {
-                    sucursalesRepository.asegurarSeriesFaltantes(farmaciaId)
-                }
-            } catch (_: Exception) {
-                // Falla tolerada en backfill no bloquea la lectura del emisor
-            }
-
+        // 1. Iniciar observación inmediata del emisor en Firebase (tiempo real, cero copia local)
+        viewModelScope.launch {
             configRepository.observarEmisor(farmaciaId)
                 .catch { e ->
                     _uiState.update {
@@ -104,7 +103,6 @@ class FacturacionConfigViewModel(
                 }
                 .collect { emisor ->
                     _uiState.update { current ->
-                        // Si el usuario no ha modificado el formulario, precargar con lo que viene del servidor
                         if (!current.formularioModificado && emisor != null) {
                             current.copy(
                                 cargando = false,
@@ -126,6 +124,48 @@ class FacturacionConfigViewModel(
                                 ultimoError = emisor?.ultimoError.orEmpty()
                             )
                         }
+                    }
+                }
+        }
+
+        // 2. Iniciar observación de sucursales en paralelo
+        viewModelScope.launch {
+            sucursalesRepository.observarSucursales(farmaciaId)
+                .catch { /* Falla tolerada en sedes */ }
+                .collect { sedesList ->
+                    _uiState.update { it.copy(sedes = sedesList) }
+                }
+        }
+
+        // 3. Backfill de series en segundo plano (nunca bloquea la lectura ni la UI)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (farmaciaId.isNotBlank()) {
+                    sucursalesRepository.asegurarSeriesFaltantes(farmaciaId)
+                }
+            } catch (_: Exception) {
+                // Falla tolerada en backfill
+            }
+        }
+
+        // 4. Observación viva del historial de auditoría de cambios del emisor (R8 - Verdad Vigente)
+        viewModelScope.launch {
+            _uiState.update { it.copy(cargandoHistorial = true) }
+            configRepository.observarHistorialEmisor(farmaciaId)
+                .catch { e ->
+                    _uiState.update {
+                        it.copy(
+                            cargandoHistorial = false,
+                            mensajeError = "No se pudo sincronizar el historial de auditoría: ${e.message}"
+                        )
+                    }
+                }
+                .collect { listaActas ->
+                    _uiState.update {
+                        it.copy(
+                            historial = listaActas,
+                            cargandoHistorial = false
+                        )
                     }
                 }
         }
@@ -243,7 +283,7 @@ class FacturacionConfigViewModel(
                 )
             }
 
-            val emailUsuario = SessionManager.email.ifBlank { "admin@farmacia.com" }
+            val emailUsuario = SessionManager.email.ifBlank { SessionManager.nombreUsuario.ifBlank { SessionManager.idCajera } }
             val res = configRepository.guardarYVerificarEmisor(farmaciaId, emisor, emailUsuario)
 
             res.fold(

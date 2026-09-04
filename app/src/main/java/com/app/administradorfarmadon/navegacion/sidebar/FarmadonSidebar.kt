@@ -35,6 +35,7 @@ fun FarmadonSidebar(
     rolNombre: String,
     isDarkMode: Boolean,
     esItinerante: Boolean = false,
+    planPermiteMultiSede: Boolean = true,
     sucursales: List<com.app.administradorfarmadon.configuracion.sucursales.datos.Sucursal> = emptyList(),
     onCambiarSucursal: (String, String) -> Unit = { _, _ -> },
     onToggleTheme: () -> Unit,
@@ -91,6 +92,7 @@ fun FarmadonSidebar(
                 planNombre = planNombre,
                 isLoading = isLoading,
                 esItinerante = esItinerante,
+                planPermiteMultiSede = planPermiteMultiSede,
                 sucursales = sucursales,
                 onCambiarSucursal = onCambiarSucursal
             )
@@ -121,42 +123,42 @@ fun FarmadonSidebar(
                     }
                 }
             } else {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = s.xs),
-                    verticalArrangement = Arrangement.spacedBy(s.xs * 0.3f)
-                ) {
-                    val categorias: List<Pair<String, List<SidebarItemData>>> = remember(items) {
-                        items.groupBy { it.categoria }
-                            .toList()
-                            .sortedBy { (_, list) -> list.minOfOrNull { it.orden } ?: 0 }
-                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = s.xs, horizontal = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        val categorias: List<Pair<String, List<SidebarItemData>>> = remember(items) {
+                            items.groupBy { it.categoria }
+                                .toList()
+                                .sortedBy { (_, list) -> list.minOfOrNull { it.orden } ?: 0 }
+                        }
 
-                    // Grupos OPERACIÓN / GESTIÓN etc —” quiet
-                    val (sistemaGrupos, restoGrupos) = categorias.partition {
-                        it.first.equals(
-                            "SISTEMA",
-                            ignoreCase = true
-                        )
-                    }
-                    restoGrupos.forEach { (categoria, itemsModulo) ->
-                        SidebarGrupo(
-                            label = categoria.uppercase(),
-                            isActive = itemsModulo.any { currentRoute == it.modulo }
-                        ) {
-                            itemsModulo.forEach { item ->
-                                SidebarItem(
-                                    label = item.nombre,
-                                    icon = getIconForName(item.icono),
-                                    selected = currentRoute == item.modulo,
-                                    badge = item.badge,
-                                    onClick = { onNavigate(item.modulo) }
-                                )
+                        // Grupos OPERACIÓN / GESTIÓN etc — quiet
+                        val (sistemaGrupos, restoGrupos) = categorias.partition {
+                            it.first.equals(
+                                "SISTEMA",
+                                ignoreCase = true
+                            )
+                        }
+                        restoGrupos.forEach { (categoria, itemsModulo) ->
+                            SidebarGrupo(
+                                label = categoria.uppercase(),
+                                isActive = itemsModulo.any { esRutaActivaDeModulo(it.modulo, currentRoute) }
+                            ) {
+                                itemsModulo.forEach { item ->
+                                    SidebarItem(
+                                        label = item.nombre,
+                                        icon = getIconForName(item.icono),
+                                        selected = esRutaActivaDeModulo(item.modulo, currentRoute),
+                                        badge = item.badge,
+                                        onClick = { onNavigate(item.modulo) }
+                                    )
+                                }
                             }
                         }
-                    }
                     // SISTEMA —” Configuración como tarjeta premium pinned, imposible confundir
                     sistemaGrupos.forEach { (_, itemsModulo) ->
                         // Separador premium antes de SISTEMA
@@ -216,7 +218,7 @@ fun FarmadonSidebar(
                                     SidebarItem(
                                         label = item.nombre,
                                         icon = getIconForName(item.icono),
-                                        selected = currentRoute == item.modulo,
+                                        selected = esRutaActivaDeModulo(item.modulo, currentRoute),
                                         badge = item.badge,
                                         onClick = { onNavigate(item.modulo) }
                                     )
@@ -339,5 +341,24 @@ private fun getIconForName(name: String): ImageVector {
         "movetoinbox", "transfer_within_a_station" -> Icons.Default.MoveToInbox
         "escalatorwarning" -> Icons.Default.EscalatorWarning
         else -> Icons.Default.Circle
+    }
+}
+
+fun esRutaActivaDeModulo(itemModulo: String, currentRoute: String?): Boolean {
+    if (currentRoute.isNullOrBlank()) return false
+    val r = currentRoute.substringBefore("/").lowercase()
+    val m = itemModulo.lowercase()
+    if (r == m) return true
+
+    return when (m) {
+        "inventario" -> r in setOf("inventario", "nuevo_producto", "editar_producto", "inventario_vencimientos", "inventario_transferencias")
+        "pos", "ventas" -> r in setOf("pos", "ventas", "ventas_nueva", "ventas_dia", "ventas_devoluciones", "ventas_caja", "caja", "cierre_caja", "dispensacion_recetas", "dispensacion_controlados", "dispensacion_adulto", "recetas", "sustancias_controladas", "cupones_campanas")
+        "compras", "inventario_compras" -> r in setOf("compras", "inventario_compras", "compras_reposicion", "compras_pedidos", "gestion_compras", "compras_proveedores", "proveedores", "inventario_proveedores", "compras_distribuidores", "compras_facturas", "portal_proveedores", "recepcion_mercaderia")
+        "clientes" -> r in setOf("clientes", "clientes_directorio", "clientes_crm", "clientes_puntos", "clientes_historial")
+        "soporte" -> r in setOf("soporte", "soporte_inapp", "estado_servicio")
+        "analitica", "reportes", "analitica_reportes" -> r in setOf("analitica", "reportes", "analitica_reportes", "bi", "reportes_dashboard", "reportes_caja", "reportes_inventario", "reportes_fiscal", "reportes_ventas", "reportes_compras", "reportes_clientes", "kardex_valorizacion", "finanzas")
+        "facturacion", "facturacion_electronica" -> r in setOf("facturacion", "facturacion_electronica", "config_facturacion", "facturacion_config", "facturacion_emisor")
+        "configuracion", "config_farmacia" -> r in setOf("configuracion", "config_farmacia", "config_sucursales", "config_plan", "config_usuarios", "config_metodos_pago", "config_pos", "reglas_negocio", "hardware", "marca_blanca")
+        else -> r.startsWith(m)
     }
 }

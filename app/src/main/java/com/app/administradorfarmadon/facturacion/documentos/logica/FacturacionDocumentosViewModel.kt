@@ -1,5 +1,6 @@
 package com.app.administradorfarmadon.facturacion.documentos.logica
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
@@ -12,22 +13,29 @@ import com.app.administradorfarmadon.facturacion.envio.datos.FacturacionEnvioRep
 import com.app.administradorfarmadon.facturacion.envio.datos.ResultadoEnvioFiscal
 import com.app.administradorfarmadon.ventas.compartido.modelo.FacturacionDocumento
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 data class FacturacionDocumentosUiState(
     val cargando: Boolean = true,
+    val cargandoMas: Boolean = false,
+    val finDeLista: Boolean = false,
     val documentos: List<FacturacionDocumento> = emptyList(),
+    val metricasServidor: FacturacionDocumentosRepository.MetricasFiscales? = null,
     val emisor: EmisorFiscal? = null,
     val sedes: List<Sucursal> = emptyList(),
     val pestanaActual: Int = 0, // 0: Documentos, 1: Resumen, 2: Emisor
-    val filtroEstado: String = "TODOS", // TODOS, PENDIENTE, ATENCION, ACEPTADO, ANULADO
+    val filtroEstado: String = "TODOS", // TODOS, PENDIENTE, ENVIADO, ATENCION, ACEPTADO, ANULADO
     val filtroTipo: String = "TODOS", // TODOS, BOLETA, FACTURA, NOTA_CREDITO, COMUNICACION_BAJA
     val filtroSedeId: String = "TODAS",
+    val filtroFechaMs: Long? = null,
     val busquedaTexto: String = "",
     val documentoSeleccionado: FacturacionDocumento? = null,
     val ventaVinculada: Venta? = null,
@@ -41,50 +49,77 @@ data class FacturacionDocumentosUiState(
     val mensajeError: String? = null,
     val error: String? = null
 ) {
-    // ── Métricas 100% computadas de la verdad real (Regla R12) ──
-    val totalDocumentos: Int get() = documentos.size
+    // ── Métricas 100% computadas de la verdad real del servidor (Regla R12) ──
+    // Si ya cargaron las métricas escalares de Firestore, reflejan la totalidad de la farmacia (ej: 200, 1500).
+    // Si aún están cargando, computan sobre los documentos actualmente visibles para jamás mostrar ceros o blanks.
+    val totalDocumentos: Int
+        get() = metricasServidor?.totalDocumentos ?: documentos.size
 
-    // F5-A: Dos familias visuales para el usuario
+    val totalSoloPendientes: Int
+        get() = metricasServidor?.totalPendientes ?: documentos.count { it.estadoEnvio == FacturacionDocumento.ESTADO_PENDIENTE && !it.numeroQuemado }
+
+    val totalEnviados: Int
+        get() = metricasServidor?.totalEnviados ?: documentos.count { it.estadoEnvio == FacturacionDocumento.ESTADO_ENVIADO && !it.numeroQuemado }
+
     val totalPendientesEnCola: Int
-        get() = documentos.count {
-            (it.estadoEnvio == FacturacionDocumento.ESTADO_PENDIENTE || it.estadoEnvio == FacturacionDocumento.ESTADO_ENVIADO) && !it.numeroQuemado
-        }
+        get() = totalSoloPendientes
 
     val totalRequierenAtencion: Int
-        get() = documentos.count {
+        get() = metricasServidor?.totalRequierenAtencion ?: documentos.count {
             it.numeroQuemado || it.estadoEnvio == FacturacionDocumento.ESTADO_RECHAZADO
         }
 
-    val totalAceptados: Int get() = documentos.count { it.estadoEnvio == FacturacionDocumento.ESTADO_ACEPTADO }
-    val totalAnulados: Int get() = documentos.count { it.estadoEnvio == FacturacionDocumento.ESTADO_ANULADO }
-    val totalPendientes: Int get() = totalPendientesEnCola
+    val totalAceptados: Int
+        get() = metricasServidor?.totalAceptados ?: documentos.count { it.estadoEnvio == FacturacionDocumento.ESTADO_ACEPTADO }
+
+    val totalAnulados: Int
+        get() = metricasServidor?.totalAnulados ?: documentos.count { it.estadoEnvio == FacturacionDocumento.ESTADO_ANULADO }
+
+    val totalPendientes: Int get() = totalSoloPendientes
     val totalRechazados: Int get() = totalRequierenAtencion
 
+    /**
+     * R12/SUNAT: Monto facturado computa ÚNICAMENTE comprobantes ACEPTADOS con constancia.
+     * Documentos en cola, rechazados o anulados no suman ingresos fiscales.
+     */
     val montoTotalFacturado: Double
-        get() = kotlin.math.round(
+        get() = metricasServidor?.montoTotalFacturado ?: kotlin.math.round(
             documentos.filter {
-                it.estadoEnvio != FacturacionDocumento.ESTADO_ANULADO &&
+                it.estadoEnvio == FacturacionDocumento.ESTADO_ACEPTADO &&
                         it.tipo != "NOTA_CREDITO" &&
                         it.tipo != "COMUNICACION_BAJA"
             }.sumOf { it.total } * 100.0
         ) / 100.0
 
-    val totalBoletas: Int get() = documentos.count { it.tipo.equals("BOLETA", ignoreCase = true) }
-    val totalFacturas: Int get() = documentos.count { it.tipo.equals("FACTURA", ignoreCase = true) }
-    val totalNotasCredito: Int get() = documentos.count { it.tipo.equals("NOTA_CREDITO", ignoreCase = true) }
-    val totalBajas: Int get() = documentos.count { it.tipo.equals("COMUNICACION_BAJA", ignoreCase = true) }
+    val baseGravadaTotal: Double
+        get() = metricasServidor?.baseGravadaTotal ?: (kotlin.math.round((montoTotalFacturado / 1.18) * 100.0) / 100.0)
+
+    val igvTotal: Double
+        get() = metricasServidor?.igvTotal ?: (kotlin.math.round((montoTotalFacturado - baseGravadaTotal) * 100.0) / 100.0)
+
+    val totalBoletas: Int
+        get() = metricasServidor?.totalBoletas ?: documentos.count { it.tipo.equals("BOLETA", ignoreCase = true) }
+
+    val totalFacturas: Int
+        get() = metricasServidor?.totalFacturas ?: documentos.count { it.tipo.equals("FACTURA", ignoreCase = true) }
+
+    val totalNotasCredito: Int
+        get() = metricasServidor?.totalNotasCredito ?: documentos.count { it.tipo.equals("NOTA_CREDITO", ignoreCase = true) }
+
+    val totalBajas: Int
+        get() = metricasServidor?.totalBajas ?: documentos.count { it.tipo.equals("COMUNICACION_BAJA", ignoreCase = true) }
 
     val documentosFiltrados: List<FacturacionDocumento>
         get() {
             val q = busquedaTexto.trim().lowercase()
             return documentos.filter { doc ->
-                // F5-A: Mapeo de estados a las familias comprensibles
                 val coincideEstado = when (filtroEstado) {
                     "TODOS" -> true
-                    "PENDIENTE" -> (doc.estadoEnvio == FacturacionDocumento.ESTADO_PENDIENTE || doc.estadoEnvio == FacturacionDocumento.ESTADO_ENVIADO) && !doc.numeroQuemado
+                    "PENDIENTE" -> doc.estadoEnvio == FacturacionDocumento.ESTADO_PENDIENTE && !doc.numeroQuemado
+                    FacturacionDocumento.ESTADO_ENVIADO -> doc.estadoEnvio == FacturacionDocumento.ESTADO_ENVIADO && !doc.numeroQuemado
                     "ATENCION", "RECHAZADO" -> doc.numeroQuemado || doc.estadoEnvio == FacturacionDocumento.ESTADO_RECHAZADO
-                    "ACEPTADO" -> doc.estadoEnvio == FacturacionDocumento.ESTADO_ACEPTADO
-                    "ANULADO" -> doc.estadoEnvio == FacturacionDocumento.ESTADO_ANULADO
+                    FacturacionDocumento.ESTADO_ACEPTADO -> doc.estadoEnvio == FacturacionDocumento.ESTADO_ACEPTADO
+                    FacturacionDocumento.ESTADO_ANULADO -> doc.estadoEnvio == FacturacionDocumento.ESTADO_ANULADO
                     else -> doc.estadoEnvio.equals(filtroEstado, ignoreCase = true)
                 }
 
@@ -98,6 +133,15 @@ data class FacturacionDocumentosUiState(
                     else -> doc.sucursalId == filtroSedeId
                 }
 
+                val coincideFecha = if (filtroFechaMs == null || filtroFechaMs <= 0L) {
+                    true
+                } else {
+                    val calDoc = Calendar.getInstance().apply { timeInMillis = doc.fechaMs }
+                    val calFiltro = Calendar.getInstance().apply { timeInMillis = filtroFechaMs }
+                    calDoc.get(Calendar.YEAR) == calFiltro.get(Calendar.YEAR) &&
+                            calDoc.get(Calendar.DAY_OF_YEAR) == calFiltro.get(Calendar.DAY_OF_YEAR)
+                }
+
                 val coincideBusqueda = if (q.isBlank()) {
                     true
                 } else {
@@ -108,7 +152,7 @@ data class FacturacionDocumentosUiState(
                             doc.motivo.lowercase().contains(q)
                 }
 
-                coincideEstado && coincideTipo && coincideSede && coincideBusqueda
+                coincideEstado && coincideTipo && coincideSede && coincideFecha && coincideBusqueda
             }
         }
 }
@@ -126,64 +170,138 @@ class FacturacionDocumentosViewModel(
     private val farmaciaId: String
         get() = SessionManager.clienteIdGarantizado
 
+    private var sucursalObserverJob: Job? = null
+
     init {
-        cargarDatos()
+        recargarMetricasServidor()
+        iniciarEscuchaDocumentos()
+        cargarDatosComplementarios()
+        observarCambiosDeSucursal()
     }
 
-    private fun cargarDatos() {
+    fun recargarMetricasServidor() {
+        val fId = farmaciaId
+        if (fId.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val metricas = docsRepository.obtenerMetricasFiscales(fId)
+                _uiState.update { it.copy(metricasServidor = metricas) }
+            } catch (e: Exception) {
+                Log.e("FacturacionDocsVM", "Error al obtener métricas fiscales agregadas del servidor: ${e.message}", e)
+            }
+        }
+    }
+
+    fun cargarMas() {
+        val fId = farmaciaId
+        if (fId.isBlank() || _uiState.value.cargandoMas || _uiState.value.finDeLista) return
+        val docsActuales = _uiState.value.documentos
+        val ultimoDoc = docsActuales.lastOrNull() ?: return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(cargandoMas = true) }
+            try {
+                val siguientes = docsRepository.cargarSiguientePagina(fId, ultimoDoc.fechaMs, 50)
+                _uiState.update { current ->
+                    if (siguientes.isEmpty()) {
+                        current.copy(cargandoMas = false, finDeLista = true)
+                    } else {
+                        val idsExistentes = current.documentos.map { it.id }.toSet()
+                        val nuevos = siguientes.filter { it.id !in idsExistentes }
+                        current.copy(
+                            cargandoMas = false,
+                            documentos = current.documentos + nuevos,
+                            finDeLista = siguientes.size < 50
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("FacturacionDocsVM", "Error cargando más documentos: ${e.message}", e)
+                _uiState.update { it.copy(cargandoMas = false) }
+            }
+        }
+    }
+
+    private fun observarCambiosDeSucursal() {
+        sucursalObserverJob?.cancel()
+        sucursalObserverJob = viewModelScope.launch {
+            var ultimaSucursal: String? = null
+            SessionManager.sucursalFlow.collect { sucursal ->
+                if (sucursal != ultimaSucursal) {
+                    ultimaSucursal = sucursal
+                    _uiState.update { current ->
+                        if (current.filtroSedeId != "TODAS") {
+                            current.copy(filtroSedeId = sucursal)
+                        } else current
+                    }
+                }
+            }
+        }
+    }
+
+    private fun iniciarEscuchaDocumentos() {
         if (farmaciaId.isBlank()) {
-            _uiState.update { it.copy(cargando = false, error = "Sesión no identificada") }
+            _uiState.update { it.copy(cargando = false, error = "No se encontró sesión de farmacia activa.") }
             return
         }
 
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true) }
+            docsRepository.observarDocumentos(farmaciaId, limite = 50)
+                .catch { e ->
+                    _uiState.update {
+                        it.copy(
+                            cargando = false,
+                            error = "Error al conectar con la bandeja de facturación: ${e.message}"
+                        )
+                    }
+                }
+                .collect { lista ->
+                    _uiState.update { current ->
+                        val docSeleccionadoActualizado = if (current.documentoSeleccionado != null) {
+                            lista.firstOrNull { it.id == current.documentoSeleccionado.id } ?: current.documentoSeleccionado
+                        } else null
 
-            // 1. Escucha viva de documentos fiscales
-            launch {
-                docsRepository.observarDocumentos(farmaciaId)
-                    .catch { e ->
-                        _uiState.update { it.copy(cargando = false, error = "Error al sincronizar documentos: ${e.message}") }
+                        current.copy(
+                            cargando = false,
+                            documentos = lista,
+                            documentoSeleccionado = docSeleccionadoActualizado,
+                            error = null
+                        )
                     }
-                    .collect { lista ->
-                        _uiState.update { currentState ->
-                            // Mantener la referencia actualizada del documento seleccionado
-                            val docActualizado = currentState.documentoSeleccionado?.let { sel ->
-                                lista.find { it.id == sel.id }
-                            }
-                            currentState.copy(
-                                cargando = false,
-                                documentos = lista,
-                                documentoSeleccionado = docActualizado ?: currentState.documentoSeleccionado,
-                                error = null
-                            )
-                        }
-                    }
-            }
-
-            // 2. Escucha del emisor fiscal
-            launch {
-                configRepository.observarEmisor(farmaciaId)
-                    .catch { /* Falla tolerada en emisor no bloquea la bandeja */ }
-                    .collect { emisor ->
-                        _uiState.update { it.copy(emisor = emisor) }
-                    }
-            }
-
-            // 3. Escucha de sucursales para el filtro por sede
-            launch {
-                sucursalesRepository.observarSucursales(farmaciaId)
-                    .catch { /* Falla tolerada en sucursales */ }
-                    .collect { sedes ->
-                        _uiState.update { it.copy(sedes = sedes) }
-                    }
-            }
+                    // Mantener las métricas globales del servidor sincronizadas al recibir nuevos comprobantes
+                    recargarMetricasServidor()
+                }
         }
     }
 
-    fun setPestana(index: Int) {
+    private fun cargarDatosComplementarios() {
+        if (farmaciaId.isBlank()) return
+
+        viewModelScope.launch {
+            configRepository.observarEmisor(farmaciaId)
+                .catch { /* Falla tolerada en complementario */ }
+                .collect { emisor ->
+                    _uiState.update { it.copy(emisor = emisor) }
+                }
+        }
+
+        viewModelScope.launch {
+            sucursalesRepository.observarSucursales(farmaciaId)
+                .catch { /* Falla tolerada en complementario */ }
+                .collect { sedes ->
+                    _uiState.update { it.copy(sedes = sedes) }
+                }
+        }
+    }
+
+    fun setPestanaActual(index: Int) {
         _uiState.update { it.copy(pestanaActual = index) }
     }
+
+    fun setPestana(index: Int) = setPestanaActual(index)
+    fun cerrarReporteLote() = cerrarDialogoResultadoLote()
+    fun cerrarDetalle() = seleccionarDocumento(null)
 
     fun setFiltroEstado(estado: String) {
         _uiState.update { it.copy(filtroEstado = estado) }
@@ -197,34 +315,37 @@ class FacturacionDocumentosViewModel(
         _uiState.update { it.copy(filtroSedeId = sedeId) }
     }
 
+    fun setFiltroFecha(fechaMs: Long?) {
+        _uiState.update { it.copy(filtroFechaMs = fechaMs) }
+    }
+
     fun setBusquedaTexto(texto: String) {
         _uiState.update { it.copy(busquedaTexto = texto) }
     }
 
     fun seleccionarDocumento(doc: FacturacionDocumento?) {
-        if (doc == null) {
-            _uiState.update { it.copy(documentoSeleccionado = null, ventaVinculada = null) }
-            return
-        }
-
         _uiState.update {
             it.copy(
                 documentoSeleccionado = doc,
                 ventaVinculada = null,
-                cargandoVentaVinculada = doc.ventaId.isNotBlank()
+                cargandoVentaVinculada = doc != null && doc.ventaId.isNotBlank()
             )
         }
-
-        if (doc.ventaId.isNotBlank()) {
-            viewModelScope.launch {
-                val venta = docsRepository.obtenerVentaVinculada(farmaciaId, doc.sucursalId, doc.ventaId)
-                _uiState.update { it.copy(ventaVinculada = venta, cargandoVentaVinculada = false) }
-            }
+        if (doc != null && doc.ventaId.isNotBlank()) {
+            cargarVentaVinculada(doc)
         }
     }
 
-    fun cerrarDetalle() {
-        _uiState.update { it.copy(documentoSeleccionado = null, ventaVinculada = null) }
+    private fun cargarVentaVinculada(doc: FacturacionDocumento) {
+        viewModelScope.launch {
+            val venta = docsRepository.obtenerVentaVinculada(farmaciaId, doc.sucursalId, doc.ventaId)
+            _uiState.update {
+                it.copy(
+                    ventaVinculada = venta,
+                    cargandoVentaVinculada = false
+                )
+            }
+        }
     }
 
     fun solicitarConfirmacionEnvio(doc: FacturacionDocumento) {
@@ -243,7 +364,7 @@ class FacturacionDocumentosViewModel(
         _uiState.update { it.copy(mostrarDialogoConfirmarLote = false) }
     }
 
-    fun cerrarReporteLote() {
+    fun cerrarDialogoResultadoLote() {
         _uiState.update { it.copy(resultadoLoteReciente = null) }
     }
 
@@ -265,7 +386,7 @@ class FacturacionDocumentosViewModel(
                     _uiState.update {
                         it.copy(
                             enviandoDocId = null,
-                            mensajeExito = "Comprobante aceptado por SUNAT exitosamente."
+                            mensajeExito = "Comprobante aceptado por SUNAT con CDR firmado."
                         )
                     }
                 }
@@ -273,7 +394,7 @@ class FacturacionDocumentosViewModel(
                     _uiState.update {
                         it.copy(
                             enviandoDocId = null,
-                            mensajeError = "Comprobante no aceptado por SUNAT: ${res.motivo}"
+                            mensajeError = "Comprobante rechazado por SUNAT (número quemado): ${res.motivo}"
                         )
                     }
                 }
@@ -281,7 +402,7 @@ class FacturacionDocumentosViewModel(
                     _uiState.update {
                         it.copy(
                             enviandoDocId = null,
-                            mensajeError = "Excepción temporal en SUNAT: ${res.motivo}. La numeración no se quemó."
+                            mensajeError = "Excepción técnica en SUNAT: ${res.motivo}. La numeración no se quemó."
                         )
                     }
                 }
@@ -289,7 +410,7 @@ class FacturacionDocumentosViewModel(
                     _uiState.update {
                         it.copy(
                             enviandoDocId = null,
-                            mensajeExito = "Comprobante enviado a SUNAT (en proceso de validación)."
+                            mensajeExito = "Comprobante en trámite ante SUNAT (ID: ${res.docIdProveedor}). Esperando CDR."
                         )
                     }
                 }
@@ -297,7 +418,7 @@ class FacturacionDocumentosViewModel(
                     _uiState.update {
                         it.copy(
                             enviandoDocId = null,
-                            mensajeError = "Sin conexión: el comprobante quedó en cola para reintento automático."
+                            mensajeError = "Sin conexión: el comprobante quedó en cola de contingencia para reintento automático."
                         )
                     }
                     onFallaRed?.invoke()
@@ -328,14 +449,15 @@ class FacturacionDocumentosViewModel(
             }
             val reporte = envioRepository.enviarLotePendientes(farmaciaId)
             val exitosos = reporte.exitosos.size
+            val enTramite = reporte.enTramite.size
             val fallidos = reporte.requierenAtencion.size
 
             _uiState.update {
                 it.copy(
                     enviandoLote = false,
                     resultadoLoteReciente = reporte,
-                    mensajeExito = if (exitosos > 0) "Envío completado: $exitosos aceptados por SUNAT." else null,
-                    mensajeError = if (exitosos == 0 && fallidos > 0) "$fallidos comprobantes requieren atención o quedaron en cola." else null
+                    mensajeExito = if (exitosos > 0) "Envío completado: $exitosos aceptados por SUNAT con CDR." else if (enTramite > 0) "$enTramite comprobantes quedaron en trámite." else null,
+                    mensajeError = if (exitosos == 0 && fallidos > 0) "$fallidos comprobantes requieren atención." else null
                 )
             }
             if (fallidos > 0) {

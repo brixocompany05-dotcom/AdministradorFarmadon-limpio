@@ -341,65 +341,108 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 
         val nombre = userDoc.getString("nombre") ?: emailSesion
         val rol = userDoc.getString("rol") ?: userDoc.getString("rolNombre") ?: "Colaborador"
+        val rolId = userDoc.getString("rolId")?.trim().orEmpty()
         val sedeAsignada = userDoc.getString("sucursalId")?.trim().orEmpty()
+        val esDueno = rol.equals("Dueño", ignoreCase = true) || rol.equals("Dueno", ignoreCase = true) || rolId.isBlank()
+        val esItinerante = sedeAsignada == "todas" || sedeAsignada.isBlank() || esDueno
 
         var sucursalIdFinal: String
         var sucursalNombreFinal: String
 
-        when {
-            sedeAsignada == "todas" -> {
-                sucursalIdFinal = "todas"
-                sucursalNombreFinal = userDoc.getString("sucursalNombre")?.ifBlank { "Todas las Sedes" } ?: "Todas las Sedes"
-            }
-            else -> {
-                val sedeObjetivo = sedeAsignada.ifBlank { "principal" }
-                var sedeDoc: DocumentSnapshot? = null
-                var redFalloPuntual = false
-                try {
-                    sedeDoc = consultarSedeViva(sedeObjetivo)
-                } catch (e: Exception) {
-                    Log.e(TAG, "[LOGIN] No se pudo verificar la sede '$sedeObjetivo' por red", e)
-                    redFalloPuntual = true
-                }
+        if (esItinerante) {
+            // ── USUARIO CON ACCESO A MÚLTIPLES SEDES (Dueño / Admin / Itinerante) ──
+            // Llevar a la última sede operada guardada en la nube (Firebase) SI Y SOLO SI:
+            // 1. El plan contratado permite tener más de 1 sede (maxSucursales > 1).
+            // 2. La farmacia tiene más de 1 sede activa creada.
+            // 3. La última sede operada guardada en Firebase existe y está activa en Firestore.
 
-                if (redFalloPuntual && !sedeAsignada.isBlank() && sedeAsignada != "principal") {
-                    return ResultadoVerificacionPostLogin.FallaComunicada(
-                        "No se pudo verificar el estado de tu sede. Reintenta o contacta a la administración si el problema persiste.",
-                        LoginIncidenteTipo.ERROR_BASE_DATOS
-                    )
-                } else if (redFalloPuntual) {
-                    return ResultadoVerificacionPostLogin.FallaComunicada(
-                        "No pudimos verificar tu sede por un problema de conexión. Revisa tu internet e intenta de nuevo.",
-                        LoginIncidenteTipo.SIN_INTERNET
-                    )
-                } else if (sedeDoc != null) {
-                    sucursalIdFinal = sedeObjetivo
-                    sucursalNombreFinal = userDoc.getString("sucursalNombre")?.takeIf { it.isNotBlank() }
-                        ?: (sedeDoc.getString("nombre") ?: sedeObjetivo)
-                } else if (!sedeAsignada.isBlank()) {
-                    val ancla = try {
-                        consultarSedeViva("principal")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "[LOGIN] Reacomodo imposible: no se pudo verificar 'principal'", e)
-                        null
-                    }
-                    if (ancla == null) {
-                        Log.e(TAG, "[LOGIN] Sede $sedeObjetivo muerta y ancla principal indisponible (clienteId=$clienteId)")
-                        return ResultadoVerificacionPostLogin.FallaComunicada(
-                            "Tu sede fue cerrada y no pudimos ubicarte en la Sede Principal. Verifica tu conexión o contacta a la administración.",
-                            LoginIncidenteTipo.ERROR_BASE_DATOS
-                        )
-                    }
-                    Log.w(TAG, "[LOGIN] Sede $sedeObjetivo muerta → reacomodo verificado a principal")
-                    sucursalIdFinal = "principal"
-                    sucursalNombreFinal = ancla.getString("nombre") ?: "Sede Principal"
+            // 1. Validar plan contratado en Firestore
+            val subSnap = try {
+                FarmadonPaths.suscripciones(firestore, clienteId).limit(1).get().await().documents.firstOrNull()
+            } catch (_: Exception) { null }
+            val maxSucursales = (subSnap?.getLong("maxSucursalesAlContratar")
+                ?: subSnap?.getLong("maxSucursales")
+                ?: subSnap?.getLong("max_sucursales")
+                ?: farmaciaDoc.getLong("maxSucursales")
+                ?: 1L).toInt()
+            val planPermiteMultiSede = maxSucursales > 1
+
+            // 2. Validar sedes activas creadas en Firestore
+            val sedesDocs = try {
+                FarmadonPaths.sucursales(firestore, clienteId).get().await().documents
+                    .filter { it.getBoolean("activa") != false }
+            } catch (_: Exception) { emptyList() }
+            val tieneMultiplesSedes = sedesDocs.size > 1
+
+            // 3. Consultar última sede operada en el documento de Firebase del usuario
+            val ultimaSedeNube = userDoc.getString("ultimaSedeOperadaId")?.trim().orEmpty()
+
+            if (planPermiteMultiSede && tieneMultiplesSedes && ultimaSedeNube.isNotBlank() && sedesDocs.any { it.id == ultimaSedeNube }) {
+                val sedeDoc = sedesDocs.first { it.id == ultimaSedeNube }
+                sucursalIdFinal = ultimaSedeNube
+                sucursalNombreFinal = sedeDoc.getString("nombre")?.ifBlank { userDoc.getString("ultimaSedeOperadaNombre") } ?: ultimaSedeNube
+                Log.i(TAG, "[LOGIN] Usuario itinerante restaurado a su última sede en la nube: $sucursalIdFinal ($sucursalNombreFinal)")
+            } else {
+                // Fallback seguro a la Sede Principal activa
+                val principal = sedesDocs.firstOrNull { it.getBoolean("esPrincipal") == true } ?: sedesDocs.firstOrNull()
+                if (principal != null) {
+                    sucursalIdFinal = principal.id
+                    sucursalNombreFinal = principal.getString("nombre") ?: "Sede Principal"
                 } else {
-                    Log.e(TAG, "[LOGIN] Sede ancla 'principal' inexistente para clienteId=$clienteId")
+                    sucursalIdFinal = "principal"
+                    sucursalNombreFinal = "Sede Principal"
+                }
+                Log.i(TAG, "[LOGIN] Usuario itinerante ubicado en sede ancla: $sucursalIdFinal ($sucursalNombreFinal)")
+            }
+        } else {
+            // ── USUARIO CON SEDE FIJA ASIGNADA ──
+            val sedeObjetivo = sedeAsignada.ifBlank { "principal" }
+            var sedeDoc: DocumentSnapshot? = null
+            var redFalloPuntual = false
+            try {
+                sedeDoc = consultarSedeViva(sedeObjetivo)
+            } catch (e: Exception) {
+                Log.e(TAG, "[LOGIN] No se pudo verificar la sede '$sedeObjetivo' por red", e)
+                redFalloPuntual = true
+            }
+
+            if (redFalloPuntual && !sedeAsignada.isBlank() && sedeAsignada != "principal") {
+                return ResultadoVerificacionPostLogin.FallaComunicada(
+                    "No se pudo verificar el estado de tu sede. Reintenta o contacta a la administración si el problema persiste.",
+                    LoginIncidenteTipo.ERROR_BASE_DATOS
+                )
+            } else if (redFalloPuntual) {
+                return ResultadoVerificacionPostLogin.FallaComunicada(
+                    "No pudimos verificar tu sede por un problema de conexión. Revisa tu internet e intenta de nuevo.",
+                    LoginIncidenteTipo.SIN_INTERNET
+                )
+            } else if (sedeDoc != null) {
+                sucursalIdFinal = sedeObjetivo
+                sucursalNombreFinal = userDoc.getString("sucursalNombre")?.takeIf { it.isNotBlank() }
+                    ?: (sedeDoc.getString("nombre") ?: sedeObjetivo)
+            } else if (!sedeAsignada.isBlank()) {
+                val ancla = try {
+                    consultarSedeViva("principal")
+                } catch (e: Exception) {
+                    Log.e(TAG, "[LOGIN] Reacomodo imposible: no se pudo verificar 'principal'", e)
+                    null
+                }
+                if (ancla == null) {
+                    Log.e(TAG, "[LOGIN] Sede $sedeObjetivo muerta y ancla principal indisponible (clienteId=$clienteId)")
                     return ResultadoVerificacionPostLogin.FallaComunicada(
-                        "Tu farmacia aún no termina de configurarse. Contacta a soporte de BRIXO.",
+                        "Tu sede fue cerrada y no pudimos ubicarte en la Sede Principal. Verifica tu conexión o contacta a la administración.",
                         LoginIncidenteTipo.ERROR_BASE_DATOS
                     )
                 }
+                Log.w(TAG, "[LOGIN] Sede $sedeObjetivo muerta → reacomodo verificado a principal")
+                sucursalIdFinal = "principal"
+                sucursalNombreFinal = ancla.getString("nombre") ?: "Sede Principal"
+            } else {
+                Log.e(TAG, "[LOGIN] Sede ancla 'principal' inexistente para clienteId=$clienteId")
+                return ResultadoVerificacionPostLogin.FallaComunicada(
+                    "Tu farmacia aún no termina de configurarse. Contacta a soporte de BRIXO.",
+                    LoginIncidenteTipo.ERROR_BASE_DATOS
+                )
             }
         }
 

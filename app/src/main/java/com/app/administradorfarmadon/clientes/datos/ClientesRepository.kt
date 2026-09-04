@@ -57,6 +57,20 @@ class ClientesRepository(
     }
 
     /**
+     * Consulta el total veraz de clientes registrados en Firestore mediante una agregación de servidor (R8/R12).
+     */
+    suspend fun obtenerTotalClientes(): Int {
+        val fId = farmaciaId() ?: return 0
+        return try {
+            FarmadonPaths.clientesDirectorio(db, fId)
+                .count().get(com.google.firebase.firestore.AggregateSource.SERVER).await().count.toInt()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error consultando total global de clientes: ${e.message}", e)
+            0
+        }
+    }
+
+    /**
      * Busca un cliente directamente por su DNI o RUC (búsqueda puntual por llave).
      */
     suspend fun buscarClientePorDocumento(numeroDocumento: String): Result<ClienteFarmacia?> {
@@ -84,11 +98,11 @@ class ClientesRepository(
         val fId = farmaciaId() ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
 
         val tipo = cliente.tipoDocumento.trim().uppercase()
-        val num = cliente.numeroDocumento.trim()
+        val num = cliente.numeroDocumento.filter { it.isDigit() }.trim()
         val nombre = cliente.nombre.trim()
 
-        if (nombre.isBlank()) {
-            return Result.failure(IllegalArgumentException("El nombre o razón social es obligatorio."))
+        if (nombre.isBlank() || nombre.equals("Consumidor Final", ignoreCase = true)) {
+            return Result.failure(IllegalArgumentException("El nombre o razón social es obligatorio y no puede ser 'Consumidor Final'."))
         }
 
         if (tipo == "DNI") {
@@ -108,18 +122,32 @@ class ClientesRepository(
 
         return try {
             val docRef = FarmadonPaths.clientesDirectorio(db, fId).document(docId)
-            val data = mapOf(
+            val data = mutableMapOf<String, Any>(
                 "id" to docId,
                 "tipoDocumento" to tipo,
                 "numeroDocumento" to num,
                 "nombre" to nombre,
-                "telefono" to cliente.telefono.trim(),
-                "direccion" to cliente.direccion.trim(),
-                "notas" to cliente.notas.trim(),
-                "creadoPor" to (cliente.creadoPor.ifBlank { SessionManager.nombreUsuario }),
-                "fechaMs" to if (cliente.fechaMs > 0) cliente.fechaMs else ahoraMs,
                 "actualizadoEl" to FieldValue.serverTimestamp()
             )
+            // Blindaje anti-sobrescritura: Si vienen en blanco, no se envían al merge para no borrar teléfono ni dirección existentes
+            if (cliente.telefono.isNotBlank()) {
+                data["telefono"] = cliente.telefono.trim()
+            }
+            if (cliente.direccion.isNotBlank()) {
+                data["direccion"] = cliente.direccion.trim()
+            }
+            if (cliente.notas.isNotBlank()) {
+                data["notas"] = cliente.notas.trim()
+            }
+            if (cliente.creadoPor.isNotBlank()) {
+                data["creadoPor"] = cliente.creadoPor.trim()
+            }
+            if (cliente.fechaMs > 0) {
+                data["fechaMs"] = cliente.fechaMs
+            } else {
+                data["fechaMs"] = ahoraMs
+            }
+
             docRef.set(data, SetOptions.merge()).await()
 
             Result.success(

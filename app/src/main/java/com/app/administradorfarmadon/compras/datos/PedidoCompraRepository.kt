@@ -41,6 +41,7 @@ data class RecepcionEntrega(
     val usuarioNombre: String = "",
     val usuarioEmail: String = "",
     val numeroFactura: String = "",
+    val fechaEmisionPapel: String = "",
     val condicionPago: String = "Contado",
     val fechaVencimientoPago: String = "",
     val montoFactura: Double = 0.0,
@@ -344,7 +345,6 @@ class PedidoCompraRepository(
 
         val query = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId)
             .orderBy("fechaEmisionMs", Query.Direction.DESCENDING)
-            .limit(100)
 
         val listener = query.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -369,10 +369,14 @@ class PedidoCompraRepository(
      */
     suspend fun guardarPedidoEnviado(
         pedido: PedidoCompra,
+        idempotenciaId: String = "",
         farmaciaIdParam: String? = null,
         sucursalIdParam: String? = null
     ): Result<String> {
-        // Blindaje raíz: jamás crear una orden sin productos reales
+        // Blindaje raíz: jamás crear una orden sin productos reales ni sin proveedor
+        if (pedido.proveedorNombre.isBlank() || pedido.proveedorNombre.equals("SIN PROVEEDOR", ignoreCase = true)) {
+            return Result.failure(IllegalArgumentException("La orden debe tener un proveedor asignado."))
+        }
         if (pedido.items.isEmpty()) {
             return Result.failure(IllegalArgumentException("La orden no tiene productos. Agrega al menos un producto con cantidad mayor a 0."))
         }
@@ -389,17 +393,39 @@ class PedidoCompraRepository(
             val (farmaciaId, sucursalId) = ids
 
             val coleccion = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId)
-            val docRef = if (pedido.id.isNotBlank()) {
-                coleccion.document(pedido.id)
-            } else {
-                coleccion.document()
-            }
+            val docIdFinal = pedido.id.trim().ifBlank { idempotenciaId.trim() }
+            val docRef = if (docIdFinal.isNotBlank()) coleccion.document(docIdFinal) else coleccion.document()
 
             val ahoraMs = HoraServidor.ahoraMs()
             val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
             val fechaLegible = sdf.format(Date(ahoraMs))
-            // íšltimos 8 dígitos del ms del servidor: identidad única por ~115 días,
-            // jamás el módulo de 1e6 que repetía numeración cada ~17 minutos.
+
+            // Idempotencia honesta: si ya existe con esta clave y trae LO MISMO, es reintento → éxito.
+            // Si trae OTROS productos, no se pisa ni se declara éxito: se devuelve error para no perder unidades.
+            val snapExistente = docRef.get().await()
+            if (snapExistente.exists()) {
+                @Suppress("UNCHECKED_CAST")
+                val itemsPrevios = (snapExistente.get("items") as? List<Map<String, Any>>)?.map {
+                    Triple(
+                        it["productoId"] as? String ?: "",
+                        (it["cantidad"] as? Number)?.toInt() ?: 0,
+                        (it["precioCompra"] as? Number)?.toDouble() ?: 0.0
+                    )
+                }?.sortedBy { it.first } ?: emptyList()
+                val itemsNuevos = pedido.items.map {
+                    Triple(it.productoId, it.cantidad, it.precioCompra)
+                }.sortedBy { it.first }
+                if (itemsPrevios == itemsNuevos) {
+                    return Result.success(docRef.id)
+                }
+                return Result.failure(
+                    IllegalStateException(
+                        "Esta orden ya fue guardada con otros productos. No se modificó nada: edita la orden existente o usa una clave nueva."
+                    )
+                )
+            }
+
+            // Últimos 8 dígitos del ms del servidor: identidad única
             val numeroGenerado = if (pedido.numeroOrden.isNotBlank()) pedido.numeroOrden else "ORD-${ahoraMs.toString().takeLast(8)}"
 
             val itemsMap = pedido.items.map { item ->
@@ -421,9 +447,9 @@ class PedidoCompraRepository(
                 "farmaciaId" to farmaciaId,
                 "sucursalId" to sucursalId,
                 "proveedorId" to pedido.proveedorId,
-                "proveedorNombre" to pedido.proveedorNombre,
-                "proveedorRuc" to pedido.proveedorRuc,
-                "proveedorTelefono" to pedido.proveedorTelefono,
+                "proveedorNombre" to pedido.proveedorNombre.trim(),
+                "proveedorRuc" to pedido.proveedorRuc.trim(),
+                "proveedorTelefono" to pedido.proveedorTelefono.trim(),
                 "items" to itemsMap,
                 "recepciones" to emptyList<Map<String, Any>>(),
                 "totalProductos" to pedido.items.size,
@@ -603,7 +629,6 @@ class PedidoCompraRepository(
         return try {
             val snap = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId)
                 .whereIn("estado", listOf("ENVIADO", "ENTREGA_PARCIAL"))
-                .limit(50)
                 .get()
                 .await()
             snap.documents.mapNotNull { mapearPedido(it) }.firstOrNull { pedido ->
@@ -629,6 +654,7 @@ class PedidoCompraRepository(
         numeroFactura: String,
         condicionPago: String,
         fechaVencimientoPago: String,
+        fechaEmisionPapel: String = "",
         montoFactura: Double,
         montoPagado: Double = 0.0,
         metodoPago: String = "",
@@ -648,6 +674,7 @@ class PedidoCompraRepository(
             numeroFactura = numeroFactura,
             condicionPago = condicionPago,
             fechaVencimientoPago = fechaVencimientoPago,
+            fechaEmisionPapel = fechaEmisionPapel,
             montoFactura = montoFactura,
             montoPagadoEnRecepcion = montoPagado,
             metodoPago = metodoPago,
@@ -689,16 +716,21 @@ class PedidoCompraRepository(
             firestore.runTransaction { tx ->
                 val snap = tx.get(docRef)
                 if (!snap.exists()) throw IllegalStateException("La orden no existe.")
-                val estado = snap.getString("estado") ?: "ENVIADO"
-                if (estado !in listOf("ENVIADO", "ENTREGA_PARCIAL")) {
-                    throw IllegalStateException("No se puede cerrar con ajuste una orden en estado $estado.")
+                val pedido = mapearPedido(snap) ?: throw IllegalStateException("No se pudo leer el pedido.")
+                if (pedido.estado !in listOf("ENVIADO", "ENTREGA_PARCIAL")) {
+                    throw IllegalStateException("No se puede cerrar con ajuste una orden en estado ${pedido.estado}.")
                 }
+                if (pedido.recepciones.isEmpty()) {
+                    throw IllegalStateException("Esta orden no ha recibido ninguna entrega de mercadería. Para cancelarla usa 'Cancelar Pedido'.")
+                }
+                val notasAnteriores = snap.getString("notas") ?: ""
+                val notasNuevas = if (notasAnteriores.isNotBlank()) "$notasAnteriores | Ajuste: $motivo" else motivo
                 tx.update(
                     docRef,
                     mapOf(
                         "estado" to "COMPLETADA_AJUSTE",
                         "fechaRecepcion" to ahoraLegible,
-                        "notas" to motivo,
+                        "notas" to notasNuevas,
                         "actualizadoEl" to FieldValue.serverTimestamp()
                     )
                 )
@@ -768,11 +800,12 @@ class PedidoCompraRepository(
                 }
 
                 val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                val totalInval = Math.round(itemsActualizados.sumOf { it.cantidad * it.precioCompra } * 100.0) / 100.0
                 val updates = mutableMapOf<String, Any>(
                     "items" to itemsMap,
                     "estado" to nuevoEstado,
                     "totalUnidades" to itemsActualizados.sumOf { it.cantidad },
-                    "totalInversion" to itemsActualizados.sumOf { it.cantidad * it.precioCompra },
+                    "totalInversion" to totalInval,
                     "actualizadoEl" to FieldValue.serverTimestamp()
                 )
                 if (todasCompletas) {
@@ -849,9 +882,12 @@ class PedidoCompraRepository(
             firestore.runTransaction { tx ->
                 val snap = tx.get(docRef)
                 if (!snap.exists()) throw IllegalStateException("La orden no existe.")
-                val estado = snap.getString("estado") ?: "ENVIADO"
-                if (estado != "ENVIADO") {
-                    throw IllegalStateException("Solo se puede cancelar una orden esperando entrega (estado actual: $estado).")
+                val pedido = mapearPedido(snap) ?: throw IllegalStateException("No se pudo leer la orden.")
+                if (pedido.estado != "ENVIADO") {
+                    throw IllegalStateException("Solo se puede cancelar una orden en estado ENVIADO (estado actual: ${pedido.estado}).")
+                }
+                if (pedido.recepciones.isNotEmpty()) {
+                    throw IllegalStateException("Esta orden ya tiene entregas parciales registradas. No se puede cancelar; recíbela o ciérrala con ajuste.")
                 }
                 tx.update(
                     docRef,
@@ -911,6 +947,7 @@ class PedidoCompraRepository(
                     usuarioNombre = r["usuarioNombre"] as? String ?: "",
                     usuarioEmail = r["usuarioEmail"] as? String ?: "",
                     numeroFactura = r["numeroFactura"] as? String ?: "",
+                    fechaEmisionPapel = r["fechaEmisionPapel"] as? String ?: "",
                     condicionPago = r["condicionPago"] as? String ?: "Contado",
                     fechaVencimientoPago = r["fechaVencimientoPago"] as? String ?: "",
                     montoFactura = (r["montoFactura"] as? Number)?.toDouble() ?: 0.0,

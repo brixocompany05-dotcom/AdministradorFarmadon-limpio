@@ -1,17 +1,20 @@
 package com.app.administradorfarmadon.facturacion.envio.datos
 
 import com.app.administradorfarmadon.ventas.compartido.modelo.FacturacionDocumento
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import retrofit2.Response
 
 class MaquinaEstadosSunatTest {
 
+    private val client = ApisunatClient()
+
     @Test
     fun reglaMadre_excepcionNoQuemaNumero_vuelveAPendiente() {
-        // Simulación de la regla SUNAT:
-        // EXCEPCION = se rechazó por fallo técnico/servidor sin quemar el número -> se reintenta igual
         val docInicial = FacturacionDocumento(
             id = "doc1",
             tipo = "BOLETA",
@@ -23,7 +26,6 @@ class MaquinaEstadosSunatTest {
             numeroQuemado = false
         )
 
-        // Llega EXCEPCION de SUNAT
         val respuestaSunat = "EXCEPCION"
         val mensajeRespuesta = "Servidor SUNAT no disponible temporalmente"
 
@@ -48,8 +50,6 @@ class MaquinaEstadosSunatTest {
 
     @Test
     fun reglaMadre_rechazadoQuemaNumeroParaSiempre() {
-        // Simulación de la regla SUNAT:
-        // RECHAZADO = SUNAT quemó esa serie+número para siempre -> jamás se reintenta igual
         val docInicial = FacturacionDocumento(
             id = "doc2",
             tipo = "FACTURA",
@@ -61,7 +61,6 @@ class MaquinaEstadosSunatTest {
             numeroQuemado = false
         )
 
-        // Llega RECHAZO de SUNAT (ej. RUC no habido o no activo)
         val respuestaSunat = "RECHAZADO"
         val mensajeSunat = "El RUC del receptor no se encuentra en estado ACTIVO"
 
@@ -85,22 +84,98 @@ class MaquinaEstadosSunatTest {
     }
 
     @Test
-    fun reglaMadre_documentoConNumeroQuemado_noSePuedeReintentar() {
-        val docQuemado = FacturacionDocumento(
-            id = "doc3",
-            tipo = "BOLETA",
-            serie = "B001",
-            correlativo = 101L,
-            numeroCompleto = "B001-00000101",
-            total = 12.0,
-            estadoEnvio = FacturacionDocumento.ESTADO_RECHAZADO,
-            numeroQuemado = true,
-            motivo = "SUNAT RECHAZÓ: Correlativo ya registrado previamente"
+    fun apisunatClient_parseoExacto_noAceptadoNoEsAceptado() {
+        val json = """{"_id":"doc_123","status":"NO ACEPTADO","message":"No califica"}"""
+        val response = Response.success(json.toResponseBody("application/json".toMediaTypeOrNull()))
+
+        val res = client.procesarRespuesta(response)
+        assertTrue("NO ACEPTADO no debe interpretarse jamás como ACEPTADO", res is ApisunatResultado.ErrorProveedor)
+        val err = res as ApisunatResultado.ErrorProveedor
+        assertTrue(err.mensaje.contains("Estado desconocido o no procesable"))
+    }
+
+    @Test
+    fun apisunatClient_parseoExacto_bajaAceptadaNoEsRechazado() {
+        val json = """{"_id":"doc_123","status":"BAJA_ACEPTADA","message":"Baja procesada"}"""
+        val response = Response.success(json.toResponseBody("application/json".toMediaTypeOrNull()))
+
+        val res = client.procesarRespuesta(response)
+        assertTrue(res is ApisunatResultado.ErrorProveedor)
+        val err = res as ApisunatResultado.ErrorProveedor
+        assertFalse("BAJA_ACEPTADA no debe quemar número como RECHAZADO", err.esRechazoSunat)
+    }
+
+    @Test
+    fun apisunatClient_aceptadoSinCdrNiXml_retornaErrorProveedor() {
+        // status == ACEPTADO pero no hay CDR ni XML devuelto
+        val json = """{"_id":"doc_123","status":"ACEPTADO","message":"OK"}"""
+        val response = Response.success(json.toResponseBody("application/json".toMediaTypeOrNull()))
+
+        val res = client.procesarRespuesta(response)
+        assertTrue("ACEPTADO sin CDR ni XML debe ser ErrorProveedor", res is ApisunatResultado.ErrorProveedor)
+        val err = res as ApisunatResultado.ErrorProveedor
+        assertTrue(err.mensaje.contains("sin constancia"))
+    }
+
+    @Test
+    fun apisunatClient_enviadoSinDocumentId_retornaErrorProveedor() {
+        // status == ENVIADO pero docId viene vacío
+        val json = """{"status":"ENVIADO","message":"Procesando"}"""
+        val response = Response.success(json.toResponseBody("application/json".toMediaTypeOrNull()))
+
+        val res = client.procesarRespuesta(response)
+        assertTrue("ENVIADO sin ID de seguimiento debe ser ErrorProveedor", res is ApisunatResultado.ErrorProveedor)
+        val err = res as ApisunatResultado.ErrorProveedor
+        assertTrue(err.mensaje.contains("sin identificador"))
+    }
+
+    @Test
+    fun apisunatClient_error400Formato_noQuemaNumero() {
+        // Error HTTP 400 (Bad request de formato / JSON) -> número libre
+        val jsonErr = """{"error":"Validation failed: RUC must be 11 digits"}"""
+        val response = Response.error<okhttp3.ResponseBody>(
+            400,
+            jsonErr.toResponseBody("application/json".toMediaTypeOrNull())
         )
 
-        // Intento de reenvío: la regla prohíbe reintentar un número quemado
-        val puedeReintentar = !docQuemado.numeroQuemado && docQuemado.estadoEnvio != FacturacionDocumento.ESTADO_ACEPTADO
+        val res = client.procesarRespuesta(response)
+        assertTrue(res is ApisunatResultado.ErrorProveedor)
+        val err = res as ApisunatResultado.ErrorProveedor
+        assertFalse("Error 400 de formato no debe quemar correlativo", err.esRechazoSunat)
+    }
 
-        assertFalse("Un documento con numeración quemada jamás puede reintentarse", puedeReintentar)
+    @Test
+    fun apisunatClient_error422Sunat_quemaNumero() {
+        // Error HTTP 422 de SUNAT -> correlativo quemado
+        val jsonErr = """{"status":"RECHAZADO","message":"El comprobante fue rechazado por SUNAT"}"""
+        val response = Response.error<okhttp3.ResponseBody>(
+            422,
+            jsonErr.toResponseBody("application/json".toMediaTypeOrNull())
+        )
+
+        val res = client.procesarRespuesta(response)
+        assertTrue(res is ApisunatResultado.ErrorProveedor)
+        val err = res as ApisunatResultado.ErrorProveedor
+        assertTrue("Error 422 de SUNAT debe marcarse como rechazo fiscal", err.esRechazoSunat)
+    }
+
+    @Test
+    fun reporteEnvioLote_soloCuentaAceptadosEnExitosos_enviadoVaAEnTramite() {
+        val itemAceptado = ItemResultadoLote("d1", "B001-00000001", true, "ACEPTADO", "Aceptado con CDR")
+        val itemEnviado = ItemResultadoLote("d2", "B001-00000002", false, "ENVIADO", "En trámite ante SUNAT")
+        val itemRechazado = ItemResultadoLote("d3", "B001-00000003", false, "RECHAZADO", "Rechazado por SUNAT")
+
+        val reporte = ReporteEnvioLote(
+            totalProcesados = 3,
+            exitosos = listOf(itemAceptado),
+            enTramite = listOf(itemEnviado),
+            requierenAtencion = listOf(itemRechazado)
+        )
+
+        assertEquals(1, reporte.exitosos.size)
+        assertEquals("ACEPTADO", reporte.exitosos.first().estado)
+        assertEquals(1, reporte.enTramite.size)
+        assertEquals("ENVIADO", reporte.enTramite.first().estado)
+        assertEquals(1, reporte.requierenAtencion.size)
     }
 }

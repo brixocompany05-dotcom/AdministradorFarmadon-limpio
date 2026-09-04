@@ -85,11 +85,15 @@ object SessionManager {
         nombreUsuario = nombre
         rol = rolUsuario
         if (tenantId.isNotBlank()) clienteId = tenantId
-        if (sedeId.isNotBlank()) {
+
+        // R1: La sede proviene EXCLUSIVAMENTE de la verdad del servidor (Firebase).
+        // Cero memoria local o SharedPreferences cacheadas que puedan revivir sedes eliminadas.
+        if (sedeId.isNotBlank() && sedeId != "todas") {
             sucursalId = sedeId
-        }
-        if (sedeNombre.isNotBlank()) {
-            sucursalNombre = sedeNombre
+            if (sedeNombre.isNotBlank()) sucursalNombre = sedeNombre
+        } else {
+            sucursalId = "principal"
+            sucursalNombre = "Sede Principal"
         }
     }
 
@@ -139,12 +143,19 @@ object SessionManager {
         monedaCodigo = "PEN"
         monedaSimbolo = "S/"
 
-        // ── HIGIENE ANTI-FANTASMA (tablet compartida / base borrada) ──
-        // La caché offline de Firestore y los borradores del registro viven en
-        // el DISPOSITIVO, fuera de la sesión. Si no se borran al cerrar, el
-        // siguiente usuario puede ver reflejos de datos que ya no existen en
-        // el servidor o de OTRA farmacia. Dos intentos por si los listeners
-        // aún se están despegando.
+        // ── HIGIENE ESTRICTA ANTI-MEMORIA LOCAL Y ANTI-FANTASMA ──
+        // Elimina cualquier caché local en disco de sedes, borradores viejos y carritos
+        // para que ninguna sucursal ni farmacia deje rastros en memoria local del dispositivo.
+        try {
+            context.getSharedPreferences("farmadon_ultimas_sedes", Context.MODE_PRIVATE).edit().clear().apply()
+            context.getSharedPreferences("registro_draft_prefs", Context.MODE_PRIVATE).edit().clear().apply()
+            context.getSharedPreferences("farmadon_drafts", Context.MODE_PRIVATE).edit().clear().apply()
+            com.app.administradorfarmadon.ventas.compartido.datos.VentaBorradorLocalStore.limpiarTodo(context)
+            com.app.administradorfarmadon.analitica_reportes.exportacion.ReporteExportador.limpiarCache(context)
+        } catch (_: Exception) {}
+
+        // La caché offline de Firestore vive en el DISPOSITIVO, fuera de la sesión.
+        // Se purga al cerrar sesión para garantizar aislamiento absoluto (R1).
         CoroutineScope(Dispatchers.IO).launch {
             var limpiada = false
             var intento = 0
@@ -160,8 +171,6 @@ object SessionManager {
                 }
             }
         }
-        context.getSharedPreferences("registro_draft_prefs", Context.MODE_PRIVATE)
-            .edit().clear().apply()
     }
 
     // --- Implementación de Delegados ---

@@ -112,8 +112,40 @@ class DevolucionesViewModel(
     val uiState: StateFlow<DevolucionesUiState> = _uiState.asStateFlow()
 
     private var jobBusqueda: Job? = null
+    private val observadoresJobs = mutableListOf<Job>()
+    private var sucursalObserverJob: Job? = null
 
     init {
+        observarCambiosDeSucursal()
+    }
+
+    private fun observarCambiosDeSucursal() {
+        sucursalObserverJob?.cancel()
+        sucursalObserverJob = viewModelScope.launch {
+            var ultimaSucursal: String? = null
+            SessionManager.sucursalFlow.collect { sucursal ->
+                if (sucursal != ultimaSucursal) {
+                    ultimaSucursal = sucursal
+                    reiniciarObservadores()
+                }
+            }
+        }
+    }
+
+    private fun reiniciarObservadores() {
+        observadoresJobs.forEach { it.cancel() }
+        observadoresJobs.clear()
+        _uiState.update {
+            it.copy(
+                ventaSeleccionada = null,
+                itemsSeleccionados = emptyMap(),
+                motivo = "",
+                resultadosBusqueda = emptyList(),
+                busquedaTexto = "",
+                error = null,
+                mensajeExito = null
+            )
+        }
         iniciarObservadores()
     }
 
@@ -121,7 +153,7 @@ class DevolucionesViewModel(
         val sucursalId = SessionManager.sucursalIdEfectiva
 
         // 1. Escuchar Estado de Caja (El reembolso sale del turno abierto)
-        viewModelScope.launch {
+        observadoresJobs += viewModelScope.launch {
             cajaRepository.observarEstadoCaja()
                 .catch { Log.e(TAG, "Error escuchando estado de caja: ${it.message}", it) }
                 .collect { estado ->
@@ -131,13 +163,16 @@ class DevolucionesViewModel(
 
         // 2. Escuchar Métodos de Pago Activos de la Sucursal
         if (sucursalId.isNotBlank()) {
-            viewModelScope.launch {
+            observadoresJobs += viewModelScope.launch {
                 metodosPagoRepository.observarMetodosPago(sucursalId)
                     .catch { Log.e(TAG, "Error escuchando métodos de pago: ${it.message}", it) }
                     .collect { metodos ->
                         val activas = metodos.filter { it.activa }
                         _uiState.update { estadoPrevio ->
-                            val defaultId = estadoPrevio.instanciaReembolsoId.ifBlank {
+                            val sigueActiva = activas.any { it.id == estadoPrevio.instanciaReembolsoId }
+                            val defaultId = if (sigueActiva) {
+                                estadoPrevio.instanciaReembolsoId
+                            } else {
                                 activas.firstOrNull { it.tipoId == "EFECTIVO" }?.id ?: activas.firstOrNull()?.id ?: ""
                             }
                             estadoPrevio.copy(
@@ -150,7 +185,7 @@ class DevolucionesViewModel(
         }
 
         // 3. Escuchar Ventas del Día como lista viva de respaldo
-        viewModelScope.launch {
+        observadoresJobs += viewModelScope.launch {
             ventasRepository.observarVentasDelDia()
                 .catch { Log.e(TAG, "Error escuchando ventas del día: ${it.message}", it) }
                 .collect { ventas ->
@@ -319,7 +354,7 @@ class DevolucionesViewModel(
                         itemsSeleccionados = emptyMap(),
                         motivo = "",
                         idempotenciaIdActual = "",
-                        mensajeExito = "Nota de crédito registrada: ${dev.id}. Reembolso de S/ ${String.format(java.util.Locale.US, "%.2f", dev.montoReembolso)} procesado."
+                        mensajeExito = "Nota de crédito ${dev.numeroCompleto.ifBlank { dev.id }} registrada. Reembolso de S/ ${String.format(java.util.Locale.US, "%.2f", dev.montoReembolso)} por ${dev.metodoReembolso}."
                     )
                 }
             }.onFailure { err ->

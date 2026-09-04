@@ -17,6 +17,7 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Estado y lógica de la recepción física de mercadería.
@@ -44,6 +45,16 @@ class RecepcionMercaderiaEstado(
             ?: ultimaRecepcionConFactura?.numeroFactura?.trim()?.uppercase().orEmpty()
     )
         private set
+    var fechaEmisionPapel by mutableStateOf(
+        facturaExistente?.fechaEmision?.trim()
+            ?: ultimaRecepcionConFactura?.fechaEmisionPapel?.trim().orEmpty()
+    )
+        private set
+
+    fun onFechaEmisionPapelChanged(valor: String) {
+        fechaEmisionPapel = valor
+        errorGeneral = null
+    }
     var condicionPago by mutableStateOf(facturaExistente?.condicionPago ?: ultimaRecepcionConFactura?.condicionPago ?: "Contado")
         private set
     var diasCredito by mutableStateOf<Int?>(null)
@@ -196,18 +207,44 @@ class RecepcionMercaderiaEstado(
         get() = montoPagadoFinal > 0.0 &&
             kotlin.math.abs(editorPagos.sumaPorciones - montoPagadoFinal) > 0.01
 
+    /** Validación en vivo de la fecha de emisión del comprobante (R3: cero fallos en silencio) */
+    val fechaEmisionInvalida: Boolean
+        get() {
+            val f = fechaEmisionPapel.trim()
+            if (f.isBlank()) return false
+            return try {
+                val sdfVerif = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).apply {
+                    isLenient = false
+                    timeZone = TimeZone.getTimeZone("America/Lima")
+                }
+                val date = sdfVerif.parse(f) ?: return true
+                val calHoy = Calendar.getInstance(TimeZone.getTimeZone("America/Lima")).apply {
+                    timeInMillis = HoraServidor.ahoraMs()
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                    set(Calendar.MILLISECOND, 999)
+                }
+                date.time > calHoy.timeInMillis
+            } catch (e: Exception) {
+                true
+            }
+        }
+
     // ── PREVENCIÓN ACTIVA: el botón se bloquea solo y dice qué falta ──
     val puedeAsentar: Boolean
         get() = algoPorRecibir && numeroFactura.isNotBlank() && totalFacturaFinal > 0.0 && montoPagadoFinal >= 0.0 &&
             montoPagadoFinal <= (liquidacionSaldoAFavor.netoAPagar + 0.01) &&
             (!esContado || montoPagadoFinal >= (liquidacionSaldoAFavor.netoAPagar - 0.01)) &&
             !faltaPlazoCredito &&
+            !fechaEmisionInvalida &&
             itemsConSobrante.isEmpty() &&
             (montoPagadoFinal <= 0.0 || (editorPagos.cuadra && !descuadreDetallePago))
     val razonesBloqueo: List<String>
         get() = buildList {
             if (!algoPorRecibir) add("Escribe las unidades que están llegando hoy")
             if (numeroFactura.isBlank()) add("Falta el N° de factura del proveedor")
+            if (fechaEmisionInvalida) add("La fecha de emisión del comprobante debe ser válida (dd/mm/aaaa) y no futura")
             if (totalFacturaFinal <= 0.0) add("Escribe el total que aparece en la factura")
             if (montoPagadoFinal < 0.0) add("El pago registrado no es válido")
             if (montoPagadoFinal > (liquidacionSaldoAFavor.netoAPagar + 0.01)) add("El pago supera el saldo de la factura (después del descuento)")
@@ -235,6 +272,10 @@ class RecepcionMercaderiaEstado(
 
     /** Construye la lista final para asentar. Retorna null si alguna regla falla. */
     fun construirItemsAAsentar(): List<ItemRecepcionEntrega>? {
+        if (fechaEmisionInvalida) {
+            setError("La fecha de emisión del comprobante debe ser válida (dd/mm/aaaa) y no posterior a hoy.")
+            return null
+        }
         val resultado = mutableListOf<ItemRecepcionEntrega>()
         for (fila in items) {
             if (fila.saldoPendiente <= 0) continue

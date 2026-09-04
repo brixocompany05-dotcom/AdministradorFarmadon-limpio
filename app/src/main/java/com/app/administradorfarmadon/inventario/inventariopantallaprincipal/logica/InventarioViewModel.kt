@@ -5,10 +5,12 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
+import com.app.administradorfarmadon.compartido.logica.HoraServidor
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.datos.InventarioFirestoreRepository
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.notificaciones.base_datos.AlertPersistenceManager
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.notificaciones.logica.InventarioAlertasLogic
 import com.google.firebase.firestore.DocumentSnapshot
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -123,44 +125,39 @@ class InventarioViewModel(
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Mantener compatibilidad: filteredProducts expone lista visible (busqueda server si aplica, sino base filtrada)
+    // Búsqueda Híbrida en Tiempo Real: combina filtrado local instantáneo (desde 1era letra: "c", "col", "cola") + servidor
     private val _filteredProducts = combine(
         _filtradoBase,
+        _uiState.map { it.searchQuery }.distinctUntilChanged(),
         _uiState.map { it.busquedaEstado }.distinctUntilChanged(),
         _uiState.map { it.isEnBusqueda }.distinctUntilChanged(),
         _uiState.map { it.resultadosBusqueda }.distinctUntilChanged()
-    ) { base, busquedaEstado, enBusqueda, resultadosBusqueda ->
-        if (enBusqueda) {
-            when (busquedaEstado) {
-                is InventarioBusquedaEstado.Exito -> {
-                    // Para búsqueda, respetar tab/sort pero sin re-filtrar por nombre (ya filtró server)
-                    var b = resultadosBusqueda
-                    // Aplicar tab sobre resultados de búsqueda para coherencia, pero no filtro de texto local
-                    val tabFiltered = when (_estadoTab.value) {
-                        "TODOS" -> b
-                        "POR_REPONER" -> b.filter { it.status == "Stock bajo" || it.status == "Agotado" || it.stock <= it.minStock }
-                        "POR_VENCER" -> b.filter { it.status == "Por vencer" || it.status == "Vencido" || (it.expiryTimestamp in 1L..com.app.administradorfarmadon.compartido.logica.HoraServidor.ahoraMs() + (90L * 24 * 60 * 60 * 1000) && it.expiryDate.isNotBlank()) }
-                        "PAUSADOS", "PAUSADO" -> b.filter { !it.activo }
-                        "ACTIVO" -> b.filter { it.activo }
-                        else -> b
-                    }
-                    // Aplicar filtros de panel (estadoStock, etc.) sobre resultados búsqueda para utilidad, pero sin filtro local de nombre
-                    val panelFiltered =
-                        InventarioFilterLogic.applyFilters(tabFiltered, _filterState.value)
-                    when (_uiState.value.selectedSortOption) {
-                        SortOption.ALFABETICO_AZ -> panelFiltered.sortedBy { it.name.lowercase() }
-                        SortOption.FECHA_ANTIGUOS -> panelFiltered.sortedWith(
-                            compareBy(
-                                { it.createdAtTimestamp },
-                                { it.name.lowercase() })
-                        )
-                        else -> panelFiltered.sortedWith(compareByDescending<PharmProduct> { it.createdAtTimestamp }.thenBy { it.name.lowercase() })
-                    }
-                }
-                is InventarioBusquedaEstado.BusquedaVacia, is InventarioBusquedaEstado.BusquedaVaciaAlias -> emptyList()
-                is InventarioBusquedaEstado.Cargando -> emptyList()
-                is InventarioBusquedaEstado.Error -> emptyList()
-                else -> base
+    ) { base, searchQuery, busquedaEstado, enBusqueda, resultadosBusqueda ->
+        val queryLimpia = searchQuery.trim().lowercase()
+        if (enBusqueda && queryLimpia.isNotBlank()) {
+            // 1. Filtrado instantáneo local en memoria (funciona desde la 1era letra "c", "col", "cola")
+            val locales = base.filter { prod ->
+                prod.name.lowercase().contains(queryLimpia) ||
+                prod.code.lowercase().contains(queryLimpia) ||
+                prod.laboratory.lowercase().contains(queryLimpia) ||
+                prod.category.lowercase().contains(queryLimpia) ||
+                prod.presentation.lowercase().contains(queryLimpia) ||
+                prod.concentration.lowercase().contains(queryLimpia) ||
+                prod.content.lowercase().contains(queryLimpia)
+            }
+
+            // 2. Resultados devueltos por la consulta al servidor Firestore
+            val servidor = if (busquedaEstado is InventarioBusquedaEstado.Exito) resultadosBusqueda else emptyList()
+
+            // 3. Combinación por ID único para no repetir elementos
+            val combinados = (locales + servidor).distinctBy { it.id }
+
+            when (_uiState.value.selectedSortOption) {
+                SortOption.ALFABETICO_AZ -> combinados.sortedBy { it.name.lowercase() }
+                SortOption.FECHA_ANTIGUOS -> combinados.sortedWith(
+                    compareBy({ it.createdAtTimestamp }, { it.name.lowercase() })
+                )
+                else -> combinados.sortedWith(compareByDescending<PharmProduct> { it.createdAtTimestamp }.thenBy { it.name.lowercase() })
             }
         } else {
             base
@@ -221,23 +218,23 @@ class InventarioViewModel(
             loadReadAlerts()
             observarBusquedaServerSide()
         }
-        // Sincroniza pagedProducts con lista visible infinita (sin cortes de página)
+        // Sincroniza pagedProducts y filteredProducts con la lista visible calculada en tiempo real
         _filteredProducts.onEach { visible ->
-            // Solo actualiza pagedProducts si NO está en carga de búsqueda (evita parpadeo Cargando)
-            val enBusqueda = _uiState.value.isEnBusqueda
-            val busquedaCargando =
-                _uiState.value.busquedaEstado is InventarioBusquedaEstado.Cargando
-            if (!enBusqueda || !busquedaCargando) {
-                _uiState.update { current ->
-                    if (current.pagedProducts == visible && current.filteredProducts == visible) {
-                        current
-                    } else {
-                        current.copy(
-                            pagedProducts = visible,
-                            filteredProducts = visible,
-                            totalProductsCount = if (current.isEnBusqueda) current.totalProductsCount else visible.size
-                        )
-                    }
+            _uiState.update { current ->
+                if (current.pagedProducts == visible && current.filteredProducts == visible) {
+                    current
+                } else {
+                    current.copy(
+                        pagedProducts = visible,
+                        filteredProducts = visible,
+                        totalProductsCount = if (current.isEnBusqueda) {
+                            visible.size
+                        } else if (conteoGlobalProductos > 0 && _estadoTab.value == "TODOS" && !_filterState.value.hayFiltrosActivos) {
+                            conteoGlobalProductos
+                        } else {
+                            visible.size
+                        }
+                    )
                 }
             }
         }.launchIn(viewModelScope)
@@ -330,9 +327,23 @@ class InventarioViewModel(
                         }
                         cursorBusqueda = pagina.ultimoDocumento
                         finBusqueda = pagina.esUltimaPagina
-                        val resultados = pagina.productos
-                        if (resultados.isEmpty()) {
-                            // Estado honesto BusquedaVacia
+                        val resultadosServer = pagina.productos
+
+                        val queryLimpia = query.trim().lowercase()
+                        val coincidenciasLocales = _uiState.value.productsList.filter { prod ->
+                            prod.name.lowercase().contains(queryLimpia) ||
+                            prod.code.lowercase().contains(queryLimpia) ||
+                            prod.laboratory.lowercase().contains(queryLimpia) ||
+                            prod.category.lowercase().contains(queryLimpia) ||
+                            prod.presentation.lowercase().contains(queryLimpia) ||
+                            prod.concentration.lowercase().contains(queryLimpia) ||
+                            prod.content.lowercase().contains(queryLimpia)
+                        }
+
+                        val resultadosFinales = (resultadosServer + coincidenciasLocales).distinctBy { it.id }
+
+                        if (resultadosFinales.isEmpty()) {
+                            // Estado honesto BusquedaVacia solo si NI en servidor NI en memoria hay coincidencias
                             _uiState.update {
                                 it.copy(
                                     busquedaEstado = InventarioBusquedaEstado.BusquedaVacia,
@@ -348,14 +359,14 @@ class InventarioViewModel(
                                 )
                             }
                         } else {
-                            // Éxito: actualiza resultados acumulados (primera página)
+                            // Éxito: actualiza resultados
                             _uiState.update {
                                 it.copy(
-                                    busquedaEstado = InventarioBusquedaEstado.Exito(resultados),
-                                    resultadosBusqueda = resultados,
-                                    pagedProducts = resultados,
-                                    filteredProducts = resultados,
-                                    totalProductsCount = resultados.size,
+                                    busquedaEstado = InventarioBusquedaEstado.Exito(resultadosFinales),
+                                    resultadosBusqueda = resultadosFinales,
+                                    pagedProducts = resultadosFinales,
+                                    filteredProducts = resultadosFinales,
+                                    totalProductsCount = resultadosFinales.size,
                                     isLoading = false,
                                     isLoadingMore = false,
                                     isNextPageLoading = false,
@@ -366,6 +377,7 @@ class InventarioViewModel(
                             }
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         Log.e("InventarioViewModel", "Error búsqueda server-side: ${e.message}", e)
                         val msg = when {
                             e.message?.contains("offline", ignoreCase = true) == true -> "Sin conexión. Verifica tu internet."
@@ -480,6 +492,7 @@ class InventarioViewModel(
                 )
             }
             .catch { e ->
+                if (e is CancellationException) throw e
                 Log.e("InventarioViewModel", "Error cargando página inicial: ${e.message}", e)
                 _uiState.update {
                     it.copy(
@@ -547,6 +560,7 @@ class InventarioViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e("InventarioViewModel", "Error paginando búsqueda: ${e.message}", e)
                 val msg = e.message ?: "Error cargando más resultados"
                 _uiState.update {
@@ -587,6 +601,7 @@ class InventarioViewModel(
                 )
             }
             .catch { e ->
+                if (e is CancellationException) throw e
                 Log.e("InventarioViewModel", "Error cargando más: ${e.message}", e)
                 _uiState.update {
                     it.copy(

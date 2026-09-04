@@ -2,7 +2,6 @@ package com.app.administradorfarmadon
 
 import android.app.Application
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
-import com.app.administradorfarmadon.compartido.LocalDraftManager
 import com.app.administradorfarmadon.appconexioninternet.NetworkHealthMonitor
 import com.app.administradorfarmadon.appconexioninternet.NetworkStatus
 import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
@@ -51,7 +50,6 @@ class AppFarmadon : Application() {
             com.app.administradorfarmadon.configuracion.preferencias_sistema.impresion.datos.ImpresionPrefs.init(this@AppFarmadon)
             com.app.administradorfarmadon.configuracion.preferencias_sistema.ux.datos.UxPrefs.init(this@AppFarmadon)
             NetworkHealthMonitor.init(this@AppFarmadon)
-            LocalDraftManager.init(this@AppFarmadon)
         }
 
         // El reloj del servidor se re-sincroniza cada vez que el cortafuego reporta

@@ -71,10 +71,14 @@ object ProductoParser {
             val activo = docBoolean(doc, "activo", true)
             val permiteFraccionar = docBoolean(doc, "permiteFraccionar", false) || docBoolean(doc, "esFraccionable", false)
             val creadoPorUid = docString(doc, "creadoPor", "creadoPorUid", "auditCreatedByUid")
-            val creadoEnMillis = try { (doc.getTimestamp("creadoEn")?.toDate()?.time ?: 0L) } catch (e: Exception) { android.util.Log.w("ProductoParser", "creadoEn parse falló", e); 0L }
+            val creadoEnMillis = try {
+                doc.getTimestamp("creadoEn")?.toDate()?.time
+                    ?: doc.getTimestamp("creadoEl")?.toDate()?.time
+                    ?: (doc.getLong("creadoEnMillis") ?: (doc.get("creadoEnMillis") as? Number)?.toLong() ?: 0L)
+            } catch (e: Exception) {
+                0L
+            }
             val unidadBase = docString(doc, "unidadBase", "empaque")
-
-            // Lotes —” tolera Map y List
             val lotesMap = mutableMapOf<String, LoteProducto>()
             val lotesRaw = doc.get("lotes") as? Map<*, *>
             lotesRaw?.forEach { (k, v) ->
@@ -87,7 +91,17 @@ object ProductoParser {
                     val provId = v["proveedorId"] as? String ?: ""
                     val fact = (v["factura"] as? String) ?: (v["nroFactura"] as? String) ?: ""
                     val costoComp = (v["costoCompra"] as? Number)?.toDouble() ?: 0.0
-                    val costoUnit = (v["costoUnitario"] as? Number)?.toDouble() ?: 0.0
+                    val costoUnitRaw = (v["costoUnitario"] as? Number)?.toDouble()
+                        ?: (v["costoCompraUnitario"] as? Number)?.toDouble()
+                        ?: (v["costoUnitarioReal"] as? Number)?.toDouble()
+                        ?: 0.0
+                    val costoUnit = if (costoUnitRaw > 0.0) {
+                        costoUnitRaw
+                    } else if (cant > 0.0 && costoComp > 0.0) {
+                        costoComp / cant
+                    } else {
+                        0.0
+                    }
                     // Fecha de nacimiento real del lote (sin mentir): lee Timestamp o String
                     val fechaRaw = v["fechaIngreso"] ?: v["fecha"] ?: v["createdAt"] ?: v["ultimaEntrada"]
                     val fechaStr = when (fechaRaw) {
@@ -105,7 +119,25 @@ object ProductoParser {
                         numero = num, vencimiento = venc, cantidad = cant, cantidadBloqueada = cantBloq,
                         proveedorNombre = prov, proveedorId = provId, nroFactura = fact, costoUltimoIngreso = costoComp, costoCompraUnitario = costoUnit,
                         fecha = fechaStr, createdAt = createdAtStr, loteId = loteIdVal,
+                        noValorizado = v["noValorizado"] == true,
                         ventasRegistradas = (v["ventasRegistradas"] as? Number)?.toDouble() ?: 0.0
+                    )
+                }
+            }
+
+            // Fallback de verdad: si no tiene mapa de lotes pero el documento registra stock físico > 0,
+            // se sintetiza un lote base para no invisibilizar existencias ni distorsionar valor contable
+            if (lotesMap.isEmpty()) {
+                val docStock = docDouble(doc, "stock", "stockTotal")
+                if (docStock > 0.0) {
+                    val vtoDoc = docString(doc, "vencimientoMasCercano", "vencimiento")
+                    lotesMap["LOTE_BASE"] = LoteProducto(
+                        numero = "LOTE-BASE",
+                        loteId = "LOTE_BASE",
+                        vencimiento = vtoDoc,
+                        cantidad = docStock,
+                        costoCompraUnitario = precioCompra,
+                        costoUltimoIngreso = precioCompra * docStock
                     )
                 }
             }
@@ -341,7 +373,8 @@ object ProductoParser {
                 activo = activoPharm,
                 permiteFraccionar = permiteFraccionarPharm,
                 estado = estadoPharm,
-                proveedor = docString(doc, "proveedor", "proveedorNombre", "proveedorBaseNombre", "distribuidor")
+                proveedor = docString(doc, "proveedor", "proveedorNombre", "proveedorBaseNombre", "distribuidor"),
+                proveedorId = docString(doc, "proveedorId")
             )
         } catch (e: Exception) {
             Log.e("ProductoParser", "Error mapeando Pharm ${doc.id}: ${e.message}")

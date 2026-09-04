@@ -78,6 +78,13 @@ data class FacturaCompra(
     val usuarioRegistroEmail: String = "",
     val notas: String = "",
     val fechaRegistro: String = "",
+    // ── ESTRUCTURA DE COMPROBANTE DE COMPRA (SUNAT / CONTABILIDAD DE PAPEL) ──
+    val tipoDoc: String = "FACTURA", // "FACTURA" | "BOLETA" | "GUIA" | "S/C"
+    val serie: String = "",
+    val correlativo: String = "",
+    val montoBase: Double = 0.0,
+    val montoIgv: Double = 0.0,
+    val fechaEmision: String = "",
     // ── AJUSTES POR NOTA DE CRÉDITO: el papel se reduce con documento, jamás en silencio ──
     val ajustesFactura: List<AjusteFactura> = emptyList(),
     // ── ANULACIÓN (el papel jamás se borra: se anula con quién, cuándo y por qué) ──
@@ -85,7 +92,9 @@ data class FacturaCompra(
     val anuladoPorEmail: String = "",
     val anuladoPorNombre: String = "",
     val anuladoElLegible: String = "",
-    val anulacionPlata: RespuestaPlataAnulacion? = null
+    val anulacionPlata: RespuestaPlataAnulacion? = null,
+    val sucursalId: String = "",
+    val farmaciaId: String = ""
 ) {
     val esContado: Boolean
         get() = condicionPago.contains("Contado", ignoreCase = true)
@@ -116,7 +125,13 @@ data class FacturaCompra(
         get() = if (esAnulada) 0.0 else (totalEfectivo - totalAbonadoReal).coerceAtLeast(0.0)
 
     val esTotalmentePagada: Boolean
-        get() = !esAnulada && saldoPendienteReal <= 0.01
+        get() = !esAnulada && totalEfectivo > 0.01 && saldoPendienteReal <= 0.01
+
+    val montoBaseCalculado: Double
+        get() = if (montoBase > 0) montoBase else Math.round((totalEfectivo / 1.18) * 100.0) / 100.0
+
+    val montoIgvCalculado: Double
+        get() = if (montoIgv > 0) montoIgv else Math.round((totalEfectivo - montoBaseCalculado) * 100.0) / 100.0
 
     /** Plata real ya pagada al proveedor por esta factura (contado invertido o abonos de crédito). */
     val plataPagadaEnFactura: Double

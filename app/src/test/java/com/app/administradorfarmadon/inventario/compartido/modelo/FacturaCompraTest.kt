@@ -82,4 +82,28 @@ class FacturaCompraTest {
         assertEquals(0.0, factura.totalAjustes, 0.001)
         assertFalse(factura.esTotalmentePagada)
     }
+
+    @Test
+    fun `fecha de emision del papel se conserva independientemente de la fecha de registro`() {
+        val factura = FacturaCompra(
+            montoTotal = 500.0,
+            fechaEmision = "05/08/2026",
+            fechaRegistro = "03/09/2026"
+        )
+
+        assertEquals("05/08/2026", factura.fechaEmision)
+        assertEquals("03/09/2026", factura.fechaRegistro)
+    }
+
+    @Test
+    fun `factura sin fecha de emision de papel maneja string vacio sin fallar`() {
+        val factura = FacturaCompra(
+            montoTotal = 500.0,
+            fechaEmision = "",
+            fechaRegistro = "03/09/2026"
+        )
+
+        assertEquals("", factura.fechaEmision)
+        assertEquals("03/09/2026", factura.fechaRegistro)
+    }
 }

@@ -4,6 +4,7 @@ import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import android.util.Log
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
+import com.app.administradorfarmadon.inventario.compartido.logica.BusquedaTokensHelper
 import com.app.administradorfarmadon.inventario.compartido.logica.CodigoBarraHelper
 import com.app.administradorfarmadon.inventario.compartido.logica.ProductoParser
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
@@ -191,6 +192,25 @@ class EditarProductoRepository(
                 val claveFichaAnterior = CodigoBarraHelper.claveFicha(nombreAnterior, empaqueAnterior, medidaAnterior)
                 val claveFichaNueva = CodigoBarraHelper.claveFicha(nombre.trim(), empFinal, medidaConcentracion.trim())
 
+                // BLOQUEO DE MATERIA CON STOCK O HISTORIAL
+                val stockActual = (snapshot.get("stock") as? Number)?.toInt() ?: (snapshot.get("totalStock") as? Number)?.toInt() ?: 0
+                val movimientosCount = (snapshot.get("movimientosCount") as? Number)?.toInt() ?: 0
+                val ventasCount = (snapshot.get("ventasCount") as? Number)?.toInt() ?: 0
+
+                if (stockActual > 0 || movimientosCount > 0 || ventasCount > 0) {
+                    val (_, unitAnterior) = CatalogoEmpaques.separarContenidoYUnidad(medidaAnterior)
+                    val famAnterior = CatalogoEmpaques.detectarFamiliaFisica(empaqueAnterior, unitAnterior)
+                    val famNueva = CatalogoEmpaques.detectarFamiliaFisica(empFinal, unidadVal)
+
+                    if (famAnterior != famNueva) {
+                        throw IllegalArgumentException(
+                            "Este producto ya tiene stock ($stockActual und) o historial de movimientos. " +
+                            "No se puede cambiar de familia (${famAnterior.etiqueta} → ${famNueva.etiqueta}). " +
+                            "Agota el stock actual o crea una ficha nueva."
+                        )
+                    }
+                }
+
                 // INVARIANTE DEL FACTOR DE STOCK (misma regla que al guardar presentaciones):
                 // ninguna presentación puede superar el contenido del envase. Si la edición
                 // achica el contenido por debajo de una presentación existente, el factor de
@@ -236,7 +256,7 @@ class EditarProductoRepository(
                     "$contenidoBuscadoEdit $unidadBuscadaEdit",
                     codNuevoLimpio.lowercase()
                 ).filter { it.isNotBlank() }.joinToString(" ").replace(Regex("\\s+"), " ").trim()
-                val busquedaTokensEdit = busquedaIndiceEdit.split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
+                val busquedaTokensEdit = BusquedaTokensHelper.generarTokens(busquedaIndiceEdit)
 
                 val updates = hashMapOf<String, Any>(
                     "nombre" to nombre.trim(),

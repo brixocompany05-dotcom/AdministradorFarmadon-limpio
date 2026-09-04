@@ -27,6 +27,7 @@ data class LoteProducto(
     val proveedorId: String = "",
     val proveedorNombre: String = "",
     val loteId: String = "",
+    val noValorizado: Boolean = false,
     /**
      * Nº de unidades de este lote que ya fueron vendidas/dispensadas.
      * Lo actualiza la caja (POS) dentro de la MISMA transacción de la venta.

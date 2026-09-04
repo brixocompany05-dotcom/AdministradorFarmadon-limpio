@@ -550,9 +550,10 @@ class ComprasViewModel(
             )
 
             val resultado = pedidoCompraRepository.guardarPedidoEnviado(
-                nuevoPedido,
-                farmaciaCapturada,
-                sucursalCapturada
+                pedido = nuevoPedido,
+                idempotenciaId = idEnvio,
+                farmaciaIdParam = farmaciaCapturada,
+                sucursalIdParam = sucursalCapturada
             )
             _uiState.update { it.copy(enviandoPedido = false) }
             resultado.fold(
@@ -567,6 +568,11 @@ class ComprasViewModel(
                     }
                 },
                 onFailure = { e ->
+                    // Si el doc ya existe con OTROS productos, la clave quedó quemada:
+                    // se libera para que el próximo toque use clave nueva en vez de fallar en bucle.
+                    if ((e.message ?: "").contains("ya fue guardada", ignoreCase = true)) {
+                        intentoEnvioIds.remove(pedido.proveedorNombre)
+                    }
                     // La restauración del borrador se ESPERA y se VERIFICA antes de decir nada:
                     // prohibido prometer "restaurado" sin comprobarlo.
                     val restaurado = pedidoCompraRepository.guardarProductosCarrito(
@@ -664,6 +670,7 @@ class ComprasViewModel(
         numeroFactura: String,
         condicionPago: String,
         fechaVencimientoPago: String,
+        fechaEmisionPapel: String = "",
         montoFactura: Double,
         montoPagado: Double,
         metodoPago: String = "",
@@ -682,11 +689,7 @@ class ComprasViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(procesandoRecepcion = true, mensajeError = null) }
 
-            // Sello idempotente del ACTO de entrega: reintentar con los mismos datos
-            // jamás duplica (mismo sello); cambiar cantidades, lotes, vencimientos,
-            // costos o el DINERO (total, pagado, saldo a favor, pagos mixtos) genera
-            // un acto nuevo — una corrección de pago jamás se descarta en silencio.
-            val selloEntrega = "$pedidoId|$numeroFactura|$montoFactura|$montoPagado|$saldoAFavorUsado|" +
+            val selloEntrega = "$pedidoId|$numeroFactura|$fechaEmisionPapel|$montoFactura|$montoPagado|$saldoAFavorUsado|" +
                 pagosRecepcion.joinToString(";") { pago ->
                     "${pago.metodoPago}:${pago.monto}:${pago.numeroOperacion}"
                 } + "|" +
@@ -695,14 +698,13 @@ class ComprasViewModel(
                 }
             val idIntento = java.util.UUID.nameUUIDFromBytes(selloEntrega.toByteArray()).toString()
 
-            // Verdad de auditoría: el KARDEX guarda correo real en usuarioEmail y
-            // nombre real en usuarioNombre (jamás un nombre haciéndose pasar por correo).
             val usuarioEmail = SessionManager.email
             val res = pedidoCompraRepository.asentarRecepcionDirecta(
                 pedidoId = pedidoId,
                 numeroFactura = numeroFactura,
                 condicionPago = condicionPago,
                 fechaVencimientoPago = fechaVencimientoPago,
+                fechaEmisionPapel = fechaEmisionPapel,
                 montoFactura = montoFactura,
                 montoPagado = montoPagado,
                 metodoPago = metodoPago,
@@ -921,6 +923,7 @@ class ComprasViewModel(
         viewModelScope.launch {
             proveedorRepository.vincularProducto(productoId, proveedor.id, proveedor.nombre).fold(
                 onSuccess = {
+                    limpiarProductoDeOtrosCarritos(productoId, proveedor.nombre)
                     _uiState.update { it.copy(mensajeExito = "Producto afiliado a ${proveedor.nombre}.") }
                 },
                 onFailure = { e ->
@@ -930,7 +933,51 @@ class ComprasViewModel(
         }
     }
 
+    fun desvincularProductoDeProveedor(productoId: String) {
+        viewModelScope.launch {
+            proveedorRepository.desvincularProducto(productoId).fold(
+                onSuccess = {
+                    limpiarProductoDeOtrosCarritos(productoId, null)
+                    _uiState.update { it.copy(mensajeExito = "Producto desvinculado del proveedor.") }
+                },
+                onFailure = { e ->
+                    _uiState.update { it.copy(mensajeError = "No se pudo desvincular el producto: ${e.message}") }
+                }
+            )
+        }
+    }
+
+    private fun limpiarProductoDeOtrosCarritos(productoId: String, proveedorExcluido: String?) {
+        val carritos = _uiState.value.pedidosPorProveedor
+        val farmaciaCapturada = SessionManager.clienteIdGarantizado
+        val sucursalCapturada = SessionManager.sucursalIdEfectiva
+        val usuarioId = SessionManager.idCajera.ifBlank { "Sistema" }
+        val usuarioNombre = SessionManager.nombreUsuario.ifBlank { "Sistema" }
+
+        carritos.forEach { (provNombre, items) ->
+            if (proveedorExcluido != null && provNombre.equals(proveedorExcluido, ignoreCase = true)) return@forEach
+            if (items.containsKey(productoId) && (items[productoId] ?: 0) > 0) {
+                viewModelScope.launch {
+                    pedidoCompraRepository.guardarProductosCarrito(
+                        proveedorNombre = provNombre,
+                        cambios = mapOf(productoId to 0),
+                        farmaciaIdParam = farmaciaCapturada,
+                        sucursalIdParam = sucursalCapturada,
+                        usuarioId = usuarioId,
+                        usuarioNombre = usuarioNombre,
+                        esDelta = false
+                    )
+                }
+            }
+        }
+    }
+
     fun cobrarSaldoAFavor(proveedorId: String, monto: Double, documento: String, onComplete: (Result<Unit>) -> Unit) {
+        if (!esUsuarioAutorizadoPlata) {
+            _uiState.update { it.copy(mensajeError = "Solo el dueño o administración puede registrar egresos o cobros de saldo a favor.") }
+            onComplete(Result.failure(IllegalStateException("Sin autorización de dinero/administración.")))
+            return
+        }
         registrarEgresoSaldoAFavor(
             proveedorId = proveedorId,
             monto = monto,
@@ -942,6 +989,11 @@ class ComprasViewModel(
     }
 
     fun declararSaldoPerdido(proveedorId: String, monto: Double, motivo: String, onComplete: (Result<Unit>) -> Unit) {
+        if (!esUsuarioAutorizadoPlata) {
+            _uiState.update { it.copy(mensajeError = "Solo el dueño o administración puede declarar un saldo como perdido.") }
+            onComplete(Result.failure(IllegalStateException("Sin autorización de dinero/administración.")))
+            return
+        }
         registrarEgresoSaldoAFavor(
             proveedorId = proveedorId,
             monto = monto,
@@ -1008,7 +1060,15 @@ class ComprasViewModel(
                     facturasPendientesCount = facturasPendientes
                 )
                 result.onSuccess {
-                    _uiState.update { it.copy(mensajeExito = "Proveedor eliminado correctamente.") }
+                    if (proveedorSeleccionadoIdGuardado == proveedor.id) {
+                        proveedorSeleccionadoIdGuardado = null
+                    }
+                    _uiState.update {
+                        it.copy(
+                            proveedorSeleccionadoId = if (it.proveedorSeleccionadoId == proveedor.id) null else it.proveedorSeleccionadoId,
+                            mensajeExito = "Proveedor eliminado correctamente."
+                        )
+                    }
                     onResult(true, "Proveedor eliminado correctamente.")
                 }.onFailure { e ->
                     val msg = e.message ?: "Error al eliminar proveedor."
@@ -1060,9 +1120,11 @@ class ComprasViewModel(
         numeroOperacion: String,
         pagos: List<com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle> = emptyList()
     ) {
-        // El botón se desactiva en pantalla, pero este candado también protege
-        // contra dos toques que lleguen antes de la siguiente recomposición.
         if (_uiState.value.procesandoPago) return
+        if (!esUsuarioAutorizadoPlata) {
+            _uiState.update { it.copy(mensajeError = "Solo el dueño o administración puede registrar abonos y pagos de facturas.") }
+            return
+        }
 
         // Captura de sede al momento del toque (R1): el abono se registra siempre
         // en la sucursal donde el usuario lo decidió.
@@ -1157,12 +1219,12 @@ class ComprasViewModel(
 
     // ── ANULAR FACTURA (plan Anular Factura: papel + producto + plata, cerrados juntos) ──
 
-    /** Regla de negocio de dinero: solo dueño/administración cierra facturas con plata pagada. */
+    /** Regla de negocio de dinero (fail-closed): solo dueño/administración ejecuta movimientos de dinero. */
     val esUsuarioAutorizadoPlata: Boolean
         get() {
-            val r = SessionManager.rol.trim()
-            if (r.isBlank()) return true
-            return listOf("dueño", "dueno", "administrador", "admin").any { r.equals(it, ignoreCase = true) }
+            val r = SessionManager.rol.trim().lowercase()
+            if (r.isBlank()) return false
+            return listOf("dueño", "dueno", "administrador", "admin").contains(r)
         }
 
     fun abrirDialogoAnularFactura(factura: FacturaCompra) {
@@ -1231,7 +1293,8 @@ class ComprasViewModel(
         motivo: String,
         respuestaPlata: String?,
         metodoDevolucion: String? = null,
-        referenciaDevolucion: String? = null
+        referenciaDevolucion: String? = null,
+        conDevolucion: Boolean = true
     ) {
         val factura = _uiState.value.facturaParaAnular ?: return
         if (_uiState.value.procesandoAnulacion) return
@@ -1262,7 +1325,7 @@ class ComprasViewModel(
             val res = ingresoRepository.anularFactura(
                 facturaId = factura.id,
                 motivo = motivo,
-                conDevolucion = true,
+                conDevolucion = conDevolucion,
                 usuarioEmail = SessionManager.email,
                 usuarioNombre = SessionManager.nombreUsuario,
                 respuestaPlata = respuestaPlata ?: "",
@@ -1458,15 +1521,16 @@ class ComprasViewModel(
 
         val editando = _uiState.value.proveedorEditando
         val montoLimpio = if (montoMinimo < 0.0) 0.0 else montoMinimo
+        val esEdicion = editando != null
         val proveedorAGuardar = Proveedor(
             id = editando?.id ?: "",
             nombre = nombreTrim,
             idFiscal = idFiscal.trim(),
-            // El diálogo no edita "contacto": al editar, se conserva el existente (jamás se pierde).
-            contacto = if (contacto.trim().isBlank()) (editando?.contacto ?: "") else contacto.trim(),
-            telefono = telefono.trim(),
-            email = email.trim(),
-            direccion = direccion.trim(),
+            // Al editar, un campo en blanco conserva el existente: jamás se borra en silencio.
+            contacto = if (esEdicion && contacto.trim().isBlank()) (editando?.contacto ?: "") else contacto.trim(),
+            telefono = if (esEdicion && telefono.trim().isBlank()) (editando?.telefono ?: "") else telefono.trim(),
+            email = if (esEdicion && email.trim().isBlank()) (editando?.email ?: "") else email.trim(),
+            direccion = if (esEdicion && direccion.trim().isBlank()) (editando?.direccion ?: "") else direccion.trim(),
             montoMinimoPedido = montoLimpio
         )
 

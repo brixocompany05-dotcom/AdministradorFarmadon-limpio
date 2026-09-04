@@ -28,14 +28,16 @@ object FacturacionPayloadBuilder {
      * 03: Boleta
      * 07: Nota de Crédito
      * RA: Comunicación de Baja
+     *
+     * Sin else -> 03: Cualquier tipo no soportado lanza IllegalArgumentException para no quemar número.
      */
     fun mapearTipoComprobanteSunat(tipo: String): String {
         return when (tipo.uppercase().trim()) {
-            "FACTURA" -> "01"
-            "BOLETA" -> "03"
-            "NOTA_CREDITO", "NOTA DE CREDITO", "NC" -> "07"
-            "COMUNICACION_BAJA", "BAJA", "ANULADO" -> "RA"
-            else -> "03"
+            "FACTURA", "01" -> "01"
+            "BOLETA", "03" -> "03"
+            "NOTA_CREDITO", "NOTA DE CREDITO", "NC", "07" -> "07"
+            "COMUNICACION_BAJA", "BAJA", "ANULADO", "RA" -> "RA"
+            else -> throw IllegalArgumentException("Tipo de comprobante no soportado para facturación electrónica: '$tipo'")
         }
     }
 
@@ -82,6 +84,7 @@ object FacturacionPayloadBuilder {
 
     /**
      * Construye el JSON exacto para el endpoint /personas/v1/sendBill según la especificación oficial APISUNAT.
+     * Valida de punta a punta antes de emitir para evitar quemar correlativos por errores de formato o datos vacíos.
      */
     fun construirSendBillPayload(
         emisor: EmisorFiscal,
@@ -90,32 +93,60 @@ object FacturacionPayloadBuilder {
         devolucion: DevolucionVenta? = null
     ): Map<String, Any?> {
         val ruc = emisor.ruc.trim()
+        if (ruc.length != 11 || !ruc.all { it.isDigit() }) {
+            throw IllegalArgumentException("RUC de emisor inválido ($ruc): debe contener exactamente 11 dígitos numéricos.")
+        }
+        if (emisor.personaId.trim().isBlank() || emisor.personaToken.trim().isBlank()) {
+            throw IllegalArgumentException("Credenciales APISUNAT incompletas en el emisor (personaId o personaToken vacíos).")
+        }
+
         val tipoCodigo = mapearTipoComprobanteSunat(doc.tipo)
         val serie = doc.serie.trim()
+        if (serie.isBlank()) {
+            throw IllegalArgumentException("La serie del comprobante no puede estar vacía.")
+        }
         val correlativo = doc.correlativo
+        if (correlativo <= 0L) {
+            throw IllegalArgumentException("El correlativo del comprobante ($correlativo) debe ser un número entero mayor a cero.")
+        }
+        if (doc.total <= 0.0) {
+            throw IllegalArgumentException("El total del comprobante (S/ ${doc.total}) debe ser mayor a 0.00.")
+        }
+        if (doc.fechaMs <= 0L) {
+            throw IllegalArgumentException("Fecha de emisión inválida: fechaMs debe ser un timestamp real mayor a 0.")
+        }
+
         val fileName = construirFileName(ruc, doc.tipo, serie, correlativo)
 
-        val fechaEmision = if (doc.fechaMs > 0L) {
-            SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(doc.fechaMs))
-        } else {
-            SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        }
+        val fechaEmision = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(doc.fechaMs))
+        val horaEmision = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(doc.fechaMs))
 
-        val horaEmision = if (doc.fechaMs > 0L) {
-            SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(doc.fechaMs))
-        } else {
-            SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
-        }
-
+        // Validación estricta del cliente
         val tipoDocCliente = mapearTipoDocClienteSunat(doc.clienteTipoDoc, doc.clienteNumeroDoc)
-        val numDocCliente = if (tipoDocCliente == "0") "00000000" else doc.clienteNumeroDoc.trim()
+        val numDocCliente = doc.clienteNumeroDoc.trim()
+
+        if (tipoCodigo == "01") {
+            // FACTURA exige cliente con RUC (tipo 6) de 11 dígitos
+            if (tipoDocCliente != "6" || numDocCliente.length != 11 || !numDocCliente.all { it.isDigit() }) {
+                throw IllegalArgumentException("Factura exige cliente con RUC válido de 11 dígitos numéricos (recibido: '$numDocCliente', tipo: '${doc.clienteTipoDoc}').")
+            }
+        } else {
+            if (doc.clienteTipoDoc.trim().uppercase() == "DNI" && (numDocCliente.length != 8 || !numDocCliente.all { it.isDigit() })) {
+                throw IllegalArgumentException("DNI de cliente inválido: debe tener 8 dígitos numéricos (recibido: '$numDocCliente').")
+            }
+            if (doc.clienteTipoDoc.trim().uppercase() == "RUC" && (numDocCliente.length != 11 || !numDocCliente.all { it.isDigit() })) {
+                throw IllegalArgumentException("RUC de cliente inválido: debe tener 11 dígitos numéricos (recibido: '$numDocCliente').")
+            }
+        }
+
+        val numDocClienteFinal = if (tipoDocCliente == "0") "00000000" else numDocCliente
         val nombreCliente = doc.clienteNombre.trim().ifBlank { "CLIENTES VARIOS" }
 
-        // Ítems reales:
-        // FIX C-F1: Para Nota de Crédito (tipo 07), se desglosan exclusivamente los ítems devueltos en la devolución,
-        // jamás las líneas completas de la venta original.
-        val itemsSource: List<ItemVenta> = venta?.items ?: emptyList()
-        val detalles = if (tipoCodigo == "07" && devolucion != null && devolucion.items.isNotEmpty()) {
+        // Ítems reales (sin líneas artificiales ITEM-01 / CONSUMO EN FARMACIA)
+        val detalles = if (tipoCodigo == "07") {
+            if (devolucion == null || devolucion.items.isEmpty()) {
+                throw IllegalArgumentException("Nota de Crédito exige los ítems devueltos reales de la devolución (lista vacía).")
+            }
             devolucion.items.mapIndexed { index, itm ->
                 val subtotalLinea = round2(if (itm.monto > 0.0) itm.monto else (itm.precioUnitario * itm.cantidad))
                 val desglose = calcularDesgloseIgv(subtotalLinea)
@@ -136,11 +167,21 @@ object FacturacionPayloadBuilder {
                     "totalImpuestos" to desglose.igv
                 )
             }
-        } else if (itemsSource.isNotEmpty()) {
+        } else {
+            val itemsSource: List<ItemVenta> = venta?.items ?: emptyList()
+            if (itemsSource.isEmpty()) {
+                throw IllegalArgumentException("El comprobante exige al menos un ítem real vendido (sin líneas agregadas artificiales).")
+            }
+            // Prorrateo del descuento global para que Σ líneas == total (si no, SUNAT rechaza por descuadre).
+            val sumaBruta = itemsSource.sumOf { round2(it.precioUnitario * it.cantidad) }
+            val factorDesc = if (sumaBruta > 0.0 && venta != null && venta.subtotal > 0.0) {
+                (venta.total / venta.subtotal).coerceIn(0.0, 1.0)
+            } else 1.0
             itemsSource.mapIndexed { index, itm ->
-                val subtotalLinea = round2(itm.precioUnitario * itm.cantidad)
+                val precioNeto = round2(itm.precioUnitario * factorDesc)
+                val subtotalLinea = round2(precioNeto * itm.cantidad)
                 val desglose = calcularDesgloseIgv(subtotalLinea)
-                val valorUnitario = round2(itm.precioUnitario / 1.18)
+                val valorUnitario = round2(precioNeto / 1.18)
 
                 mapOf(
                     "codItem" to itm.productoId.ifBlank { "PROD-${index + 1}" },
@@ -148,7 +189,7 @@ object FacturacionPayloadBuilder {
                     "unidad" to "NIU",
                     "cantidad" to itm.cantidad,
                     "mtoValorUnitario" to valorUnitario,
-                    "mtoPrecioUnitario" to round2(itm.precioUnitario),
+                    "mtoPrecioUnitario" to precioNeto,
                     "mtoValorVenta" to desglose.baseGravada,
                     "mtoBaseIgv" to desglose.baseGravada,
                     "porcentajeIgv" to 18,
@@ -157,25 +198,6 @@ object FacturacionPayloadBuilder {
                     "totalImpuestos" to desglose.igv
                 )
             }
-        } else {
-            // Si no hubiera ítems cargados, se usa la línea agregada con el total del documento
-            val desglose = calcularDesgloseIgv(doc.total)
-            listOf(
-                mapOf(
-                    "codItem" to "ITEM-01",
-                    "descripcion" to if (tipoCodigo == "07") "DEVOLUCIÓN DE MERCADERÍA" else "CONSUMO EN FARMACIA",
-                    "unidad" to "NIU",
-                    "cantidad" to 1,
-                    "mtoValorUnitario" to desglose.baseGravada,
-                    "mtoPrecioUnitario" to desglose.total,
-                    "mtoValorVenta" to desglose.baseGravada,
-                    "mtoBaseIgv" to desglose.baseGravada,
-                    "porcentajeIgv" to 18,
-                    "igv" to desglose.igv,
-                    "tipAfeIgv" to "10",
-                    "totalImpuestos" to desglose.igv
-                )
-            )
         }
 
         val totalCalculado = round2(doc.total)
@@ -196,7 +218,7 @@ object FacturacionPayloadBuilder {
             ),
             "cliente" to mapOf(
                 "tipoDoc" to tipoDocCliente,
-                "numDoc" to numDocCliente,
+                "numDoc" to numDocClienteFinal,
                 "rznSocial" to nombreCliente
             ),
             "detalles" to detalles,
@@ -207,20 +229,17 @@ object FacturacionPayloadBuilder {
             )
         )
 
-        // Si es Nota de Crédito (tipo 07), se agrega referencia al comprobante afectado
+        // Si es Nota de Crédito (tipo 07), se exige y valida referencia al comprobante afectado
         if (tipoCodigo == "07") {
-            val tipoModificado = if (venta != null && venta.tipoComprobante.isNotBlank()) {
-                mapearTipoComprobanteSunat(venta.tipoComprobante)
-            } else {
-                "03"
+            if (venta == null || venta.serie.isBlank() || venta.correlativo <= 0L) {
+                throw IllegalArgumentException("Nota de Crédito exige comprobante origen válido con serie y correlativo.")
             }
-            val serieModificada = if (venta != null && venta.serie.isNotBlank()) venta.serie else "B001"
-            val correlativoModificado = if (venta != null && venta.correlativo > 0L) venta.correlativo.toString() else "1"
+            val tipoModificado = mapearTipoComprobanteSunat(venta.tipoComprobante)
 
             documentBody["docModificado"] = mapOf(
                 "documento" to tipoModificado,
-                "serie" to serieModificada,
-                "correlativo" to correlativoModificado,
+                "serie" to venta.serie.trim(),
+                "correlativo" to venta.correlativo.toString(),
                 "motivo" to doc.motivo.ifBlank { "DEVOLUCIÓN DE MERCADERÍA" }
             )
         }

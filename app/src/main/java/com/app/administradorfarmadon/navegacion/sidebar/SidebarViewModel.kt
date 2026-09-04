@@ -13,6 +13,7 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.app.administradorfarmadon.base_datos.FirestoreFieldUtils
 import androidx.lifecycle.viewModelScope
 import com.app.administradorfarmadon.modulos.domain.ModuloResuelto
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -75,6 +76,9 @@ class SidebarViewModel : ViewModel() {
     private val _esItinerante = MutableStateFlow(false)
     val esItinerante: StateFlow<Boolean> = _esItinerante.asStateFlow()
 
+    private val _planPermiteMultiSede = MutableStateFlow(false)
+    val planPermiteMultiSede: StateFlow<Boolean> = _planPermiteMultiSede.asStateFlow()
+
     private val _notificacionFlotante = MutableStateFlow<String?>(null)
     val notificacionFlotante: StateFlow<String?> = _notificacionFlotante.asStateFlow()
 
@@ -88,11 +92,67 @@ class SidebarViewModel : ViewModel() {
     }
 
     fun cambiarSucursalActiva(sucursalId: String, sucursalNombre: String) {
+        val clienteId = clienteIdActivo.ifBlank { com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.clienteIdGarantizado }
+        val uid = auth.currentUser?.uid ?: ""
+
+        // 1. Validar que el usuario tenga permiso para operar en múltiples sedes
+        if (!_esItinerante.value) {
+            _notificacionFlotante.value = "No tienes permiso para operar en otras sedes."
+            return
+        }
+
+        // 2. Validar que el plan contratado permita tener más de 1 sede
+        if (!_planPermiteMultiSede.value) {
+            _notificacionFlotante.value = "Tu plan actual solo permite operar en una sede."
+            return
+        }
+
+        // 3. Validar que la farmacia tenga más de 1 sede activa creada
+        val sedesActivas = _sucursalesDisponibles.value.filter { it.activa }
+        if (sedesActivas.size <= 1) {
+            _notificacionFlotante.value = "No hay otras sedes activas registradas."
+            return
+        }
+
+        // 4. Validar que la sede seleccionada exista y esté activa
+        val sedeValida = sedesActivas.find { it.id == sucursalId }
+        if (sedeValida == null) {
+            _notificacionFlotante.value = "La sede seleccionada no está disponible o está inactiva."
+            return
+        }
+
+        val nombreFinal = sedeValida.nombre.ifBlank { sucursalNombre }
+
+        // Actualizar sesión reactiva en memoria viva
         _sucursalIdEfectiva.value = sucursalId
-        _sucursalNombre.value = sucursalNombre
+        _sucursalNombre.value = nombreFinal
         com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalId = sucursalId
-        com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalNombre = sucursalNombre
-        _notificacionFlotante.value = "Operando ahora en: $sucursalNombre"
+        com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalNombre = nombreFinal
+
+        // 5. GUARDAR DIRECTAMENTE EN FIREBASE (EN LA NUBE)
+        // Se persiste en el documento del usuario en Firestore para que al cerrar sesión e ingresar
+        // desde cualquier dispositivo, Firebase recuerde y restaure esta sede automáticamente.
+        if (uid.isNotBlank()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val payload = mapOf(
+                        "ultimaSedeOperadaId" to sucursalId,
+                        "ultimaSedeOperadaNombre" to nombreFinal,
+                        "ultimaActividad" to com.google.firebase.Timestamp.now()
+                    )
+                    SidebarPaths.usuario(db, uid).set(payload, com.google.firebase.firestore.SetOptions.merge())
+                    if (clienteId.isNotBlank()) {
+                        com.app.administradorfarmadon.compartido.datos.FarmadonPaths.usuarios(db, clienteId)
+                            .document(uid).set(payload, com.google.firebase.firestore.SetOptions.merge())
+                    }
+                    Log.i(TAG, "[SEDE_CLOUD] Última sede operada guardada en Firebase: $sucursalId ($nombreFinal) para usuario $uid")
+                } catch (e: Exception) {
+                    Log.e(TAG, "[SEDE_CLOUD] Error guardando última sede en Firebase: ${e.message}", e)
+                }
+            }
+        }
+
+        _notificacionFlotante.value = "Operando ahora en: $nombreFinal"
     }
 
     private val _rolIdEfectivo = MutableStateFlow("")
@@ -195,6 +255,13 @@ class SidebarViewModel : ViewModel() {
             }
         }
 
+        // 0. Comprobación de integridad de caja: cerrar turno previo si quedó abierto de ayer
+        viewModelScope.launch {
+            try {
+                com.app.administradorfarmadon.ventas.compartido.datos.CajaRepository().verificarYCerrarTurnoDiaAnterior()
+            } catch (_: Exception) {}
+        }
+
         // 1. Escuchar Catálogo de Herramientas Global (siempre activo)
         escucharHerramientas()
 
@@ -251,6 +318,13 @@ class SidebarViewModel : ViewModel() {
                 _sucursalIdEfectiva.value = rawSucursalId.ifBlank { "principal" }
                 com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalId = rawSucursalId.ifBlank { "principal" }
                 com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalNombre = rawSucursalNombre
+            } else {
+                val actualId = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalId
+                val actualNombre = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalNombre
+                if (actualId.isNotBlank() && actualId != "todas") {
+                    _sucursalIdEfectiva.value = actualId
+                    if (actualNombre.isNotBlank()) _sucursalNombre.value = actualNombre
+                }
             }
 
             _rolNombre.value = rolNombreDirecto
@@ -304,51 +378,10 @@ class SidebarViewModel : ViewModel() {
     private fun iniciarLoopLatidoPeriodico(clienteId: String) {
         latidoJob?.cancel()
         latidoJob = viewModelScope.launch {
-            // SINCRONIZACIÓN DE HORA DEL GATE (C4 sellado): mide el offset contra
-            // Firestore al arrancar y lo refresca cada 30 latidos (~1 hora).
-            // Sin esto, `HoraServidor.ahoraMs()` es reloj local disfrazado.
-            var latidosDesdeSincronizacion = 0
-            sincronizarOffsetDelGate()
             while (isActive) {
                 emitirLatidoActividad(clienteId)
                 reevaluarPuertaVigencia()
                 delay(120_000L) // Latido periódico cada 2 minutos en segundo plano
-                latidosDesdeSincronizacion++
-                if (latidosDesdeSincronizacion >= 30) {
-                    latidosDesdeSincronizacion = 0
-                    sincronizarOffsetDelGate()
-                }
-            }
-        }
-    }
-
-    /**
-     * Mide la diferencia entre este dispositivo y el reloj de Firestore
-     * (mismo patrón del módulo de inventario) e instala el offset en
-     * [com.app.administradorfarmadon.compartido.logica.HoraServidor].
-     * Falla en silencio logueado —” degradación honesta a reloj local.
-     */
-    private suspend fun sincronizarOffsetDelGate() {
-        repeat(2) { intento ->
-            try {
-                val docRef = com.app.administradorfarmadon.compartido.datos.FarmadonFirestore.db
-                    .collection("_health").document("ping")
-                    .collection("hora_gate").document()
-                val antes = System.currentTimeMillis()
-                com.google.android.gms.tasks.Tasks.await(
-                    docRef.set(mapOf("ts" to com.google.firebase.firestore.FieldValue.serverTimestamp()))
-                )
-                val srv = docRef.get().await().getTimestamp("ts")?.toDate()?.time
-                if (srv != null) {
-                    com.app.administradorfarmadon.compartido.logica.HoraServidor.establecerOffset(
-                        srv - System.currentTimeMillis()
-                    )
-                    android.util.Log.i(TAG, "Gate: offset servidor instalado (intento ${intento + 1})")
-                    return
-                }
-                android.util.Log.w(TAG, "Sync de hora: servidor no devolvió ts (intento ${intento + 1})")
-            } catch (e: Exception) {
-                android.util.Log.w(TAG, "Sync de hora falló (intento ${intento + 1}): ${e.message}")
             }
         }
     }
@@ -454,13 +487,18 @@ class SidebarViewModel : ViewModel() {
             _sucursalesDisponibles.value = list
 
             val sucursalIdEfectiva = _sucursalIdEfectiva.value
-            if (sucursalIdEfectiva.isNotBlank() && sucursalIdEfectiva != "todas" && list.none { it.id == sucursalIdEfectiva }) {
-                val principal = list.firstOrNull { it.esPrincipal }
-                if (principal != null) {
-                    _sucursalIdEfectiva.value = principal.id
-                    _sucursalNombre.value = principal.nombre
-                    com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalId = principal.id
-                    com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalNombre = principal.nombre
+            val sedesActivas = list.filter { it.activa }
+            if (sucursalIdEfectiva.isNotBlank() && sucursalIdEfectiva != "todas") {
+                val sedeExisteYActiva = sedesActivas.any { it.id == sucursalIdEfectiva }
+                val debeVolverAPrincipal = !sedeExisteYActiva || (!_planPermiteMultiSede.value && sucursalIdEfectiva != "principal")
+                if (debeVolverAPrincipal) {
+                    val principal = list.firstOrNull { it.esPrincipal } ?: list.firstOrNull()
+                    if (principal != null) {
+                        _sucursalIdEfectiva.value = principal.id
+                        _sucursalNombre.value = principal.nombre
+                        com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalId = principal.id
+                        com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalNombre = principal.nombre
+                    }
                 }
             }
         }
@@ -654,6 +692,13 @@ class SidebarViewModel : ViewModel() {
                 _planNombre.value = planNombreSub
             }
 
+            // Regla de Negocio: El plan permite operar en múltiples sedes si maxSucursales > 1
+            val maxVal = subDoc?.getLong("maxSucursalesAlContratar")
+                ?: subDoc?.getLong("maxSucursales")
+                ?: subDoc?.getLong("max_sucursales")
+                ?: 1L
+            _planPermiteMultiSede.value = maxVal > 1L
+
             // Memoria viva para el latido-gate (reevaluación periódica).
             ultimaFechaFinVigencia = subDoc?.get("fechaFin")
             ultimaEtiquetaEstado = subDoc?.getString("estado")?.uppercase() ?: ""
@@ -807,43 +852,69 @@ class SidebarViewModel : ViewModel() {
                 moduloResuelto.modulo != "sucursales"
             }
             .filter { moduloResuelto ->
-            // RAÍZ: permisos por USUARIO con fallback fino por módulo.
-            // Si usuario tiene entrada explícita para ese módulo, usa esa.
-            // Si no, cae al rol. Si ambos vacíos, ve todo lo del plan (dueño).
-            if (permisosUsuario.containsKey(moduloResuelto.modulo)) {
-                permisosUsuario[moduloResuelto.modulo] == true
-            } else if (permisosRol.isNotEmpty()) {
-                (permisosRol[moduloResuelto.modulo] as? Map<*, *>)?.get("ver") == true ||
-                (permisosRol[moduloResuelto.nombre] as? Map<*, *>)?.get("ver") == true
-            } else {
-                true
+                tienePermisoParaModulo(moduloResuelto.modulo)
+            }.map { m ->
+                SidebarItemData(
+                    nombre = m.nombre,
+                    modulo = m.modulo,
+                    icono = m.icono,
+                    categoria = m.categoria,
+                    orden = m.orden,
+                    badge = null
+                )
             }
-        }.map { m ->
-            SidebarItemData(
-                nombre = m.nombre,
-                modulo = m.modulo,
-                icono = m.icono,
-                categoria = m.categoria,
-                orden = m.orden,
-                badge = null
-            )
-        }
 
         val listaFinal = mutableListOf<SidebarItemData>()
         listaFinal.addAll(itemsFiltrados)
-        listaFinal.add(
-            SidebarItemData(
-                nombre = "Configuración",
-                modulo = "config_farmacia",
-                icono = "settings",
-                categoria = "SISTEMA",
-                orden = 9999,
-                badge = null
+        if (tienePermisoParaModulo("configuracion")) {
+            listaFinal.add(
+                SidebarItemData(
+                    nombre = "Configuración",
+                    modulo = "config_farmacia",
+                    icono = "settings",
+                    categoria = "SISTEMA",
+                    orden = 9999,
+                    badge = null
+                )
             )
-        )
+        }
 
         _items.value = listaFinal.sortedBy { it.orden }
         _isLoading.value = false
+    }
+
+    private fun tienePermisoParaModulo(modulo: String): Boolean {
+        val m = modulo.lowercase()
+        val alias = when (m) {
+            "pos", "ventas", "punto_venta" -> listOf("pos", "ventas", "punto_venta")
+            "inventario", "medicamentos" -> listOf("inventario", "medicamentos")
+            "compras", "inventario_compras", "proveedores" -> listOf("compras", "inventario_compras", "proveedores")
+            "facturacion", "facturacion_electronica", "sunat" -> listOf("facturacion", "facturacion_electronica", "sunat")
+            "clientes", "crm" -> listOf("clientes", "crm")
+            "reportes", "analitica", "analitica_reportes", "bi" -> listOf("reportes", "analitica", "analitica_reportes", "bi")
+            "soporte", "soporte_inapp" -> listOf("soporte", "soporte_inapp")
+            "configuracion", "config_farmacia" -> listOf("configuracion", "config_farmacia", "settings")
+            else -> listOf(m)
+        }
+
+        // 1. Permisos explícitos asignados al usuario individual
+        for (a in alias) {
+            if (permisosUsuario.containsKey(a)) {
+                return permisosUsuario[a] == true
+            }
+        }
+
+        // 2. Permisos del rol
+        if (permisosRol.isNotEmpty()) {
+            for (a in alias) {
+                val perm = (permisosRol[a] as? Map<*, *>)?.get("ver")
+                if (perm != null) return perm == true
+            }
+            return false
+        }
+
+        // 3. Fallback libre (dueño / sin restricciones de rol)
+        return true
     }
 
     override fun onCleared() {

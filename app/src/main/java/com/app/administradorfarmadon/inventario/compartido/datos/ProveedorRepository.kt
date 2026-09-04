@@ -45,7 +45,7 @@ class ProveedorRepository(
         }
 
         val ref = FarmadonPaths.proveedores(db, clienteId, SessionManager.sucursalIdEfectiva)
-            .orderBy("nombre", Query.Direction.ASCENDING).limit(80)
+            .orderBy("nombre", Query.Direction.ASCENDING)
 
         val listener = ref.addSnapshotListener { snapshot, error ->
             if (error != null) {
@@ -107,20 +107,43 @@ class ProveedorRepository(
     suspend fun registrarOActualizarProveedor(proveedor: Proveedor): Result<String> {
         val clienteId = getClienteId()
         if (clienteId.isBlank()) return Result.failure(Exception("No se encontró sesión activa de farmacia."))
-        if (proveedor.nombre.isBlank()) return Result.failure(Exception("El nombre del proveedor es obligatorio."))
+        val nomLimpio = proveedor.nombre.trim()
+        val rucLimpio = proveedor.idFiscal.trim()
+        if (nomLimpio.isBlank()) return Result.failure(Exception("El nombre del proveedor es obligatorio."))
+        if (listOf("SIN PROVEEDOR", "DROGUERIA GENERAL", "SIN ASIGNAR", "N/A").any { nomLimpio.equals(it, ignoreCase = true) }) {
+            return Result.failure(Exception("Ingresa el nombre comercial o razón social real de la droguería/proveedor."))
+        }
+        if (rucLimpio.isNotBlank() && (!rucLimpio.all { it.isDigit() } || rucLimpio.length != 11)) {
+            return Result.failure(Exception("El RUC del proveedor debe tener exactamente 11 dígitos numéricos."))
+        }
 
         return try {
-            val cleanKey = cleanKey(proveedor.nombre)
+            val colRef = FarmadonPaths.proveedores(db, clienteId, SessionManager.sucursalIdEfectiva)
+            // Un RUC = una ficha: antes de crear, buscar si ya existe otra ficha con el mismo RUC.
+            // Sin esto la misma factura entra una vez por cada ficha y la deuda se duplica.
+            if (proveedor.id.isBlank() && rucLimpio.length == 11) {
+                val dupRuc = colRef.whereEqualTo("idFiscal", rucLimpio).limit(1).get().await()
+                val dupDoc = dupRuc.documents.firstOrNull()
+                if (dupDoc != null) {
+                    val dupNombre = dupDoc.getString("nombre") ?: "registrado"
+                    return Result.failure(
+                        Exception("Ya existe el proveedor '$dupNombre' con el RUC $rucLimpio. Úsalo de la lista en vez de crear otro.")
+                    )
+                }
+            }
+            val cleanKey = cleanKey(nomLimpio)
             val provId = proveedor.id.ifBlank {
-                if (cleanKey.isNotBlank()) "prov_$cleanKey" else UUID.randomUUID().toString()
+                if (rucLimpio.length == 11) "prov_$rucLimpio"
+                else if (cleanKey.isNotBlank()) "prov_$cleanKey"
+                else UUID.randomUUID().toString()
             }
 
-            val docRef = FarmadonPaths.proveedores(db, clienteId, SessionManager.sucursalIdEfectiva).document(provId)
+            val docRef = colRef.document(provId)
 
             val data = mapOf(
                 "id" to provId,
-                "nombre" to proveedor.nombre.trim(),
-                "idFiscal" to proveedor.idFiscal.trim(),
+                "nombre" to nomLimpio,
+                "idFiscal" to rucLimpio,
                 "contacto" to proveedor.contacto.trim(),
                 "telefono" to proveedor.telefono.trim(),
                 "email" to proveedor.email.trim(),
@@ -135,19 +158,13 @@ class ProveedorRepository(
                 db.runTransaction { tx ->
                     val snap = tx.get(docRef)
                     if (snap.exists()) {
-                        throw IllegalStateException("Ya existe un proveedor con el nombre '${proveedor.nombre.trim()}'. Revisa la lista antes de registrarlo.")
+                        throw IllegalStateException("Ya existe un proveedor con este RUC o identificador ('${nomLimpio}'). Revisa la lista antes de registrarlo.")
                     }
                     tx.set(docRef, data, com.google.firebase.firestore.SetOptions.merge())
                 }.await()
             } else {
                 // Edición con transacción: si otra persona ELIMINÓ el proveedor mientras
-                // se editaba, el guardado NO lo resucita. Un set(merge) sin verificación
-                // recrearía la ficha desde cero, sin su saldo a favor ni su historial
-                // (la plata se quedaría sin casa y el historial se perdería en silencio).
-                // La transacción relee el documento: se guarda solo si sigue existiendo,
-                // y un saldo a favor que cambió mientras se editaba jamás se pisa (merge
-                // solo toca los campos comerciales; el dinero nace y se mueve en sus
-                // propias transacciones).
+                // se editaba, el guardado NO lo resucita.
                 db.runTransaction { tx ->
                     val snap = tx.get(docRef)
                     if (!snap.exists()) {
@@ -179,19 +196,27 @@ class ProveedorRepository(
         facturasPendientesCount: Int
     ): Result<Unit> {
         if (proveedorNombre.isBlank()) return Result.failure(Exception("Nombre de proveedor inválido."))
-        if (facturasPendientesCount > 0) {
-            return Result.failure(Exception(
-                "No puedes eliminar este proveedor: tiene $facturasPendientesCount factura(s) pendiente(s) de pago. Liquidar primero."
-            ))
-        }
-        // La plata a favor no puede quedarse sin casa: si el proveedor nos debe dinero,
-        // su ficha no se elimina hasta que ese saldo se recupere o se declare pérdida.
         return try {
             val cleanKey = cleanKey(proveedorNombre)
             val provId = proveedorId.ifBlank { "prov_$cleanKey" }
             if (provId.isBlank()) {
                 return Result.failure(Exception("No se pudo identificar el documento del proveedor a eliminar."))
             }
+
+            // Verificación fresca de facturas pendientes en el servidor (no confiar en la UI que puede estar desactualizada)
+            val facturasSnap = FarmadonPaths.comprasFacturas(db, clienteId, sucursalId)
+                .whereEqualTo("proveedorId", provId)
+                .get().await()
+            val facturasPendientesReales = facturasSnap.documents.count { doc ->
+                val estado = doc.getString("estadoPago") ?: "PENDIENTE"
+                estado != "PAGADA" && estado != "PAGADO" && estado != "ANULADA"
+            }
+            if (facturasPendientesReales > 0) {
+                return Result.failure(Exception(
+                    "No puedes eliminar este proveedor: tiene $facturasPendientesReales factura(s) pendiente(s) de pago. Liquidar primero."
+                ))
+            }
+
             val docRef = FarmadonPaths.proveedores(db, clienteId, sucursalId).document(provId)
 
             // Candado preventivo: un proveedor con pedidos EN CAMINO no se puede borrar —
@@ -218,6 +243,17 @@ class ProveedorRepository(
             if (!productosAfiliados.isEmpty) {
                 return Result.failure(Exception(
                     "No puedes eliminar este proveedor: todavía tiene productos afiliados. Primero cambia esos productos a otro proveedor desde su ficha."
+                ))
+            }
+            // Legado: productos viejos solo guardan el nombre (campo "proveedor").
+            // Sin este candado el borrado pasa y esos productos quedan huérfanos.
+            val productosLegado = FarmadonPaths.inventario(db, clienteId, sucursalId)
+                .whereEqualTo("proveedor", proveedorNombre.trim())
+                .limit(1)
+                .get().await()
+            if (!productosLegado.isEmpty) {
+                return Result.failure(Exception(
+                    "No puedes eliminar este proveedor: todavía tiene productos afiliados por nombre (fichas antiguas). Primero cambia esos productos a otro proveedor desde su ficha."
                 ))
             }
             // Reclamos abiertos al proveedor: eliminarlo dejaría el expediente sin dueño.
@@ -320,6 +356,66 @@ class ProveedorRepository(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error vinculando producto $productoId a $proveedorNombre: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Desvinculación de un producto: limpia el proveedor asignado para que vuelva a "Sin proveedor".
+     * Preserva el historial anterior en la ficha del producto y registra el evento de auditoría.
+     */
+    suspend fun desvincularProducto(productoId: String): Result<Unit> {
+        val f = SessionManager.clienteIdGarantizado
+        val s = SessionManager.sucursalIdEfectiva
+        if (f.isBlank() || s.isBlank()) return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
+        if (productoId.isBlank()) return Result.failure(IllegalArgumentException("El producto es obligatorio."))
+        return try {
+            val tiendaRef = FarmadonPaths.sucursal(db, f, s)
+            val productRef = tiendaRef.collection("inventario").document(productoId)
+            val auditRef = tiendaRef.collection("auditorias").document("inventario")
+                .collection("productos").document()
+            db.runTransaction { tx ->
+                val snap = tx.get(productRef)
+                if (!snap.exists()) throw IllegalStateException("El producto ya no existe en inventario.")
+
+                val anteriorNombre = (snap.getString("proveedorNombre") ?: snap.getString("proveedor") ?: "").trim()
+                val anteriorId = (snap.getString("proveedorId") ?: "").trim()
+                val actorEmail = FirebaseAuth.getInstance().currentUser?.email.orEmpty()
+
+                @Suppress("UNCHECKED_CAST")
+                val historial = (snap.get("historialProveedores") as? List<Map<String, Any>>)?.toMutableList() ?: mutableListOf()
+                if (anteriorId.isNotBlank() || anteriorNombre.isNotBlank()) {
+                    historial.add(
+                        mapOf(
+                            "proveedorId" to anteriorId,
+                            "proveedorNombre" to anteriorNombre,
+                            "hastaEl" to com.google.firebase.Timestamp.now(),
+                            "cambiadoPorEmail" to actorEmail
+                        )
+                    )
+                }
+                val updates = mutableMapOf<String, Any>(
+                    "proveedor" to "",
+                    "proveedorNombre" to "",
+                    "proveedorId" to "",
+                    "actualizadoEl" to FieldValue.serverTimestamp()
+                )
+                if (historial.isNotEmpty()) updates["historialProveedores"] = historial
+                tx.update(productRef, updates)
+
+                tx.set(auditRef, mapOf(
+                    "evento" to "DESVINCULAR_PROVEEDOR_PRODUCTO",
+                    "productoId" to productoId,
+                    "productoNombre" to (snap.getString("nombre") ?: ""),
+                    "proveedorAnteriorId" to anteriorId,
+                    "proveedorAnteriorNombre" to anteriorNombre,
+                    "usuarioEmail" to actorEmail,
+                    "fecha" to FieldValue.serverTimestamp()
+                ))
+            }.await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error desvinculando producto $productoId: ${e.message}", e)
             Result.failure(e)
         }
     }

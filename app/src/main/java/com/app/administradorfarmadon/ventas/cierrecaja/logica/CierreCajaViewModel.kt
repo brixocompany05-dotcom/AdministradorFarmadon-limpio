@@ -31,7 +31,9 @@ data class CierreCajaUiState(
     val mostrarDialogoMovimiento: Boolean = false,
     val tipoMovimientoManual: String = MovimientoCaja.TIPO_INGRESO,
     val mostrarDialogoConfirmarCierre: Boolean = false,
-    val sesionCerradaResultado: CajaSesion? = null
+    val sesionCerradaResultado: CajaSesion? = null,
+    val historialSesiones: List<CajaSesion> = emptyList(),
+    val pestanaHistorialActiva: Boolean = false
 ) {
     /** Total contado físicamente sumando cada billete y moneda ingresada. */
     val totalContado: Double
@@ -60,23 +62,73 @@ class CierreCajaViewModel(
         private const val TAG = "CierreCajaViewModel"
 
         val DENOMINACIONES_BILLETES = listOf("200", "100", "50", "20", "10")
-        val DENOMINACIONES_MONEDAS = listOf("5", "2", "1", "0.50", "0.20", "0.10")
+        val DENOMINACIONES_MONEDAS = listOf("5", "2", "1", "0.50", "0.20", "0.10", "0.05")
     }
 
     private val _uiState = MutableStateFlow(CierreCajaUiState())
     val uiState: StateFlow<CierreCajaUiState> = _uiState.asStateFlow()
 
     private var jobMovimientos: Job? = null
+    private var jobEstadoCaja: Job? = null
+    private var jobHistorial: Job? = null
+    private var sucursalObserverJob: Job? = null
 
     init {
-        iniciarObservacionEstadoCaja()
+        observarCambiosDeSucursal()
+    }
+
+    private fun observarCambiosDeSucursal() {
+        sucursalObserverJob?.cancel()
+        sucursalObserverJob = viewModelScope.launch {
+            var ultimaSucursal: String? = null
+            com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalFlow.collect { sucursal ->
+                if (sucursal != ultimaSucursal) {
+                    ultimaSucursal = sucursal
+                    jobMovimientos?.cancel()
+                    jobMovimientos = null
+                    jobHistorial?.cancel()
+                    jobHistorial = null
+                    _uiState.update {
+                        it.copy(
+                            cargando = true,
+                            estadoCaja = EstadoCaja(),
+                            movimientos = emptyList(),
+                            historialSesiones = emptyList(),
+                            conteoDenominaciones = emptyMap(),
+                            error = null,
+                            mensajeExito = null
+                        )
+                    }
+                    iniciarObservacionEstadoCaja()
+                    iniciarObservacionHistorial()
+                }
+            }
+        }
+    }
+
+    private fun iniciarObservacionHistorial() {
+        jobHistorial?.cancel()
+        jobHistorial = viewModelScope.launch {
+            cajaRepository.observarHistorialSesiones(50)
+                .catch { e ->
+                    Log.e(TAG, "Error escuchando historial de caja: ${e.message}", e)
+                }
+                .collect { historial ->
+                    _uiState.update { it.copy(historialSesiones = historial) }
+                }
+        }
+    }
+
+    fun togglePestanaHistorial(mostrar: Boolean? = null) {
+        _uiState.update { it.copy(pestanaHistorialActiva = mostrar ?: !it.pestanaHistorialActiva) }
     }
 
     /**
      * Escucha en tiempo real el puntero atómico del estado de caja (R8).
      */
     private fun iniciarObservacionEstadoCaja() {
-        viewModelScope.launch {
+        jobEstadoCaja?.cancel()
+        jobEstadoCaja = viewModelScope.launch {
             _uiState.update { it.copy(cargando = true, error = null) }
             cajaRepository.observarEstadoCaja()
                 .catch { e ->

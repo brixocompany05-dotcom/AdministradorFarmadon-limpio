@@ -134,4 +134,12 @@ object FarmadonPaths {
     /** Documento único del emisor fiscal APISUNAT de la farmacia. */
     fun facturacionEmisor(db: FirebaseFirestore, farmaciaId: String): DocumentReference =
         facturacionConfig(db, farmaciaId).document("emisor")
+
+    /** Historial append-only de cambios del emisor (auditoría: qué cambió, quién, cuándo). */
+    fun facturacionEmisorHistorial(db: FirebaseFirestore, farmaciaId: String): CollectionReference =
+        facturacionConfig(db, farmaciaId).document("emisor").collection("historial")
+
+    /** Tickets de soporte e incidencias de la farmacia dirigidos a BRIXO Central (R1). */
+    fun soporteTickets(db: FirebaseFirestore, farmaciaId: String): CollectionReference =
+        farmacia(db, farmaciaId).collection("soporte_tickets")
 }

@@ -78,6 +78,7 @@ fun RecepcionMercaderiaPanel(
         numeroFactura: String,
         condicionPago: String,
         fechaVencimientoPago: String,
+        fechaEmisionPapel: String,
         montoFactura: Double,
         montoPagado: Double,
         metodoPago: String,
@@ -108,15 +109,15 @@ fun RecepcionMercaderiaPanel(
 
     Surface(
         color = FDColors.Background,
-        modifier = Modifier.fillMaxSize().onGloballyPositioned { rootY = it.positionInRoot().y }
+        modifier = Modifier.fillMaxSize().imePadding().onGloballyPositioned { rootY = it.positionInRoot().y }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            //  TOP BAR EJECUTIVA (ADAPTATIVA AL TEMA) 
+            //    TOP BAR EJECUTIVA (ADAPTATIVA AL TEMA)   
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(FDColors.Surface)
-                    .padding(horizontal = 28.dp, vertical = 20.dp),
+                    .padding(horizontal = 28.dp, vertical = 18.dp),
                 verticalAlignment = Alignment.CenterVertically, 
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -147,8 +148,8 @@ fun RecepcionMercaderiaPanel(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // PANEL IZQUIERDA: MATRIZ INDUSTRIAL (60%)
                 Surface(
@@ -158,20 +159,53 @@ fun RecepcionMercaderiaPanel(
                     border = BorderStroke(1.dp, colores.cardBorde.copy(alpha = 0.5f))
                 ) {
                     Column {
+                        // Barra superior de acciones rápidas
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "PRODUCTOS EN ESTA ORDEN",
+                                style = FDType.Label.copy(fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 1.sp),
+                                color = FDColors.TextTertiary
+                            )
+                            TextButton(
+                                onClick = {
+                                    estado.items.forEach { 
+                                        if (it.saldoPendiente > 0) it.cantidadRecibir = it.saldoPendiente.toString()
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(15.dp), tint = FDColors.Primary)
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    "Recibir todo lo pendiente",
+                                    style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                    color = FDColors.Primary
+                                )
+                            }
+                        }
+                        HorizontalDivider(thickness = 0.8.dp, color = colores.cardBorde.copy(alpha = 0.3f))
+
+                        // Encabezados de Columnas alineados 1 a 1 con las celdas
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(colores.textoPrincipal.copy(alpha = 0.03f))
-                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                                .padding(horizontal = 18.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("DESCRIPCIÓN DEL PRODUCTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(2f))
-                            Text("HOY", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.6f))
+                            Text("DESCRIPCIÓN", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(2.0f))
+                            Text("RECIBIR", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.8f))
                             Text("LOTE", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, modifier = Modifier.weight(1.1f))
                             Text("VENCE", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.9f))
                             Text("COSTO", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.End, modifier = Modifier.weight(0.9f))
-                            Text("REG", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.5f))
-                            Text("SUBTOTAL", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                            Text("BONIF.", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.Center, modifier = Modifier.weight(0.6f))
+                            Text("SUBTOTAL", style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 9.sp, fontWeight = FontWeight.Black), color = colores.textoTerciario, textAlign = TextAlign.End, modifier = Modifier.weight(1.0f))
                         }
                         HorizontalDivider(thickness = 1.dp, color = colores.cardBorde.copy(alpha = 0.4f))
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -206,11 +240,12 @@ fun RecepcionMercaderiaPanel(
                                     color = if (enfocado) colores.textoPrincipal.copy(alpha = 0.04f) else Color.Transparent
                                 ) {
                                     Column {
-                                        Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Column(Modifier.weight(2f).padding(end = 8.dp)) {
-                                                Text(item.productoNombre, style = TokensFarmadon.tipografia.titulo3.copy(fontSize = 13.5.sp, fontWeight = if(enfocado) FontWeight.Black else FontWeight.Bold), color = if (item.esCompleta) colores.textoTerciario else colores.textoPrincipal, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                                Text("${item.presentacion.ifBlank { "Und" }} · pedido ${item.cantidadPedida} · antes ${item.cantidadPrevia} · falta ${item.saldoPendiente}", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 9.5.sp), color = if (item.esCompleta) colores.estadoExito else colores.textoTerciario, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Row(modifier = Modifier.padding(horizontal = 18.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Column(Modifier.weight(2.0f).padding(end = 6.dp)) {
+                                                Text(item.productoNombre, style = TokensFarmadon.tipografia.titulo3.copy(fontSize = 13.sp, fontWeight = if(enfocado) FontWeight.Black else FontWeight.Bold), color = if (item.esCompleta) colores.textoTerciario else colores.textoPrincipal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text("${item.presentacion.ifBlank { "Und" }} · ped. ${item.cantidadPedida} · recib. ${item.cantidadPrevia} · falta ${item.saldoPendiente}", style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 9.sp), color = if (item.esCompleta) colores.estadoExito else colores.textoTerciario, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             }
+                                            CeldaIndustrialInput(item.cantidadRecibir, { item.cantidadRecibir = it.filter { c -> c.isDigit() } }, 0.8f, TextAlign.Center, KeyboardType.Number, pista = "0", enfocado = enfocado)
                                             CeldaIndustrialInput(item.loteNumero, { item.loteNumero = it.uppercase() }, 1.1f, pista = "LOTE", enfocado = enfocado, alerta = item.loteNumero.isBlank() && (item.cantidadRecibir.toIntOrNull() ?: 0) > 0)
                                             
                                             // VENCE: Selector con validación visual inmediata (R3)
@@ -224,8 +259,8 @@ fun RecepcionMercaderiaPanel(
                                             )
 
                                             CeldaIndustrialInput(item.costoUnitario, { item.costoUnitario = it.filter { c -> c.isDigit() || c == '.' || c == ',' } }, 0.9f, TextAlign.End, KeyboardType.Decimal, enfocado = enfocado)
-                                            CeldaIndustrialInput(item.bonificacionGratis, { item.bonificacionGratis = it.filter { c -> c.isDigit() } }, 0.5f, TextAlign.Center, KeyboardType.Number, "0", enfocado = enfocado)
-                                            Text(String.format(Locale.US, "%.2f", subtotal), style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace), color = colores.textoPrincipal, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                                            CeldaIndustrialInput(item.bonificacionGratis, { item.bonificacionGratis = it.filter { c -> c.isDigit() } }, 0.6f, TextAlign.Center, KeyboardType.Number, "0", enfocado = enfocado)
+                                            Text(String.format(Locale.US, "%.2f", subtotal), style = TokensFarmadon.tipografia.etiqueta.copy(fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace), color = colores.textoPrincipal, textAlign = TextAlign.End, modifier = Modifier.weight(1.0f))
                                         }
                                         // Inteligencia de lote en vivo: protege contra duplicados y mezclas.
                                         when {
@@ -317,7 +352,81 @@ fun RecepcionMercaderiaPanel(
                             simboloMoneda = simboloMoneda
                         )
 
-                        OutlinedTextField(value = estado.numeroFactura, onValueChange = { estado.onFacturaChanged(it) }, readOnly = estado.facturaContinua, label = { Text("N° FACTURA PROVEEDOR", fontSize = 10.sp) }, supportingText = if (estado.facturaContinua) ({ Text("Continuando la misma factura", fontSize = 10.sp) }) else null, singleLine = true, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FDColors.TextPrimary, unfocusedBorderColor = FDColors.Border, focusedContainerColor = FDColors.Background, unfocusedContainerColor = FDColors.Background))
+                        var mostrarDatePickerEmision by remember { mutableStateOf(false) }
+
+                        if (mostrarDatePickerEmision) {
+                            val datePickerState = rememberDatePickerState()
+                            DatePickerDialog(
+                                onDismissRequest = { mostrarDatePickerEmision = false },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        datePickerState.selectedDateMillis?.let { ms ->
+                                            val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                                            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                            estado.onFechaEmisionPapelChanged(sdf.format(Date(ms)))
+                                        }
+                                        mostrarDatePickerEmision = false
+                                    }) { Text("SELECCIONAR") }
+                                }
+                            ) {
+                                DatePicker(state = datePickerState)
+                            }
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = estado.numeroFactura,
+                                onValueChange = { estado.onFacturaChanged(it) },
+                                readOnly = estado.facturaContinua,
+                                label = { Text("N° FACTURA PROVEEDOR", fontSize = 10.sp) },
+                                supportingText = if (estado.facturaContinua) ({ Text("Misma factura", fontSize = 9.sp) }) else null,
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1.15f),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = FDColors.TextPrimary,
+                                    unfocusedBorderColor = FDColors.Border,
+                                    focusedContainerColor = FDColors.Background,
+                                    unfocusedContainerColor = FDColors.Background
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = estado.fechaEmisionPapel,
+                                onValueChange = { estado.onFechaEmisionPapelChanged(it) },
+                                readOnly = estado.facturaContinua,
+                                isError = estado.fechaEmisionInvalida,
+                                label = { Text("EMISIÓN COMPROBANTE", fontSize = 10.sp) },
+                                placeholder = { Text("DD/MM/AAAA", fontSize = 10.sp, color = FDColors.TextTertiary) },
+                                supportingText = if (estado.fechaEmisionInvalida) {
+                                    { Text("Fecha inválida o futura", fontSize = 9.sp, color = FDColors.Error) }
+                                } else if (estado.facturaContinua) {
+                                    { Text("Emisión original", fontSize = 9.sp) }
+                                } else null,
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = { mostrarDatePickerEmision = true },
+                                        enabled = !estado.facturaContinua
+                                    ) {
+                                        Icon(
+                                            Icons.Default.CalendarToday,
+                                            contentDescription = "Elegir fecha de emisión",
+                                            tint = if (estado.fechaEmisionInvalida) FDColors.Error else FDColors.Primary,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(0.95f),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = if (estado.fechaEmisionInvalida) FDColors.Error else FDColors.TextPrimary,
+                                    unfocusedBorderColor = if (estado.fechaEmisionInvalida) FDColors.Error else FDColors.Border,
+                                    focusedContainerColor = FDColors.Background,
+                                    unfocusedContainerColor = FDColors.Background
+                                )
+                            )
+                        }
 
                         OutlinedTextField(
                             value = estado.montoFacturaManual,
@@ -443,7 +552,19 @@ fun RecepcionMercaderiaPanel(
                                 val items = estado.construirItemsAAsentar()
                                 if (items != null) {
                                     estado.onErrorMostrado()
-                                    onAsentarRecepcion(estado.numeroFactura.trim().uppercase(), estado.condicionPago, if (estado.condicionPago == "Crédito") estado.fechaPagoCredito() ?: "" else "", estado.totalFacturaFinal, estado.montoPagadoFinal, estado.editorPagos.pagos.firstOrNull()?.metodoPago ?: "", estado.editorPagos.pagos, estado.saldoAFavorAplicado, items, estado.decisionFaltante == "AJUSTE")
+                                    onAsentarRecepcion(
+                                        estado.numeroFactura.trim().uppercase(),
+                                        estado.condicionPago,
+                                        if (estado.condicionPago == "Crédito") estado.fechaPagoCredito() ?: "" else "",
+                                        estado.fechaEmisionPapel,
+                                        estado.totalFacturaFinal,
+                                        estado.montoPagadoFinal,
+                                        estado.editorPagos.pagos.firstOrNull()?.metodoPago ?: "",
+                                        estado.editorPagos.pagos,
+                                        estado.saldoAFavorAplicado,
+                                        items,
+                                        estado.decisionFaltante == "AJUSTE"
+                                    )
                                 }
                             }, 
                             enabled = estado.puedeAsentar && !procesando, 
@@ -623,9 +744,9 @@ private fun obtenerNombreMes(mes: Int): String {
 
 @Composable
 private fun RowScope.CeldaIndustrialInput(valor: String, alCambiar: (String) -> Unit, peso: Float, alineado: TextAlign = TextAlign.Start, teclado: KeyboardType = KeyboardType.Text, pista: String? = null, alerta: Boolean = false, colorTexto: Color? = null, habilitado: Boolean = true, enfocado: Boolean = false) {
-    Surface(color = if (alerta) FDColors.ErrorSubtle else if (enfocado) FDColors.Background else FDColors.Background.copy(alpha = 0.5f), shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, if (alerta) FDColors.Error else if (enfocado) FDColors.TextPrimary.copy(alpha = 0.5f) else FDColors.Border.copy(alpha = 0.3f)), modifier = Modifier.weight(peso).padding(horizontal = 4.dp).height(38.dp)) {
+    Surface(color = if (alerta) FDColors.ErrorSubtle else if (enfocado) FDColors.Background else FDColors.Background.copy(alpha = 0.5f), shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, if (alerta) FDColors.Error else if (enfocado) FDColors.TextPrimary.copy(alpha = 0.5f) else FDColors.Border.copy(alpha = 0.3f)), modifier = Modifier.weight(peso).padding(horizontal = 3.dp).height(40.dp)) {
         Box(contentAlignment = when (alineado) { TextAlign.Center -> Alignment.Center; TextAlign.End -> Alignment.CenterEnd; else -> Alignment.CenterStart }, modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
-            if (valor.isEmpty() && pista != null) Text(pista, fontSize = 10.sp, color = FDColors.TextTertiary, maxLines = 1)
+            if (valor.isEmpty() && pista != null) Text(pista, fontSize = 10.5.sp, color = FDColors.TextTertiary, maxLines = 1)
             BasicTextField(value = valor, onValueChange = alCambiar, singleLine = true, enabled = habilitado, keyboardOptions = KeyboardOptions(keyboardType = teclado), textStyle = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = alineado, color = colorTexto ?: FDColors.TextPrimary, fontFamily = FontFamily.Monospace), modifier = Modifier.fillMaxWidth(), cursorBrush = SolidColor(FDColors.TextPrimary))
         }
     }

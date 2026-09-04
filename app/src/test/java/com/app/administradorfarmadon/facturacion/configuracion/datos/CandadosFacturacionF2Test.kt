@@ -45,6 +45,17 @@ class CandadosFacturacionF2Test {
     fun puedeCobrar_conEmisorCompleto_retornaTrueCuandoTodoEstaListo() {
         val stateListoConEmisor = NuevaVentaUiState(
             emisorCompleto = true, // CANDADO F2: emisor verificado ok
+            checklist = com.app.administradorfarmadon.ventas.compartido.modelo.ChecklistAperturaSede(
+                farmaciaActiva = true,
+                suscripcionValida = true,
+                sedeActiva = true,
+                emisorFiscalCompleto = true,
+                seriesFiscalesCompletas = true,
+                metodosPagoConfigurados = true,
+                cantidadMetodosActivos = 1,
+                posConfigGuardado = true,
+                cajaAbierta = true
+            ),
             estadoCaja = EstadoCaja(estado = CajaSesion.ESTADO_ABIERTA),
             carrito = listOf(
                 ItemVenta(

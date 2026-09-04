@@ -14,6 +14,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import java.util.Locale
 
 /**
  * Repositorio Oficial de Facturas de Compra (Cuentas por Pagar Multi-Tenant).
@@ -24,6 +25,205 @@ class FacturaCompraRepository(
 ) {
     companion object {
         private const val TAG = "FacturaCompraRepository"
+
+        fun mapear(doc: com.google.firebase.firestore.DocumentSnapshot): FacturaCompra? {
+            return try {
+                val id = doc.id
+                val num = doc.getString("numeroFactura") ?: id
+                val provId = doc.getString("proveedorId") ?: ""
+                val provNombre = doc.getString("proveedorNombre") ?: ""
+                val ruc = doc.getString("rucProveedor") ?: ""
+                val condicion = doc.getString("condicionPago") ?: "Contado"
+                val vencPago = doc.getString("fechaVencimientoPago") ?: ""
+                val estado = doc.getString("estadoPago") ?: "PENDIENTE"
+                val totalDoc = doc.getDouble("montoTotal")
+                    ?: doc.getDouble("total")
+                    ?: doc.getDouble("monto")
+                    ?: doc.getDouble("montoFactura")
+                    ?: 0.0
+                val montoAcumulado = doc.getDouble("montoAcumulado") ?: 0.0
+                val usuario = doc.getString("usuarioRegistroEmail") ?: ""
+                val notas = doc.getString("notas") ?: ""
+
+                val creadoTimestamp = doc.getTimestamp("creadoEl")
+                val fechaRegistroStr = if (creadoTimestamp != null) {
+                    val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+                    sdf.format(creadoTimestamp.toDate())
+                } else {
+                    doc.getString("fechaEmision") ?: doc.getString("fecha") ?: ""
+                }
+
+                val itemsRaw = doc.get("items") as? List<*>
+                val itemsList = itemsRaw?.mapNotNull { itemMap ->
+                    if (itemMap is Map<*, *>) {
+                        val pNombre = (itemMap["productoNombre"] as? String)
+                            ?: (itemMap["nombre"] as? String)
+                            ?: (itemMap["descripcion"] as? String)
+                            ?: "Producto"
+                        val cantComp = (itemMap["cantidadComprada"] as? Number)?.toDouble()
+                            ?: (itemMap["cantidad"] as? Number)?.toDouble()
+                            ?: (itemMap["unidades"] as? Number)?.toDouble()
+                            ?: 0.0
+                        val cantTot = (itemMap["cantidadTotal"] as? Number)?.toDouble() ?: cantComp
+                        val cTot = (itemMap["costoTotal"] as? Number)?.toDouble()
+                            ?: (itemMap["subtotal"] as? Number)?.toDouble()
+                            ?: (itemMap["monto"] as? Number)?.toDouble()
+                            ?: (itemMap["total"] as? Number)?.toDouble()
+                            ?: 0.0
+                        val cUnit = (itemMap["costoUnitario"] as? Number)?.toDouble()
+                            ?: (itemMap["precioUnitario"] as? Number)?.toDouble()
+                            ?: (itemMap["precioCompra"] as? Number)?.toDouble()
+                            ?: (itemMap["costo"] as? Number)?.toDouble()
+                            ?: 0.0
+
+                        val finalCostoUnit = if (cUnit > 0) cUnit else if (cantComp > 0 && cTot > 0) cTot / cantComp else 0.0
+                        val finalCostoTot = if (cTot > 0) cTot else if (cUnit > 0 && cantComp > 0) cUnit * cantComp else 0.0
+
+                        ItemFacturaCompra(
+                            productoId = itemMap["productoId"] as? String ?: (itemMap["id"] as? String ?: ""),
+                            productoNombre = pNombre,
+                            empaque = itemMap["empaque"] as? String ?: (itemMap["presentacion"] as? String ?: ""),
+                            loteNumero = itemMap["loteNumero"] as? String ?: (itemMap["lote"] as? String ?: ""),
+                            vencimiento = itemMap["vencimiento"] as? String ?: (itemMap["fechaVencimiento"] as? String ?: ""),
+                            cantidadTotal = cantTot,
+                            cantidadComprada = cantComp,
+                            bonificacionGratis = (itemMap["bonificacionGratis"] as? Number)?.toDouble() ?: 0.0,
+                            costoTotal = finalCostoTot,
+                            costoUnitario = finalCostoUnit
+                        )
+                    } else null
+                } ?: emptyList()
+
+                val montoPagado = doc.getDouble("montoPagado") ?: 0.0
+
+                val abonosRaw = doc.get("abonos") as? List<*>
+                val abonosList = abonosRaw?.mapNotNull { abMap ->
+                    if (abMap is Map<*, *>) {
+                        @Suppress("UNCHECKED_CAST")
+                        val pagosRaw = abMap["pagos"] as? List<Map<String, Any>>
+                        val pagosList = pagosRaw?.mapNotNull { p ->
+                            if (p is Map<*, *>) {
+                                com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                                    metodoPago = p["metodoPago"] as? String ?: "",
+                                    monto = (p["monto"] as? Number)?.toDouble() ?: 0.0,
+                                    numeroOperacion = p["numeroOperacion"] as? String ?: ""
+                                )
+                            } else null
+                        } ?: emptyList()
+                        val metodoLegacy = abMap["metodoPago"] as? String ?: ""
+                        val opLegacy = abMap["numeroOperacion"] as? String ?: ""
+                        com.app.administradorfarmadon.inventario.compartido.modelo.AbonoFactura(
+                            id = abMap["id"] as? String ?: "",
+                            fechaLegible = abMap["fechaLegible"] as? String ?: "",
+                            fechaMs = (abMap["fechaMs"] as? Number)?.toLong() ?: 0L,
+                            monto = (abMap["monto"] as? Number)?.toDouble() ?: 0.0,
+                            metodoPago = metodoLegacy,
+                            numeroOperacion = opLegacy,
+                            pagos = if (pagosList.isNotEmpty()) pagosList
+                                    else if (metodoLegacy.isNotBlank()) listOf(
+                                        com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
+                                            metodoPago = metodoLegacy,
+                                            monto = (abMap["monto"] as? Number)?.toDouble() ?: 0.0,
+                                            numeroOperacion = opLegacy
+                                        )
+                                    ) else emptyList(),
+                            usuarioNombre = abMap["usuarioNombre"] as? String ?: "",
+                            usuarioEmail = abMap["usuarioEmail"] as? String ?: "",
+                            notas = abMap["notas"] as? String ?: "",
+                            anulado = abMap["anulado"] == true,
+                            anuladoPorNombre = abMap["anuladoPorNombre"] as? String ?: "",
+                            anuladoPorEmail = abMap["anuladoPorEmail"] as? String ?: "",
+                            anuladoElLegible = abMap["anuladoElLegible"] as? String ?: "",
+                            motivoAnulacion = abMap["motivoAnulacion"] as? String ?: ""
+                        )
+                    } else null
+                } ?: emptyList()
+
+                val ajustesRaw = doc.get("ajustesFactura") as? List<*>
+                val ajustesList = ajustesRaw?.mapNotNull { aMap ->
+                    if (aMap is Map<*, *>) {
+                        AjusteFactura(
+                            id = aMap["id"] as? String ?: "",
+                            tipo = aMap["tipo"] as? String ?: "NOTA_CREDITO",
+                            numeroDocumento = aMap["numeroDocumento"] as? String ?: "",
+                            monto = (aMap["monto"] as? Number)?.toDouble() ?: 0.0,
+                            motivo = aMap["motivo"] as? String ?: "",
+                            fechaLegible = aMap["fechaLegible"] as? String ?: "",
+                            fechaMs = (aMap["fechaMs"] as? Number)?.toLong() ?: 0L,
+                            usuarioNombre = aMap["usuarioNombre"] as? String ?: "",
+                            usuarioEmail = aMap["usuarioEmail"] as? String ?: ""
+                        )
+                    } else null
+                } ?: emptyList()
+
+                val totalFinal = totalDoc.takeIf { it > 0.0 } ?: itemsList.sumOf { it.costoTotal }
+
+                val motivoAnulacion = doc.getString("motivoAnulacion") ?: ""
+                val anuladoPorEmail = doc.getString("anuladoPorEmail") ?: ""
+                val anuladoPorNombre = doc.getString("anuladoPorNombre") ?: ""
+                val anuladoElLegible = doc.getTimestamp("anuladoEl")?.let { ts ->
+                    val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+                    sdf.format(ts.toDate())
+                } ?: ""
+                val anulacionPlataMap = doc.get("anulacionPlata") as? Map<*, *>
+                val anulacionPlata = if (anulacionPlataMap != null) RespuestaPlataAnulacion(
+                    decision = anulacionPlataMap["decision"] as? String ?: "",
+                    monto = (anulacionPlataMap["monto"] as? Number)?.toDouble() ?: 0.0,
+                    metodoDevolucion = anulacionPlataMap["metodoDevolucion"] as? String ?: "",
+                    referenciaDevolucion = anulacionPlataMap["referenciaDevolucion"] as? String ?: "",
+                    fechaLegible = anulacionPlataMap["fechaLegible"] as? String ?: "",
+                    fechaMs = (anulacionPlataMap["fechaMs"] as? Number)?.toLong() ?: 0L,
+                    usuarioNombre = anulacionPlataMap["usuarioNombre"] as? String ?: "",
+                    usuarioEmail = anulacionPlataMap["usuarioEmail"] as? String ?: ""
+                ) else null
+
+                val tipoDoc = doc.getString("tipoDoc") ?: "FACTURA"
+                val serie = doc.getString("serie") ?: (if (num.contains("-")) num.substringBefore("-") else "")
+                val correlativo = doc.getString("correlativo") ?: (if (num.contains("-")) num.substringAfter("-") else num)
+                val fEmision = doc.getString("fechaEmision") ?: doc.getString("fecha") ?: ""
+                val mBase = doc.getDouble("montoBase") ?: 0.0
+                val mIgv = doc.getDouble("montoIgv") ?: 0.0
+
+                val sucursalId = doc.getString("sucursalId") ?: doc.reference.parent.parent?.id ?: ""
+                val farmaciaId = doc.getString("farmaciaId") ?: doc.reference.parent.parent?.parent?.parent?.id ?: ""
+
+                FacturaCompra(
+                    id = id,
+                    numeroFactura = num,
+                    proveedorId = provId,
+                    proveedorNombre = provNombre,
+                    rucProveedor = ruc,
+                    condicionPago = condicion,
+                    fechaVencimientoPago = vencPago,
+                    estadoPago = estado,
+                    montoTotal = totalFinal,
+                    montoAcumulado = montoAcumulado,
+                    montoPagado = montoPagado,
+                    abonos = abonosList,
+                    items = itemsList,
+                    usuarioRegistroEmail = usuario,
+                    notas = notas,
+                    fechaRegistro = fechaRegistroStr,
+                    tipoDoc = tipoDoc,
+                    serie = serie,
+                    correlativo = correlativo,
+                    montoBase = mBase,
+                    montoIgv = mIgv,
+                    fechaEmision = fEmision,
+                    ajustesFactura = ajustesList,
+                    motivoAnulacion = motivoAnulacion,
+                    anuladoPorEmail = anuladoPorEmail,
+                    anuladoPorNombre = anuladoPorNombre,
+                    anuladoElLegible = anuladoElLegible,
+                    anulacionPlata = anulacionPlata,
+                    sucursalId = sucursalId,
+                    farmaciaId = farmaciaId
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error mapeando factura ${doc.id}: ${e.message}")
+                null
+            }
+        }
     }
 
     private fun getClienteId(): String {
@@ -62,187 +262,42 @@ class FacturaCompraRepository(
         }
     }
 
-    private fun mapearFactura(doc: com.google.firebase.firestore.DocumentSnapshot): FacturaCompra? {
-        return try {
-            val id = doc.id
-            val num = doc.getString("numeroFactura") ?: id
-            val provId = doc.getString("proveedorId") ?: ""
-            val provNombre = doc.getString("proveedorNombre") ?: ""
-            val ruc = doc.getString("rucProveedor") ?: ""
-            val condicion = doc.getString("condicionPago") ?: "Contado"
-            val vencPago = doc.getString("fechaVencimientoPago") ?: ""
-            val estado = doc.getString("estadoPago") ?: "PENDIENTE"
-            val totalDoc = doc.getDouble("montoTotal")
-                ?: doc.getDouble("total")
-                ?: doc.getDouble("monto")
-                ?: doc.getDouble("montoFactura")
-                ?: 0.0
-            val montoAcumulado = doc.getDouble("montoAcumulado") ?: 0.0
-            val usuario = doc.getString("usuarioRegistroEmail") ?: ""
-            val notas = doc.getString("notas") ?: ""
+    private fun mapearFactura(doc: com.google.firebase.firestore.DocumentSnapshot): FacturaCompra? = mapear(doc)
 
-            val creadoTimestamp = doc.getTimestamp("creadoEl")
-            val fechaRegistroStr = if (creadoTimestamp != null) {
-                val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
-                sdf.format(creadoTimestamp.toDate())
-            } else {
-                doc.getString("fechaEmision") ?: doc.getString("fecha") ?: ""
+    /**
+     * Escucha viva en tiempo real de una factura de compra específica por su ID (R8).
+     * Permite que diálogos o vistas de detalle se actualicen en vivo ante abonos, ajustes o anulaciones.
+     */
+    fun observarFacturaPorId(
+        facturaId: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Flow<FacturaCompra?> = callbackFlow {
+        val clienteId = farmaciaIdParam?.takeIf { it.isNotBlank() } ?: getClienteId()
+        val sucursalId = sucursalIdParam?.takeIf { it.isNotBlank() } ?: SessionManager.sucursalIdEfectiva
+        if (clienteId.isBlank() || facturaId.isBlank()) {
+            trySend(null)
+            close()
+            return@callbackFlow
+        }
+
+        val docRef = FarmadonPaths.comprasFacturas(db, clienteId, sucursalId).document(facturaId)
+        val listener = docRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "Error escuchando factura viva ($facturaId): ${error.message}", error)
+                close(error)
+                return@addSnapshotListener
             }
+            if (snapshot != null && snapshot.exists()) {
+                val f = mapear(snapshot)
+                trySend(f)
+            } else {
+                trySend(null)
+            }
+        }
 
-            val itemsRaw = doc.get("items") as? List<*>
-            val itemsList = itemsRaw?.mapNotNull { itemMap ->
-                if (itemMap is Map<*, *>) {
-                    val pNombre = (itemMap["productoNombre"] as? String)
-                        ?: (itemMap["nombre"] as? String)
-                        ?: (itemMap["descripcion"] as? String)
-                        ?: "Producto"
-                    val cantComp = (itemMap["cantidadComprada"] as? Number)?.toDouble()
-                        ?: (itemMap["cantidad"] as? Number)?.toDouble()
-                        ?: (itemMap["unidades"] as? Number)?.toDouble()
-                        ?: 0.0
-                    val cantTot = (itemMap["cantidadTotal"] as? Number)?.toDouble() ?: cantComp
-                    val cTot = (itemMap["costoTotal"] as? Number)?.toDouble()
-                        ?: (itemMap["subtotal"] as? Number)?.toDouble()
-                        ?: (itemMap["monto"] as? Number)?.toDouble()
-                        ?: (itemMap["total"] as? Number)?.toDouble()
-                        ?: 0.0
-                    val cUnit = (itemMap["costoUnitario"] as? Number)?.toDouble()
-                        ?: (itemMap["precioUnitario"] as? Number)?.toDouble()
-                        ?: (itemMap["precioCompra"] as? Number)?.toDouble()
-                        ?: (itemMap["costo"] as? Number)?.toDouble()
-                        ?: 0.0
-
-                    val finalCostoUnit = if (cUnit > 0) cUnit else if (cantComp > 0 && cTot > 0) cTot / cantComp else 0.0
-                    val finalCostoTot = if (cTot > 0) cTot else if (cUnit > 0 && cantComp > 0) cUnit * cantComp else 0.0
-
-                    ItemFacturaCompra(
-                        productoId = itemMap["productoId"] as? String ?: (itemMap["id"] as? String ?: ""),
-                        productoNombre = pNombre,
-                        empaque = itemMap["empaque"] as? String ?: (itemMap["presentacion"] as? String ?: ""),
-                        loteNumero = itemMap["loteNumero"] as? String ?: (itemMap["lote"] as? String ?: ""),
-                        vencimiento = itemMap["vencimiento"] as? String ?: (itemMap["fechaVencimiento"] as? String ?: ""),
-                        cantidadTotal = cantTot,
-                        cantidadComprada = cantComp,
-                        bonificacionGratis = (itemMap["bonificacionGratis"] as? Number)?.toDouble() ?: 0.0,
-                        costoTotal = finalCostoTot,
-                        costoUnitario = finalCostoUnit
-                    )
-                } else null
-            } ?: emptyList()
-
-            val montoPagado = doc.getDouble("montoPagado") ?: 0.0
-
-            val abonosRaw = doc.get("abonos") as? List<*>
-            val abonosList = abonosRaw?.mapNotNull { abMap ->
-                if (abMap is Map<*, *>) {
-                    @Suppress("UNCHECKED_CAST")
-                    val pagosRaw = abMap["pagos"] as? List<Map<String, Any>>
-                    val pagosList = pagosRaw?.mapNotNull { p ->
-                        if (p is Map<*, *>) {
-                            com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
-                                metodoPago = p["metodoPago"] as? String ?: "",
-                                monto = (p["monto"] as? Number)?.toDouble() ?: 0.0,
-                                numeroOperacion = p["numeroOperacion"] as? String ?: ""
-                            )
-                        } else null
-                    } ?: emptyList()
-                    val metodoLegacy = abMap["metodoPago"] as? String ?: ""
-                    val opLegacy = abMap["numeroOperacion"] as? String ?: ""
-                    com.app.administradorfarmadon.inventario.compartido.modelo.AbonoFactura(
-                        id = abMap["id"] as? String ?: "",
-                        fechaLegible = abMap["fechaLegible"] as? String ?: "",
-                        fechaMs = (abMap["fechaMs"] as? Number)?.toLong() ?: 0L,
-                        monto = (abMap["monto"] as? Number)?.toDouble() ?: 0.0,
-                        metodoPago = metodoLegacy,
-                        numeroOperacion = opLegacy,
-                        pagos = if (pagosList.isNotEmpty()) pagosList
-                                else if (metodoLegacy.isNotBlank()) listOf(
-                                    com.app.administradorfarmadon.compras.pagos.datos.PagoDetalle(
-                                        metodoPago = metodoLegacy,
-                                        monto = (abMap["monto"] as? Number)?.toDouble() ?: 0.0,
-                                        numeroOperacion = opLegacy
-                                    )
-                                ) else emptyList(),
-                        usuarioNombre = abMap["usuarioNombre"] as? String ?: "",
-                        usuarioEmail = abMap["usuarioEmail"] as? String ?: "",
-                        notas = abMap["notas"] as? String ?: "",
-                        anulado = abMap["anulado"] == true,
-                        anuladoPorNombre = abMap["anuladoPorNombre"] as? String ?: "",
-                        anuladoPorEmail = abMap["anuladoPorEmail"] as? String ?: "",
-                        anuladoElLegible = abMap["anuladoElLegible"] as? String ?: "",
-                        motivoAnulacion = abMap["motivoAnulacion"] as? String ?: ""
-                    )
-                } else null
-            } ?: emptyList()
-
-            val ajustesRaw = doc.get("ajustesFactura") as? List<*>
-            val ajustesList = ajustesRaw?.mapNotNull { aMap ->
-                if (aMap is Map<*, *>) {
-                    AjusteFactura(
-                        id = aMap["id"] as? String ?: "",
-                        tipo = aMap["tipo"] as? String ?: "NOTA_CREDITO",
-                        numeroDocumento = aMap["numeroDocumento"] as? String ?: "",
-                        monto = (aMap["monto"] as? Number)?.toDouble() ?: 0.0,
-                        motivo = aMap["motivo"] as? String ?: "",
-                        fechaLegible = aMap["fechaLegible"] as? String ?: "",
-                        fechaMs = (aMap["fechaMs"] as? Number)?.toLong() ?: 0L,
-                        usuarioNombre = aMap["usuarioNombre"] as? String ?: "",
-                        usuarioEmail = aMap["usuarioEmail"] as? String ?: ""
-                    )
-                } else null
-            } ?: emptyList()
-
-            // El total del papel manda. Los items solo representan lo recibido hasta ahora.
-            // Una factura puede llegar parcialmente y no por eso cambia su total comercial.
-            val totalFinal = totalDoc.takeIf { it > 0.0 } ?: itemsList.sumOf { it.costoTotal }
-
-            // ── Campos de anulación (el papel anulado se lee igual que el vivo) ──
-            val motivoAnulacion = doc.getString("motivoAnulacion") ?: ""
-            val anuladoPorEmail = doc.getString("anuladoPorEmail") ?: ""
-            val anuladoPorNombre = doc.getString("anuladoPorNombre") ?: ""
-            val anuladoElLegible = doc.getTimestamp("anuladoEl")?.let { ts ->
-                val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
-                sdf.format(ts.toDate())
-            } ?: ""
-            val anulacionPlataMap = doc.get("anulacionPlata") as? Map<*, *>
-            val anulacionPlata = if (anulacionPlataMap != null) RespuestaPlataAnulacion(
-                decision = anulacionPlataMap["decision"] as? String ?: "",
-                monto = (anulacionPlataMap["monto"] as? Number)?.toDouble() ?: 0.0,
-                metodoDevolucion = anulacionPlataMap["metodoDevolucion"] as? String ?: "",
-                referenciaDevolucion = anulacionPlataMap["referenciaDevolucion"] as? String ?: "",
-                fechaLegible = anulacionPlataMap["fechaLegible"] as? String ?: "",
-                fechaMs = (anulacionPlataMap["fechaMs"] as? Number)?.toLong() ?: 0L,
-                usuarioNombre = anulacionPlataMap["usuarioNombre"] as? String ?: "",
-                usuarioEmail = anulacionPlataMap["usuarioEmail"] as? String ?: ""
-            ) else null
-
-            FacturaCompra(
-                id = id,
-                numeroFactura = num,
-                proveedorId = provId,
-                proveedorNombre = provNombre,
-                rucProveedor = ruc,
-                condicionPago = condicion,
-                fechaVencimientoPago = vencPago,
-                estadoPago = estado,
-                montoTotal = totalFinal,
-                montoAcumulado = montoAcumulado,
-                montoPagado = montoPagado,
-                abonos = abonosList,
-                items = itemsList,
-                usuarioRegistroEmail = usuario,
-                notas = notas,
-                fechaRegistro = fechaRegistroStr,
-                ajustesFactura = ajustesList,
-                motivoAnulacion = motivoAnulacion,
-                anuladoPorEmail = anuladoPorEmail,
-                anuladoPorNombre = anuladoPorNombre,
-                anuladoElLegible = anuladoElLegible,
-                anulacionPlata = anulacionPlata
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error mapeando factura ${doc.id}: ${e.message}")
-            null
+        awaitClose {
+            listener.remove()
         }
     }
 
@@ -286,7 +341,10 @@ class FacturaCompraRepository(
             val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
             val fechaLegible = sdf.format(java.util.Date(ahoraMs))
 
-            val idAbono = idempotenciaId.trim().ifBlank { java.util.UUID.randomUUID().toString() }
+            val huellaAbono = "abono_${facturaId}_${String.format(Locale.US, "%.2f", monto)}_${pagosFinales.first().metodoPago}_${pagosFinales.first().numeroOperacion}"
+            val idAbono = idempotenciaId.trim().ifBlank {
+                "abn_" + Math.abs(huellaAbono.hashCode()).toString()
+            }
             val nuevoAbonoMap = mapOf(
                 "id" to idAbono,
                 "fechaLegible" to fechaLegible,
@@ -391,7 +449,10 @@ class FacturaCompraRepository(
             val sdf = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
             val fechaLegible = sdf.format(java.util.Date(ahoraMs))
 
-            val idAjuste = idempotenciaId.trim().ifBlank { java.util.UUID.randomUUID().toString() }
+            val huellaNota = "nota_${facturaId}_${numDoc}_${String.format(Locale.US, "%.2f", monto)}"
+            val idAjuste = idempotenciaId.trim().ifBlank {
+                "nc_" + Math.abs(huellaNota.hashCode()).toString()
+            }
             val nuevoAjusteMap = mapOf(
                 "id" to idAjuste,
                 "tipo" to "NOTA_CREDITO",
@@ -504,16 +565,10 @@ class FacturaCompraRepository(
                             )
                         )
                     } else {
-                        tx.set(
-                            provRefNc,
-                            mapOf(
-                                "id" to fact.proveedorId,
-                                "nombre" to fact.proveedorNombre,
-                                "saldoAFavor" to excesoPagado,
-                                "historialSaldoAFavor" to listOf(entradaSaldo),
-                                "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                            ),
-                            com.google.firebase.firestore.SetOptions.merge()
+                        throw IllegalStateException(
+                            "El proveedor '${fact.proveedorNombre.ifBlank { "de esta factura" }}' fue eliminado y la nota deja S/ " +
+                                String.format(java.util.Locale.US, "%.2f", excesoPagado) +
+                                " pagados de más sin dónde guardarse. Crea de nuevo la ficha del proveedor y reintenta: nada se guardó."
                         )
                     }
                 }

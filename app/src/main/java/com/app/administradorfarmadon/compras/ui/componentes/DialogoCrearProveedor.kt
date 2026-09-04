@@ -22,13 +22,17 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.ui.AplicarBloqueoTecladoVentana
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDBotonPrimario
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDBotonSecundario
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDCampoTexto
 import com.app.administradorfarmadon.disenotemaapp.ui.componentes.FDDialogoContenedor
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
+import com.app.administradorfarmadon.compartido.datos.ApiDocumentosPeru
+import com.app.administradorfarmadon.compartido.datos.ResultadoConsultaDoc
 import com.app.administradorfarmadon.inventario.compartido.modelo.Proveedor
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 @Composable
@@ -49,12 +53,14 @@ fun DialogoCrearProveedor(
 ) {
     val colores = TokensFarmadon.colores
 
-    var nombre by remember { mutableStateOf(proveedorEditando?.nombre ?: "") }
-    var idFiscal by remember { mutableStateOf(proveedorEditando?.idFiscal ?: "") }
-    var telefono by remember { mutableStateOf(proveedorEditando?.telefono ?: "") }
-    var email by remember { mutableStateOf(proveedorEditando?.email ?: "") }
-    var direccion by remember { mutableStateOf(proveedorEditando?.direccion ?: "") }
-    var montoMinimoTexto by remember {
+    val claveEdicion = proveedorEditando?.id ?: "nuevo"
+    var nombre by remember(claveEdicion) { mutableStateOf(proveedorEditando?.nombre ?: "") }
+    var contacto by remember(claveEdicion) { mutableStateOf(proveedorEditando?.contacto ?: "") }
+    var idFiscal by remember(claveEdicion) { mutableStateOf(proveedorEditando?.idFiscal ?: "") }
+    var telefono by remember(claveEdicion) { mutableStateOf(proveedorEditando?.telefono ?: "") }
+    var email by remember(claveEdicion) { mutableStateOf(proveedorEditando?.email ?: "") }
+    var direccion by remember(claveEdicion) { mutableStateOf(proveedorEditando?.direccion ?: "") }
+    var montoMinimoTexto by remember(claveEdicion) {
         mutableStateOf(
             if (proveedorEditando != null && proveedorEditando.montoMinimoPedido > 0)
                 String.format(Locale.US, "%.2f", proveedorEditando.montoMinimoPedido)
@@ -68,7 +74,13 @@ fun DialogoCrearProveedor(
     val dominiosComunes = listOf("@gmail.com", "@outlook.com", "@hotmail.com", "@yahoo.com", "@empresa.com")
     val esEdicion = proveedorEditando != null
 
-    val formularioValido = nombre.trim().isNotBlank() && idFiscal.trim().isNotBlank()
+    val scope = rememberCoroutineScope()
+    var consultandoRuc by remember { mutableStateOf(false) }
+
+    val rucLimpio = idFiscal.trim()
+    // Misma regla que el servidor (11 dígitos): el error se ve aquí, no en un viaje de ida y vuelta.
+    val rucValido = rucLimpio.length == 11 && rucLimpio.all { it.isDigit() }
+    val formularioValido = nombre.trim().isNotBlank() && rucValido
 
     FDDialogoContenedor(
         titulo = if (esEdicion) "EDITAR PROVEEDOR" else "REGISTRAR NUEVO PROVEEDOR",
@@ -109,19 +121,51 @@ fun DialogoCrearProveedor(
 
                 FDCampoTexto(
                     valor = idFiscal,
-                    onValorCambio = { idFiscal = it },
-                    etiqueta = "RUC / DOCUMENTO FISCAL",
+                    onValorCambio = { nuevo ->
+                        val soloDigitos = nuevo.filter { it.isDigit() }.take(11)
+                        idFiscal = soloDigitos
+                        if (soloDigitos.length == 11 && !esEdicion) {
+                            scope.launch {
+                                consultandoRuc = true
+                                when (val res = ApiDocumentosPeru.consultar("RUC", soloDigitos)) {
+                                    is ResultadoConsultaDoc.Encontrado -> {
+                                        if (nombre.isBlank()) nombre = res.nombreCompleto
+                                        if (direccion.isBlank() && res.direccion.isNotBlank()) direccion = res.direccion
+                                    }
+                                    else -> {}
+                                }
+                                consultandoRuc = false
+                            }
+                        }
+                    },
+                    etiqueta = if (consultandoRuc) "RUC (CONSULTANDO SUNAT...)" else "RUC / DOCUMENTO FISCAL",
                     placeholder = "",
-                    iconoInicio = Icons.Default.Badge,
+                    iconoInicio = if (consultandoRuc) Icons.Default.HourglassTop else Icons.Default.Badge,
                     esObligatorio = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number,
                         imeAction = ImeAction.Next
                     ),
-                    habilitado = !guardando,
+                    habilitado = !guardando && !consultandoRuc,
                     modifier = Modifier.weight(1f)
                 )
             }
+
+            // Asesor comercial: antes no existía el campo y siempre quedaba "No asignado".
+            FDCampoTexto(
+                valor = contacto,
+                onValorCambio = { contacto = it },
+                etiqueta = "ASESOR COMERCIAL (OPCIONAL)",
+                placeholder = "Nombre del vendedor de la droguería",
+                iconoInicio = Icons.Default.Person,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Words,
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Next
+                ),
+                habilitado = !guardando,
+                modifier = Modifier.fillMaxWidth()
+            )
 
             // FILA 2 (50% / 50%): Teléfono/WhatsApp + Correo con Dropdown
             Row(
@@ -228,7 +272,7 @@ fun DialogoCrearProveedor(
                         montoMinimoTexto = nuevo.filter { it.isDigit() || it == '.' || it == ',' }
                         errorMontoMinimo = null
                     },
-                    etiqueta = "PEDIDO MÍNIMO DE DESPACHO ($) (OPCIONAL)",
+                    etiqueta = "PEDIDO MÍNIMO DE DESPACHO (${SessionManager.monedaSimbolo.ifBlank { "S/" }}) (OPCIONAL)",
                     placeholder = "0.00",
                     iconoInicio = Icons.Default.ShoppingBag,
                     textoError = errorMontoMinimo,
@@ -309,7 +353,7 @@ fun DialogoCrearProveedor(
                         onGuardar(
                             nombre.trim(),
                             idFiscal.trim(),
-                            "",
+                            contacto.trim(),
                             telefono.trim(),
                             email.trim(),
                             direccion.trim(),
@@ -317,7 +361,7 @@ fun DialogoCrearProveedor(
                         )
                     }
                 },
-                habilitado = !guardando && formularioValido,
+                habilitado = !guardando && !consultandoRuc && formularioValido,
                 cargando = guardando,
                 modifier = Modifier.weight(1f)
             )

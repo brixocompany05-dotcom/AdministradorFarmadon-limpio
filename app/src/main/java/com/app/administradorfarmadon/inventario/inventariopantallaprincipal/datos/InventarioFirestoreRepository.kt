@@ -12,6 +12,7 @@ import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logi
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.flow.Flow
@@ -239,12 +240,36 @@ class InventarioFirestoreRepository(
                 query = query.startAfter(startAfterDoc)
             }
             val snap = query.get().await()
-            val listaPharm = snap.documents.mapNotNull { ProductoParser.parseToPharm(it) }
-            val listaMolde = snap.documents.mapNotNull { ProductoParser.parseToMolde(it) }
+            var listaPharm = snap.documents.mapNotNull { ProductoParser.parseToPharm(it) }
+            var listaMolde = snap.documents.mapNotNull { ProductoParser.parseToMolde(it) }
+
+            // Búsqueda por prefijo nativo de respaldo si tokens no devolvieron resultados (para documentos antiguos)
+            if (listaPharm.isEmpty() && textoLower.isNotBlank()) {
+                val textoTrim = texto.trim()
+                val variantes = listOf(textoLower, textoTrim, textoTrim.uppercase(), textoTrim.lowercase().replaceFirstChar { it.uppercase() })
+                    .filter { it.isNotBlank() }.distinct()
+                val docsPorNombre = mutableListOf<DocumentSnapshot>()
+                for (variante in variantes) {
+                    val snapPrefix = inventarioRef.orderBy("nombre")
+                        .startAt(variante)
+                        .endAt(variante + "\uf8ff")
+                        .limit(limit.toLong())
+                        .get().await()
+                    docsPorNombre.addAll(snapPrefix.documents)
+                    if (docsPorNombre.isNotEmpty()) break
+                }
+                if (docsPorNombre.isNotEmpty()) {
+                    val distinctDocs = docsPorNombre.distinctBy { it.id }
+                    listaPharm = distinctDocs.mapNotNull { ProductoParser.parseToPharm(it) }
+                    listaMolde = distinctDocs.mapNotNull { ProductoParser.parseToMolde(it) }
+                }
+            }
+
             val ultimo = snap.documents.lastOrNull()
             val esUltima = snap.size() < limit
             return PaginaInventario(listaPharm, listaMolde, ultimo, esUltima)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(TAG, "Error buscarInventarioPaginado farmacia=$farmaciaId sucursal=$sucursalId texto=$textoLower tokens=$tokens: ${e.message}", e)
             throw e
         }

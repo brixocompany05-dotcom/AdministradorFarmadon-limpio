@@ -32,7 +32,8 @@ data class LoteConsumido(
     val loteId: String = "",
     val loteNumero: String = "",
     val vencimiento: String = "",
-    val cantidadFisica: Double = 0.0
+    val cantidadFisica: Double = 0.0,
+    val costoUnitarioReal: Double = 0.0
 )
 
 data class ItemVenta(
@@ -53,7 +54,8 @@ data class ItemVenta(
     /** Lotes reales que se descontaron para esta línea (FEFO/prioridad del dueño). */
     val lotesConsumidos: List<LoteConsumido> = emptyList(),
     /** Cuántas unidades de esta línea ya regresaron por devolución. */
-    val cantidadDevuelta: Int = 0
+    val cantidadDevuelta: Int = 0,
+    val costoTotalReal: Double = 0.0
 ) {
     val cantidadDevolvible: Int get() = (cantidad - cantidadDevuelta).coerceAtLeast(0)
 }
@@ -107,7 +109,19 @@ data class Venta(
     val anuladaPorNombre: String = "",
     val anulacionMotivo: String = "",
     val anuladaEnMs: Long = 0L,
-    val numeroNotaCredito: String = ""
+    val numeroNotaCredito: String = "",
+    val costoTotalReal: Double = 0.0,
+    // Trazabilidad de devolución (origen POS)
+    val devolucionMotivo: String = "",
+    val devolucionPorId: String = "",
+    val devolucionPorNombre: String = "",
+    val devolucionEnMs: Long = 0L,
+    val devolucionNumeroNotaCredito: String = "",
+    val devolucionMetodoReembolso: String = "",
+    // Firma de autorización supervisor (POS Config)
+    val autorizadoPorId: String = "",
+    val autorizadoPorNombre: String = "",
+    val autorizadoPorRol: String = ""
 ) {
     companion object {
         const val ESTADO_COMPLETADA = "COMPLETADA"
@@ -118,6 +132,27 @@ data class Venta(
 
     val totalDevuelto: Double
         get() = items.sumOf { it.cantidadDevuelta * it.precioUnitario }
+
+    /**
+     * Devolución prorrateada con el descuento original de la venta.
+     * Coincide con el reembolso real calculado en [VentasRepository.registrarDevolucion]:
+     * monto = cantidad × precio × (total / subtotal).
+     * Sin este prorrateo, las ventas con descuento mostrarían un neto menor al dinero real.
+     */
+    val totalDevueltoProrrateado: Double
+        get() {
+            val bruto = totalDevuelto
+            if (bruto <= 0.0) return 0.0
+            val factor = if (subtotal > 0.0) (total / subtotal).coerceIn(0.0, 1.0) else 1.0
+            return kotlin.math.round(bruto * factor * 100.0) / 100.0
+        }
+
+    /** Neto real de ESTE comprobante: total − devuelto prorrateado (0 si anulada/total). */
+    val totalNetoComprobante: Double
+        get() {
+            if (estado == ESTADO_ANULADA || estado == ESTADO_DEVOLUCION_TOTAL) return 0.0
+            return kotlin.math.round((total - totalDevueltoProrrateado).coerceAtLeast(0.0) * 100.0) / 100.0
+        }
 }
 
 // ───────────────────────────── CAJA (TURNO) ─────────────────────────────
@@ -134,12 +169,22 @@ data class CajaSesion(
     // Datos del cierre (vacíos mientras está abierta)
     val cierreMs: Long = 0L,
     val cierreLegible: String = "",
+    val cierreExtemporaneo: Boolean = false,
+    val cierreFisicoRealMs: Long = 0L,
+    val cierreFisicoRealLegible: String = "",
     val cerradoPorId: String = "",
     val cerradoPorNombre: String = "",
     val efectivoContado: Double = 0.0,
     val efectivoEsperado: Double = 0.0,
     val diferenciaEfectivo: Double = 0.0,
-    val observaciones: String = ""
+    val observaciones: String = "",
+    val ventasPorMetodo: Map<String, Double> = emptyMap(),
+    val totalVentas: Double = 0.0,
+    val ingresos: Double = 0.0,
+    val retiros: Double = 0.0,
+    val devolucionesEfectivo: Double = 0.0,
+    val cantidadVentas: Int = 0,
+    val cantidadDevoluciones: Int = 0
 ) {
     companion object {
         const val ESTADO_ABIERTA = "ABIERTA"
@@ -174,6 +219,30 @@ data class EstadoCaja(
     val efectivoEsperado: Double
         get() = fondoInicial + ventasEfectivo + ingresos - retiros
     val totalVentas: Double get() = ventasPorMetodo.values.sum()
+
+    /**
+     * Determina si la caja está abierta pero corresponde a un día calendario anterior.
+     * En ese caso, el POS debe bloquear nuevas ventas y exigir el cierre formal de la jornada.
+     */
+    fun esDeJornadaAnterior(ahoraMs: Long = System.currentTimeMillis()): Boolean {
+        if (estado != CajaSesion.ESTADO_ABIERTA || aperturaMs <= 0L) return false
+        val tz = java.util.TimeZone.getTimeZone("America/Lima")
+        val calApertura = java.util.Calendar.getInstance(tz).apply { timeInMillis = aperturaMs }
+        val calHoy = java.util.Calendar.getInstance(tz).apply { timeInMillis = ahoraMs }
+        return calApertura.get(java.util.Calendar.YEAR) < calHoy.get(java.util.Calendar.YEAR) ||
+                (calApertura.get(java.util.Calendar.YEAR) == calHoy.get(java.util.Calendar.YEAR) &&
+                 calApertura.get(java.util.Calendar.DAY_OF_YEAR) < calHoy.get(java.util.Calendar.DAY_OF_YEAR))
+    }
+
+    fun fechaAperturaLegible(): String {
+        if (aperturaMs <= 0L) return ""
+        val fmt = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).apply {
+            timeZone = java.util.TimeZone.getTimeZone("America/Lima")
+        }
+        return fmt.format(java.util.Date(aperturaMs))
+    }
+
+    val esCajaPendienteDeOtroDia: Boolean get() = esDeJornadaAnterior()
 }
 
 /** Movimiento de dinero de la caja: venta, devolución, ingreso manual, retiro o anulación. */
@@ -190,7 +259,11 @@ data class MovimientoCaja(
     val cajaSesionId: String = "",
     val usuarioId: String = "",
     val usuarioNombre: String = "",
-    val fechaMs: Long = 0L
+    val fechaMs: Long = 0L,
+    // Firma de autorización supervisor (POS Config)
+    val autorizadoPorId: String = "",
+    val autorizadoPorNombre: String = "",
+    val autorizadoPorRol: String = ""
 ) {
     companion object {
         const val TIPO_VENTA = "VENTA"
@@ -226,7 +299,9 @@ data class ItemDevolucion(
     val presentacionNombre: String = "",
     val cantidad: Int = 0,
     val precioUnitario: Double = 0.0,
-    val monto: Double = 0.0
+    val monto: Double = 0.0,
+    val costoUnitarioReal: Double = 0.0,
+    val montoCosto: Double = 0.0
 )
 
 /** Parámetro de solicitud de devolución para una línea vendida. */
@@ -254,7 +329,13 @@ data class DevolucionVenta(
     val usuarioId: String = "",
     val usuarioNombre: String = "",
     val cajaSesionId: String = "",
-    val fechaMs: Long = 0L
+    val fechaMs: Long = 0L,
+    val diaClave: String = "",
+    val costoTotalDevuelto: Double = 0.0,
+    // Firma de autorización supervisor (POS Config)
+    val autorizadoPorId: String = "",
+    val autorizadoPorNombre: String = "",
+    val autorizadoPorRol: String = ""
 )
 
 /** Datos del emisor que van impresos en el ticket (vienen del documento de la farmacia). */

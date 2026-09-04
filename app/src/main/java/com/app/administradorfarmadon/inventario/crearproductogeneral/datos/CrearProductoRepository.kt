@@ -4,6 +4,7 @@ import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import android.util.Log
 import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
+import com.app.administradorfarmadon.inventario.compartido.logica.BusquedaTokensHelper
 import com.app.administradorfarmadon.inventario.compartido.logica.CodigoBarraHelper
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
@@ -178,7 +179,7 @@ class CrearProductoRepository(
             "$contenidoBuscado $unidadBuscada",
             codLimpio.lowercase()
         ).filter { it.isNotBlank() }.joinToString(" ").replace(Regex("\\s+"), " ").trim()
-        val busquedaTokens = busquedaIndice.split(Regex("\\s+")).filter { it.isNotBlank() }.distinct()
+        val busquedaTokens = BusquedaTokensHelper.generarTokens(busquedaIndice)
 
         // Payload 100% canónico, ordenado y compatible con todos los módulos de inventario, ventas y edición
         val payload = linkedMapOf<String, Any>(

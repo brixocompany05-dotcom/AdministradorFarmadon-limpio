@@ -1,15 +1,11 @@
 package com.app.administradorfarmadon.appconexioninternet
-import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Source
 import kotlinx.coroutines.*
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import java.net.InetSocketAddress
@@ -35,6 +31,9 @@ object NetworkHealthMonitor {
 
     private val _status = MutableStateFlow(NetworkStatus.CONECTADO)
     val status: StateFlow<NetworkStatus> = _status.asStateFlow()
+
+    private val _ultimaConexionMs = MutableStateFlow(System.currentTimeMillis())
+    val ultimaConexionMs: StateFlow<Long> = _ultimaConexionMs.asStateFlow()
 
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var hardwareConnected = false
@@ -72,26 +71,11 @@ object NetworkHealthMonitor {
                 }
         }
 
-        // 2. Capa de Aplicación: Ping periódico a Firebase
+        // 2. Capa de Aplicación: Validación de conectividad por socket
         monitorScope.launch {
-            // Inicializar el documento de ping al arrancar
-            try {
-                FarmadonFirestore.db
-                    .collection("_health")
-                    .document("ping")
-                    .set(mapOf("ultimoArranque" to System.currentTimeMillis()))
-            } catch (e: Exception) {
-                android.util.Log.e("NetworkHealth", "ping inicial _health falló", e)
-                firebaseConnected = false
-                _status.value = NetworkStatus.ESTADO_DEGRADADO
-            }
-
             while (true) {
-                // El probe HTTP/TCP es la verdad de fondo: aunque el callback de
-                // hardware llegue tarde (o falle), un probe exitoso evita que el
-                // estado se congele en DESCONECTADO con internet real disponible.
                 val reachable = checkReachability()
-                firebaseConnected = if (reachable) checkFirestoreConnectivity() else false
+                firebaseConnected = reachable
                 if (!reachable) lastLatency = -1L
                 updateGlobalStatus(reachable)
                 delay(30_000L) // Ping cada 30 segundos
@@ -146,28 +130,9 @@ object NetworkHealthMonitor {
         false
     }
 
-    /**
-     * Validación de Capa de Aplicación (Firestore Connectivity).
-     * Realiza un get() ligero al servidor para confirmar que el SDK puede hablar con Firestore.
-     */
-    private suspend fun checkFirestoreConnectivity(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            // Intentamos leer un documento de control (o cualquier documento ligero) directamente del servidor
-            FarmadonFirestore.db
-                .collection("_health")
-                .document("ping")
-                .get(Source.SERVER)
-                .await()
-            true
-        } catch (e: Exception) {
-            android.util.Log.e("NetworkHealth", "Firestore ping falló", e)
-            false
-        }
-    }
-
     private fun updateGlobalStatus(hasInternet: Boolean) {
         _status.update { 
-            when {
+            val newStatus = when {
                 // DESCONECTADO solo es real si NO hay salida Y el hardware tampoco
                 // confirma. Si el probe de transporte funciona pero el callback de
                 // hardware aún no emitió, seguimos en estados conectados para no
@@ -179,6 +144,25 @@ object NetworkHealthMonitor {
                 lastLatency > 300L -> NetworkStatus.CONEXION_LENTA
                 else -> NetworkStatus.CONECTADO
             }
+            if (newStatus == NetworkStatus.CONECTADO || newStatus == NetworkStatus.CONEXION_LENTA) {
+                _ultimaConexionMs.value = System.currentTimeMillis()
+            }
+            newStatus
+        }
+    }
+
+    /**
+     * Fuerza un probe inmediato de la conexión a internet y a Firestore.
+     */
+    fun reevaluarInmediato() {
+        monitorScope.launch {
+            val reachable = checkReachability()
+            firebaseConnected = reachable
+            if (!reachable) lastLatency = -1L
+            if (reachable) {
+                _ultimaConexionMs.value = System.currentTimeMillis()
+            }
+            updateGlobalStatus(reachable)
         }
     }
 
