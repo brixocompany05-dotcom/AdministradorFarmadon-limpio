@@ -62,7 +62,7 @@ object ProductoParser {
             val empaque = docString(doc, "empaque")
             val medida = docString(doc, "medidaConcentracion", "concentracion")
             val requiereReceta = docBoolean(doc, "requiereReceta", false)
-            val precioCompra = docDouble(doc, "precioCompra")
+            val precioCompra = docDouble(doc, "precioCompra", "costoCompra", "costoUnitario", "costo")
             val precioVenta = docDouble(doc, "precioVenta", "precio")
             val ubicacion = docString(doc, "ubicacion")
             val ubicacionSecundaria = docString(doc, "ubicacionSecundaria", "ubicacion2")
@@ -90,18 +90,24 @@ object ProductoParser {
                     val prov = (v["proveedor"] as? String) ?: (v["proveedorNombre"] as? String) ?: ""
                     val provId = v["proveedorId"] as? String ?: ""
                     val fact = (v["factura"] as? String) ?: (v["nroFactura"] as? String) ?: ""
-                    val costoComp = (v["costoCompra"] as? Number)?.toDouble() ?: 0.0
+                    val costoComp = (v["costoCompra"] as? Number)?.toDouble()
+                        ?: (v["costoTotal"] as? Number)?.toDouble()
+                        ?: 0.0
                     val costoUnitRaw = (v["costoUnitario"] as? Number)?.toDouble()
                         ?: (v["costoCompraUnitario"] as? Number)?.toDouble()
                         ?: (v["costoUnitarioReal"] as? Number)?.toDouble()
+                        ?: (v["costo"] as? Number)?.toDouble()
                         ?: 0.0
                     val costoUnit = if (costoUnitRaw > 0.0) {
                         costoUnitRaw
                     } else if (cant > 0.0 && costoComp > 0.0) {
                         costoComp / cant
+                    } else if (precioCompra > 0.0) {
+                        precioCompra
                     } else {
                         0.0
                     }
+                    val costoCompFinal = if (costoComp > 0.0) costoComp else if (costoUnit > 0.0 && cant > 0.0) costoUnit * cant else 0.0
                     // Fecha de nacimiento real del lote (sin mentir): lee Timestamp o String
                     val fechaRaw = v["fechaIngreso"] ?: v["fecha"] ?: v["createdAt"] ?: v["ultimaEntrada"]
                     val fechaStr = when (fechaRaw) {
@@ -117,7 +123,7 @@ object ProductoParser {
                     val loteIdVal = v["loteId"] as? String ?: FechaVencimientoHelper.llaveLote(num)
                     lotesMap[k.toString()] = LoteProducto(
                         numero = num, vencimiento = venc, cantidad = cant, cantidadBloqueada = cantBloq,
-                        proveedorNombre = prov, proveedorId = provId, nroFactura = fact, costoUltimoIngreso = costoComp, costoCompraUnitario = costoUnit,
+                        proveedorNombre = prov, proveedorId = provId, nroFactura = fact, costoUltimoIngreso = costoCompFinal, costoCompraUnitario = costoUnit,
                         fecha = fechaStr, createdAt = createdAtStr, loteId = loteIdVal,
                         noValorizado = v["noValorizado"] == true,
                         ventasRegistradas = (v["ventasRegistradas"] as? Number)?.toDouble() ?: 0.0
@@ -128,7 +134,7 @@ object ProductoParser {
             // Fallback de verdad: si no tiene mapa de lotes pero el documento registra stock físico > 0,
             // se sintetiza un lote base para no invisibilizar existencias ni distorsionar valor contable
             if (lotesMap.isEmpty()) {
-                val docStock = docDouble(doc, "stock", "stockTotal")
+                val docStock = docDouble(doc, "stock", "stockTotal", "totalStock", "stockDisponible", "stockFisico")
                 if (docStock > 0.0) {
                     val vtoDoc = docString(doc, "vencimientoMasCercano", "vencimiento")
                     lotesMap["LOTE_BASE"] = LoteProducto(
@@ -166,6 +172,22 @@ object ProductoParser {
                     val pCodigosAnteriores = (item["codigosAnteriores"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                     presentacionesList.add(PresentacionProducto(pId, pNom, pEmp, pCant, pUni, pPre, pCod, pCodigosAnteriores))
                 }
+            }
+
+            if (presentacionesList.isEmpty()) {
+                val presNombre = empaque.ifBlank { "Unidad" }
+                val precioPres = if (precioVenta > 0.0) precioVenta else docDouble(doc, "precio", "precioUnitario")
+                presentacionesList.add(
+                    PresentacionProducto(
+                        presentacionId = "PRES_PRINCIPAL",
+                        nombre = presNombre,
+                        empaque = empaque.ifBlank { "Unidad" },
+                        cantidad = 1,
+                        unidadMedida = unidadBase.ifBlank { "unidad" },
+                        precioventa = precioPres,
+                        codigoBarras = codigoBarras
+                    )
+                )
             }
 
             val codigosSecundarios = (doc.get("codigosSecundarios") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
@@ -224,7 +246,7 @@ object ProductoParser {
         }
     }
 
-    // ---------- Parser a PharmProduct (Lista) —” mismo origen, misma lectura ----------
+    // ---------- Parser canónico a PharmProduct (usado por la lista principal) ----------
     fun parseToPharm(doc: DocumentSnapshot): PharmProduct? {
         if (!doc.exists()) return null
         return try {
@@ -233,72 +255,70 @@ object ProductoParser {
             val principioActivo = docString(doc, "principioActivo")
             val codigoBarras = docString(doc, "codigoBarras", "codigo")
             val categoria = docString(doc, "categoriaNombre", "categoriaPrincipal")
-            // R12: el laboratorio JAMÁS se rellena con el proveedor; vacío honesto si no existe.
             val laboratorio = docString(doc, "laboratorio")
             val empaque = docString(doc, "empaque")
             val medida = docString(doc, "medidaConcentracion", "concentracion")
             val requiereReceta = docBoolean(doc, "requiereReceta", false)
-            val esRefrigerado = docBoolean(doc, "esRefrigerado", false)
+            val esRefrigerado = docBoolean(doc, "esRefrigerado", false) || (docString(doc, "temperaturaAlmacenamiento").contains("REFRIG", ignoreCase = true))
+            val precioCompra = docDouble(doc, "precioCompra", "costoCompra", "costoUnitario", "costo")
+            val ubicacion = docString(doc, "ubicacion")
             val activoPharm = docBoolean(doc, "activo", true)
             val permiteFraccionarPharm = docBoolean(doc, "permiteFraccionar", false) || docBoolean(doc, "esFraccionable", false)
-            val estadoPharm = docString(doc, "estado", fallback = if (activoPharm) "ACTIVO" else "PAUSADO")
-            val precioCompra = docDouble(doc, "precioCompra")
-            val ubicacion = docString(doc, "ubicacion")
+            val estadoPharm = docString(doc, "estado").ifBlank { if (activoPharm) "ACTIVO" else "INACTIVO" }
 
-            // R1/R3 —” La lista debe mostrar lo VENDIBLE, no el total físico.
-            // Disponible = suma de la cantidad disponible de cada lote (excluye cuarentena/bloqueado).
+            val lotesMap = mutableMapOf<String, LoteProducto>()
             val lotesRaw = doc.get("lotes") as? Map<*, *>
-            val stockDisponibleCalculado: Double? = lotesRaw?.values?.mapNotNull { it as? Map<*, *> }
-                ?.sumOf { (it["cantidad"] as? Number)?.toDouble() ?: 0.0 }
-            val stockBloqueadoCalculado: Double? = lotesRaw?.values?.mapNotNull { it as? Map<*, *> }
-                ?.sumOf { (it["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0 }
-
-            val stockDisponible = stockDisponibleCalculado ?: docDouble(doc, "stock")
-            val stockBloqueado = stockBloqueadoCalculado ?: 0.0
-            val totalFisico = stockDisponible + stockBloqueado
-
-            // El vencimiento que importa para la lista es el del lote VENDIBLE (cantidad > 0),
-            // nunca el de un lote en cuarentena que no se puede despachar. Se captura también
-            // el NíšMERO del lote: el vencimiento pertenece a un lote, y las alertas deben decirlo.
-            data class LoteProximoPharm(val numero: String, val vencimiento: String, val dias: Int)
-            val loteMasProximo = lotesRaw?.values?.mapNotNull { m ->
-                if (m is Map<*, *>) {
-                    val cant = (m["cantidad"] as? Number)?.toDouble() ?: 0.0
-                    val venc = m["vencimiento"] as? String ?: ""
-                    val num = m["numero"] as? String ?: ""
-                    val dias = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.diasHastaVencer(venc) ?: Int.MAX_VALUE
-                    if (cant > 0 && venc.isNotBlank()) LoteProximoPharm(num, venc, dias) else null
-                } else null
-            }?.minByOrNull { it.dias }
-            val vencimientoDesdeLotes = loteMasProximo?.vencimiento
-            val vencimientoCalculado = if (lotesRaw != null) {
-                vencimientoDesdeLotes ?: "—”"
-            } else {
-                docString(doc, "vencimientoMasCercano").ifBlank { "—”" }
+            lotesRaw?.forEach { (k, v) ->
+                if (v is Map<*, *>) {
+                    val num = v["numero"] as? String ?: k.toString()
+                    val venc = v["vencimiento"] as? String ?: ""
+                    val cant = (v["cantidad"] as? Number)?.toDouble() ?: 0.0
+                    val cantBloq = (v["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
+                    val loteIdVal = v["loteId"] as? String ?: FechaVencimientoHelper.llaveLote(num)
+                    lotesMap[k.toString()] = LoteProducto(
+                        numero = num, vencimiento = venc, cantidad = cant, cantidadBloqueada = cantBloq,
+                        loteId = loteIdVal,
+                        noValorizado = v["noValorizado"] == true
+                    )
+                }
             }
 
-            // Blindaje R3: si hay texto de vencimiento pero el parser da 0L/null, no apagues alertas —” fuerza vencido
-            val expiryTimestampRaw = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.timestampDeVencimiento(vencimientoCalculado)
-            val expiryTimestamp = if (vencimientoCalculado != "—”" && vencimientoCalculado.isNotBlank() && expiryTimestampRaw == 0L) 1L else expiryTimestampRaw
-            val diasHastaVencerRaw = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.diasHastaVencer(vencimientoCalculado)
-            val diasHastaVencer = diasHastaVencerRaw ?: if (vencimientoCalculado != "—”" && vencimientoCalculado.isNotBlank()) -1 else null
+            if (lotesMap.isEmpty()) {
+                val docStock = docDouble(doc, "stock", "stockTotal", "totalStock", "stockDisponible", "stockFisico")
+                if (docStock > 0.0) {
+                    val vtoDoc = docString(doc, "vencimientoMasCercano", "vencimiento")
+                    lotesMap["LOTE_BASE"] = LoteProducto(
+                        numero = "LOTE-BASE",
+                        loteId = "LOTE_BASE",
+                        vencimiento = vtoDoc,
+                        cantidad = docStock
+                    )
+                }
+            }
 
+            val lotesList = lotesMap.values.toList()
+            val stockDisponible = lotesList.sumOf { it.cantidad.coerceAtLeast(0.0) }
+            val stockBloqueado = lotesList.sumOf { it.cantidadBloqueada.coerceAtLeast(0.0) }
+            val totalFisico = stockDisponible + stockBloqueado
+
+            val loteMasProximo = lotesList.filter { it.cantidad > 0.0 }
+                .minByOrNull { FechaVencimientoHelper.diasHastaVencer(it.vencimiento) ?: Int.MAX_VALUE }
+            val vencimientoCalculado = loteMasProximo?.vencimiento?.ifBlank { "—" } ?: docString(doc, "vencimientoMasCercano", "vencimiento").ifBlank { "—" }
+
+            // Blindaje R3: si hay texto de vencimiento pero el parser da 0L/null, no apagues alertas — fuerza vencido
+            val expiryTimestampRaw = FechaVencimientoHelper.timestampDeVencimiento(vencimientoCalculado)
+            val expiryTimestamp = if (vencimientoCalculado != "—" && vencimientoCalculado.isNotBlank() && expiryTimestampRaw == 0L) 1L else expiryTimestampRaw
+            val diasHastaVencerRaw = FechaVencimientoHelper.diasHastaVencer(vencimientoCalculado)
+            val diasHastaVencer = diasHastaVencerRaw ?: if (vencimientoCalculado != "—" && vencimientoCalculado.isNotBlank()) -1 else null
             val stockMinimo = docDouble(doc, "stockMinimo", "stockMinimoBase")
             val stockFisico = stockDisponible.coerceAtLeast(0.0)
             val empaqueDisplay = empaque.ifBlank { "unidades" }
             val contentFactor = doc.get("contenido")?.toString()?.toDoubleOrNull()?.takeIf { it > 1.0 } ?: 1.0
             val contenidoUnidadDisp = docString(doc, "contenidoUnidad").ifBlank { null }
             val tieneStockFraccional = stockFisico > 0.0 && (stockFisico % 1.0) > 0.001 && contentFactor > 1.0 && contenidoUnidadDisp != null
-            // ── UNIDAD íšNICA DEL NíšMERO LÓGICO (R3): SIEMPRE unidades físicas (Cajas). ──
-            // REDONDEO al entero más cercano: 2.994 cajas se MUESTRA y se COMPARA como 3,
-            // igual a lo que el humano cuenta en el estante. Un solo número en todas las
-            // pantallas; el texto rico ("2 Cajas + 149 Tab") vive solo en stockHumanReadable.
             val stockInt = Math.round(stockFisico).toInt().coerceAtLeast(0)
 
             val stockHumanReadable: String = if (tieneStockFraccional) {
-                // Lógica humana: lo que el cajero ve en el estante = N envases enteros + lo que queda
-                // de un envase abierto, expresado en la unidad de contenido (ej: "4 Bot + 1.4 L").
-                // NUNCA un número abstracto de ml sueltos ("7400 ml") ni decimales de envase ("4.933").
                 val enteras = stockFisico.toInt().coerceAtLeast(0)
                 val restoEnvase = (stockFisico - enteras).coerceAtLeast(0.0)
                 val restoContenido = restoEnvase * contentFactor

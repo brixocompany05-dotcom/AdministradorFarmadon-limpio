@@ -78,7 +78,9 @@ fun MetricItemReposicion(label: String, value: String, color: Color) {
     }
 }
 
-/** Botón redondo − / + del catálogo (una sola línea por producto). */
+/** Botón redondo − / + del catálogo (una sola línea por producto).
+ *  Responde al instante: jamás espera al servidor (el número se confirma solo
+ *  por debajo y si algo falla se avisa con mensaje, sin congelar la mano). */
 @Composable
 fun BotonMasMenos(
     icono: androidx.compose.ui.graphics.vector.ImageVector,

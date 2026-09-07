@@ -94,7 +94,9 @@ data class FacturaCompra(
     val anuladoElLegible: String = "",
     val anulacionPlata: RespuestaPlataAnulacion? = null,
     val sucursalId: String = "",
-    val farmaciaId: String = ""
+    val farmaciaId: String = "",
+    val pedidoId: String = "",
+    val pedidoNumeroOrden: String = ""
 ) {
     val esContado: Boolean
         get() = condicionPago.contains("Contado", ignoreCase = true)

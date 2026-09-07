@@ -103,7 +103,9 @@ object TicketComprobantePdf {
         drawLineaSeparadora()
 
         // ── 2. DATOS DEL COMPROBANTE ──
-        val fechaFormateada = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(venta.fechaHoraMs))
+        val fechaFormateada = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).apply {
+            timeZone = VentasRepository.TIMEZONE_LIMA
+        }.format(Date(venta.fechaHoraMs))
         drawCentrado("${venta.tipoComprobante}: ${venta.numeroCompleto}", paintBold)
         drawFilaDosColumnas("Fecha:", fechaFormateada)
         drawFilaDosColumnas("Cajero:", venta.cajeroNombre.ifBlank { "Mostrador" })

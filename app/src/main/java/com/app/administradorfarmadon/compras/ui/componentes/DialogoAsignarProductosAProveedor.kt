@@ -44,6 +44,11 @@ fun DialogoAsignarProductosAProveedor(
     val s = recordarMedidaAdaptativa()
     var busquedaProducto by rememberSaveable { mutableStateOf("") }
     var filtroRapido by rememberSaveable { mutableStateOf("TODOS") } // "TODOS" | "SIN_PROVEEDOR"
+    var idProductoEnProceso by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(todosLosProductos) {
+        idProductoEnProceso = null
+    }
 
     val totalSinProveedor = remember(todosLosProductos) {
         todosLosProductos.count { prod ->
@@ -169,50 +174,12 @@ fun DialogoAsignarProductosAProveedor(
 
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f), thickness = 1.dp)
 
-                // ── BUSCADOR DE PRODUCTOS ──
-                OutlinedTextField(
-                    value = busquedaProducto,
-                    onValueChange = { busquedaProducto = it },
-                    placeholder = {
-                        Text(
-                            "Buscar por nombre, código o laboratorio...",
-                            fontSize = 12.5.sp,
-                            color = FDColors.InputPlaceholder
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = FDColors.TextTertiary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    },
-                    trailingIcon = if (busquedaProducto.isNotBlank()) {
-                        {
-                            IconButton(onClick = { busquedaProducto = "" }, modifier = Modifier.size(24.dp)) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Limpiar",
-                                    tint = FDColors.TextTertiary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    } else null,
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = FDColors.InputBackground,
-                        unfocusedContainerColor = FDColors.InputBackground,
-                        focusedBorderColor = FDColors.BorderFocus,
-                        unfocusedBorderColor = FDColors.InputBorder,
-                        focusedTextColor = FDColors.InputText,
-                        unfocusedTextColor = FDColors.InputText
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
+                // ── BUSCADOR DE PRODUCTOS CÓMODO Y ESPACIOSO ──
+                CampoBuscadorModerno(
+                    busqueda = busquedaProducto,
+                    onBusquedaChange = { busquedaProducto = it },
+                    placeholder = "Buscar por nombre, código o laboratorio...",
+                    altura = 48.dp
                 )
 
                 // ── PESTAÑAS DE FILTRO RÁPIDO ──
@@ -414,10 +381,14 @@ fun DialogoAsignarProductosAProveedor(
                                                         overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
+                                                val enProceso = idProductoEnProceso == prod.id
                                                 FDBotonPrimario(
-                                                    texto = if (esSinProv) "+ VINCULAR" else "ASIGNAR A ESTE",
-                                                    icono = if (esSinProv) Icons.Default.Add else Icons.Default.SwapHoriz,
+                                                    texto = if (enProceso) "VINCULANDO..." else if (esSinProv) "+ VINCULAR" else "ASIGNAR A ESTE",
+                                                    icono = if (enProceso) null else if (esSinProv) Icons.Default.Add else Icons.Default.SwapHoriz,
+                                                    habilitado = idProductoEnProceso == null,
+                                                    cargando = enProceso,
                                                     onClick = {
+                                                        idProductoEnProceso = prod.id
                                                         onVincularProducto(prod, proveedor)
                                                     },
                                                     modifier = Modifier.height(28.dp)

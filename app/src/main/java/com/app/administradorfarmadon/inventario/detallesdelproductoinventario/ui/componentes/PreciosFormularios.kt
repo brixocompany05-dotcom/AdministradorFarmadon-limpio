@@ -61,11 +61,11 @@ internal fun TarjetaEditorFormulario(
     unidadesDisponibles: List<String>,
     onUpdate: (nombre: String, empaque: String, cantidad: Int, unidadMedida: String, precioventa: Double) -> Unit
 ) {
-    var empaqueState by remember(pres.presentacionId, pres.empaque) { mutableStateOf(pres.empaque.ifBlank { empaqueBase }) }
-    var nombreState by remember(pres.presentacionId, pres.nombre) { mutableStateOf(pres.nombre) }
-    var cantStr by remember(pres.presentacionId, pres.cantidad) { mutableStateOf(if (pres.cantidad > 0) pres.cantidad.toString() else "") }
-    var unidadState by remember(pres.presentacionId, pres.unidadMedida) { mutableStateOf(pres.unidadMedida.ifBlank { unitMaster }) }
-    var precioStr by remember(pres.presentacionId, pres.precioventa) { mutableStateOf(if (pres.precioventa > 0) String.format("%.2f", pres.precioventa) else "") }
+    var empaqueState by remember(pres.presentacionId) { mutableStateOf(pres.empaque.ifBlank { empaqueBase }) }
+    var nombreState by remember(pres.presentacionId) { mutableStateOf(pres.nombre) }
+    var cantStr by remember(pres.presentacionId) { mutableStateOf(if (pres.cantidad > 0) pres.cantidad.toString() else "") }
+    var unidadState by remember(pres.presentacionId) { mutableStateOf(pres.unidadMedida.ifBlank { unitMaster }) }
+    var precioStr by remember(pres.presentacionId) { mutableStateOf(if (pres.precioventa > 0) String.format(java.util.Locale.US, "%.2f", pres.precioventa) else "") }
 
     val cNum = cantStr.toIntOrNull() ?: 0
     val pNum = precioStr.toDoubleOrNull() ?: 0.0
@@ -144,7 +144,7 @@ internal fun TarjetaEditorFormulario(
             label = "Precio de Venta ($) *",
             value = precioStr,
             onValueChange = {
-                val f = it.filter { c -> c.isDigit() || c == '.' }
+                val f = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' }
                 val parts = f.split(".")
                 val clean = if (parts.size > 2) parts[0] + "." + parts.subList(1, parts.size).joinToString("") else f
                 precioStr = clean

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,6 +17,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -38,6 +41,7 @@ import java.util.Locale
 @Composable
 fun DialogoCrearProveedor(
     proveedorEditando: Proveedor? = null,
+    proveedoresExistentes: List<Proveedor> = emptyList(),
     guardando: Boolean = false,
     errorGuardado: String? = null,
     onGuardar: (
@@ -52,6 +56,8 @@ fun DialogoCrearProveedor(
     onDismiss: () -> Unit
 ) {
     val colores = TokensFarmadon.colores
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val claveEdicion = proveedorEditando?.id ?: "nuevo"
     var nombre by remember(claveEdicion) { mutableStateOf(proveedorEditando?.nombre ?: "") }
@@ -78,9 +84,15 @@ fun DialogoCrearProveedor(
     var consultandoRuc by remember { mutableStateOf(false) }
 
     val rucLimpio = idFiscal.trim()
-    // Misma regla que el servidor (11 dígitos): el error se ve aquí, no en un viaje de ida y vuelta.
-    val rucValido = rucLimpio.length == 11 && rucLimpio.all { it.isDigit() }
-    val formularioValido = nombre.trim().isNotBlank() && rucValido
+    val rucFormatoValido = (rucLimpio.length == 11 || rucLimpio.length == 8) && rucLimpio.all { it.isDigit() }
+    val rucValido = rucLimpio.isBlank() || rucFormatoValido
+    val proveedorConMismoRuc = remember(rucLimpio, proveedoresExistentes) {
+        if (rucLimpio.isNotBlank() && rucFormatoValido) {
+            proveedoresExistentes.firstOrNull { it.id != proveedorEditando?.id && it.idFiscal.trim() == rucLimpio }
+        } else null
+    }
+    val esRucDuplicado = proveedorConMismoRuc != null
+    val formularioValido = nombre.trim().isNotBlank() && rucValido && !esRucDuplicado
 
     FDDialogoContenedor(
         titulo = if (esEdicion) "EDITAR PROVEEDOR" else "REGISTRAR NUEVO PROVEEDOR",
@@ -95,8 +107,9 @@ fun DialogoCrearProveedor(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .weight(1f, fill = true)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // FILA 1 (50% / 50%): Razón Social + RUC / Documento Fiscal
             Row(
@@ -124,29 +137,40 @@ fun DialogoCrearProveedor(
                     onValorCambio = { nuevo ->
                         val soloDigitos = nuevo.filter { it.isDigit() }.take(11)
                         idFiscal = soloDigitos
-                        if (soloDigitos.length == 11 && !esEdicion) {
+                        if ((soloDigitos.length == 11 || soloDigitos.length == 8) && !esEdicion) {
                             scope.launch {
-                                consultandoRuc = true
-                                when (val res = ApiDocumentosPeru.consultar("RUC", soloDigitos)) {
-                                    is ResultadoConsultaDoc.Encontrado -> {
-                                        if (nombre.isBlank()) nombre = res.nombreCompleto
-                                        if (direccion.isBlank() && res.direccion.isNotBlank()) direccion = res.direccion
+                                try {
+                                    consultandoRuc = true
+                                    val tipo = if (soloDigitos.length == 11) "RUC" else "DNI"
+                                    when (val res = ApiDocumentosPeru.consultar(tipo, soloDigitos)) {
+                                        is ResultadoConsultaDoc.Encontrado -> {
+                                            if (nombre.isBlank()) nombre = res.nombreCompleto
+                                            if (direccion.isBlank() && res.direccion.isNotBlank()) direccion = res.direccion
+                                        }
+                                        else -> {}
                                     }
-                                    else -> {}
+                                } catch (e: Exception) {
+                                    android.util.Log.w("DialogoCrearProveedor", "Error consultando: ${e.message}")
+                                } finally {
+                                    consultandoRuc = false
                                 }
-                                consultandoRuc = false
                             }
                         }
                     },
-                    etiqueta = if (consultandoRuc) "RUC (CONSULTANDO SUNAT...)" else "RUC / DOCUMENTO FISCAL",
-                    placeholder = "",
+                    etiqueta = if (consultandoRuc) "RUC / DNI (CONSULTANDO SUNAT...)" else "RUC (11 DÍGITOS) O DNI (8 DÍGITOS) (OPCIONAL)",
+                    placeholder = "20... / 10... (RUC) u 8 dígitos (DNI)",
                     iconoInicio = if (consultandoRuc) Icons.Default.HourglassTop else Icons.Default.Badge,
-                    esObligatorio = true,
+                    esObligatorio = false,
+                    textoError = when {
+                        esRucDuplicado -> "Documento ya registrado en '${proveedorConMismoRuc?.nombre}'"
+                        rucLimpio.isNotBlank() && !rucFormatoValido -> "Si ingresas documento, debe tener 11 dígitos (RUC) u 8 dígitos (DNI)"
+                        else -> null
+                    },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number,
                         imeAction = ImeAction.Next
                     ),
-                    habilitado = !guardando && !consultandoRuc,
+                    habilitado = !guardando,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -276,10 +300,16 @@ fun DialogoCrearProveedor(
                     placeholder = "0.00",
                     iconoInicio = Icons.Default.ShoppingBag,
                     textoError = errorMontoMinimo,
-                    textoAyuda = if (errorMontoMinimo == null) "ℹ️ Monto mínimo exigido por la droguería para despachar. Si los pedidos alcanzan este valor, el sistema confirmará que ya puedes pedir." else null,
+                    textoAyuda = if (errorMontoMinimo == null) "ℹ️ Monto mínimo exigido por la droguería para despachar pedido." else null,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Decimal,
                         imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        }
                     ),
                     habilitado = !guardando,
                     modifier = Modifier.weight(1f)
@@ -290,6 +320,7 @@ fun DialogoCrearProveedor(
         // Error REAL del guardado visible aquí mismo, en el lugar del bloqueo (R3):
         // si el proveedor fue eliminado mientras se editaba, la persona lo ve y decide.
         errorGuardado?.let { error ->
+            Spacer(Modifier.height(8.dp))
             Surface(
                 color = colores.estadoPeligro.copy(alpha = 0.07f),
                 shape = RoundedCornerShape(12.dp),
@@ -297,7 +328,7 @@ fun DialogoCrearProveedor(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -318,12 +349,11 @@ fun DialogoCrearProveedor(
                     )
                 }
             }
-            Spacer(Modifier.height(16.dp))
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(14.dp))
         HorizontalDivider(color = colores.divisor.copy(alpha = 0.5f))
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(14.dp))
 
         // ── BOTONES DE ACCIÓN SIMÉTRICOS (50% / 50%) ──
         Row(
@@ -347,7 +377,7 @@ fun DialogoCrearProveedor(
                     val montoDouble = if (textoMonto.isBlank()) 0.0
                         else textoMonto.replace(',', '.').toDoubleOrNull() ?: -1.0
                     if (montoDouble < 0.0) {
-                        errorMontoMinimo = "Escribe un monto válido (ej. 0.00 o 50.00). No se guardó nada."
+                        errorMontoMinimo = "Escribe un monto válido (ej. 0.00 o 50.00) o déjalo vacío."
                     } else {
                         errorMontoMinimo = null
                         onGuardar(
@@ -361,7 +391,7 @@ fun DialogoCrearProveedor(
                         )
                     }
                 },
-                habilitado = !guardando && !consultandoRuc && formularioValido,
+                habilitado = !guardando && formularioValido,
                 cargando = guardando,
                 modifier = Modifier.weight(1f)
             )

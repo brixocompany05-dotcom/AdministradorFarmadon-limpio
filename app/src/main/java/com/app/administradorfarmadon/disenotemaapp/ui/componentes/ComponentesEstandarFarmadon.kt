@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -27,9 +28,9 @@ import com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
 
 /**
- * 
+ *                                                                                
  * COMPONENTES ESTÁNDAR UNIVERSALES DE FARMADON (ENTERPRISE TABLET SAAS 2026)
- * 
+ *                                                                                
  * Garantizan 100% de coherencia matemática, geométrica y cromática en toda la app:
  * - Mismas medidas y radios (10.dp en inputs/botones, 16.dp/18.dp en modales/cards).
  * - Mismas alturas (52.dp en inputs, 48.dp en botones principales).
@@ -52,6 +53,7 @@ fun FDCampoTexto(
     iconoInicioColor: Color? = null,
     iconoFin: @Composable (() -> Unit)? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
     habilitado: Boolean = true,
     esObligatorio: Boolean = false,
     textoAyuda: String? = null,
@@ -104,6 +106,7 @@ fun FDCampoTexto(
             },
             trailingIcon = iconoFin,
             keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
             singleLine = true,
             maxLines = 1,
             enabled = habilitado,
@@ -254,83 +257,93 @@ fun FDDialogoContenedor(
         onDismissRequest = { if (!bloqueado) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(
-            modifier = modifier
-                .widthIn(min = 760.dp, max = anchoMaximo)
-                .fillMaxWidth(0.90f)
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(18.dp),
-            color = colores.fondoModal,
-            border = BorderStroke(1.dp, colores.cardBorde)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.55f))
+                .windowInsetsPadding(WindowInsets.systemBars)
+                .imePadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(30.dp)
+            Surface(
+                modifier = modifier
+                    .widthIn(min = 560.dp, max = anchoMaximo)
+                    .fillMaxWidth(0.92f)
+                    .heightIn(max = 680.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = colores.fondoModal,
+                border = BorderStroke(1.dp, colores.cardBorde)
             ) {
-                // Cabecera Estandarizada
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 28.dp, vertical = 20.dp)
                 ) {
+                    // Cabecera Estandarizada
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.weight(1f).padding(end = 16.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colores.botonPrimarioFondo.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.weight(1f).padding(end = 16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(colores.botonPrimarioFondo.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = iconoCabecera,
+                                    contentDescription = null,
+                                    tint = colores.botonPrimarioFondo,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = titulo,
+                                    style = TokensFarmadon.tipografia.titulo1.copy(
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Black
+                                    ),
+                                    color = colores.textoPrincipal,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = subtitulo,
+                                    style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 12.sp),
+                                    color = colores.textoTerciario,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            enabled = !bloqueado,
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
-                                imageVector = iconoCabecera,
-                                contentDescription = null,
-                                tint = colores.botonPrimarioFondo,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(
-                                text = titulo,
-                                style = TokensFarmadon.tipografia.titulo1.copy(
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.Black
-                                ),
-                                color = colores.textoPrincipal,
-                                maxLines = 1
-                            )
-                            Text(
-                                text = subtitulo,
-                                style = TokensFarmadon.tipografia.cuerpoPequeno.copy(fontSize = 12.5.sp),
-                                color = colores.textoTerciario,
-                                maxLines = 1
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cerrar",
+                                tint = colores.textoTerciario
                             )
                         }
                     }
 
-                    IconButton(
-                        onClick = onDismiss,
-                        enabled = !bloqueado,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cerrar",
-                            tint = colores.textoTerciario
-                        )
-                    }
+                    Spacer(Modifier.height(14.dp))
+                    HorizontalDivider(color = colores.divisor.copy(alpha = 0.5f))
+                    Spacer(Modifier.height(16.dp))
+
+                    // Contenido del Diálogo
+                    contenido()
                 }
-
-                Spacer(Modifier.height(18.dp))
-                HorizontalDivider(color = colores.divisor.copy(alpha = 0.5f))
-                Spacer(Modifier.height(20.dp))
-
-                // Contenido del Diálogo
-                contenido()
             }
         }
     }

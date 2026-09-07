@@ -186,6 +186,8 @@ class FacturaCompraRepository(
 
                 val sucursalId = doc.getString("sucursalId") ?: doc.reference.parent.parent?.id ?: ""
                 val farmaciaId = doc.getString("farmaciaId") ?: doc.reference.parent.parent?.parent?.parent?.id ?: ""
+                val pedidoId = doc.getString("pedidoId") ?: ""
+                val pedidoNumeroOrden = doc.getString("pedidoNumeroOrden") ?: ""
 
                 FacturaCompra(
                     id = id,
@@ -217,7 +219,9 @@ class FacturaCompraRepository(
                     anuladoElLegible = anuladoElLegible,
                     anulacionPlata = anulacionPlata,
                     sucursalId = sucursalId,
-                    farmaciaId = farmaciaId
+                    farmaciaId = farmaciaId,
+                    pedidoId = pedidoId,
+                    pedidoNumeroOrden = pedidoNumeroOrden
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error mapeando factura ${doc.id}: ${e.message}")
@@ -425,7 +429,13 @@ class FacturaCompraRepository(
         usuarioEmail: String,
         idempotenciaId: String = "",
         farmaciaIdParam: String? = null,
-        sucursalIdParam: String? = null
+        sucursalIdParam: String? = null,
+        // Puente stock (opcional): si la mercadería SE VA (devolución/daño), sale del lote
+        // en la MISMA transacción que baja la deuda. Vacío = solo dinero (precio, faltante).
+        salidaProductoId: String = "",
+        salidaProductoNombre: String = "",
+        salidaLote: String = "",
+        salidaCantidad: Double = 0.0
     ): Result<Unit> {
         val clienteId = farmaciaIdParam?.takeIf { it.isNotBlank() } ?: getClienteId()
         if (clienteId.isBlank() || facturaId.isBlank()) {
@@ -441,6 +451,12 @@ class FacturaCompraRepository(
         }
         if (motivo.trim().length < 5) {
             return Result.failure(IllegalArgumentException("El motivo debe tener al menos 5 caracteres."))
+        }
+        // Puente stock: si se pide salida, los tres datos son obligatorios desde ya.
+        val pideSalida = salidaCantidad > 0.0
+        val loteSalidaLimpio = salidaLote.trim().uppercase()
+        if (pideSalida && (salidaProductoId.isBlank() || loteSalidaLimpio.isBlank())) {
+            return Result.failure(IllegalArgumentException("Para sacar mercadería elige el producto y su lote."))
         }
 
         return try {
@@ -475,6 +491,10 @@ class FacturaCompraRepository(
                 if (idempotenciaId.isNotBlank() && fact.ajustesFactura.any { it.id == idAjuste }) {
                     return@runTransaction
                 }
+                // Mismo número dos veces = doble dinero y doble stock. El número manda.
+                if (fact.ajustesFactura.any { it.numeroDocumento.trim().equals(numDoc, ignoreCase = true) }) {
+                    throw IllegalArgumentException("La nota de crédito $numDoc ya está registrada en esta factura.")
+                }
 
                 val totalAjustesActual = fact.totalAjustes
                 val maximoAjustable = (fact.totalPapel - totalAjustesActual).coerceAtLeast(0.0)
@@ -485,8 +505,51 @@ class FacturaCompraRepository(
                     )
                 }
 
+                // Puente stock (lectura aquí: reads-before-writes). Si el lote ya no tiene
+                // lo pedido —se vendió entre tanto— se aborta TODO con la cifra real.
+                val tiendaRefNc = FarmadonPaths.sucursal(db, clienteId, sucursalId)
+                val productRefNc = if (pideSalida) tiendaRefNc.collection("inventario").document(salidaProductoId) else null
+                val productSnapNc = productRefNc?.let { tx.get(it) }
+                var loteKeyNc: Any? = null
+                var loteDataNc: MutableMap<Any?, Any?>? = null
+                var currentLotesNc: MutableMap<Any?, Any?>? = null
+                var costoUnitSalida = 0.0
+                if (pideSalida) {
+                    if (productSnapNc == null || !productSnapNc.exists()) {
+                        throw IllegalStateException("El producto '${salidaProductoNombre.ifBlank { "elegido" }}' ya no existe en inventario.")
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    currentLotesNc = ((productSnapNc.get("lotes") as? Map<*, *>)?.toMutableMap() ?: mutableMapOf<Any?, Any?>()) as MutableMap<Any?, Any?>
+                    val resLoteNc = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.resolverLote(currentLotesNc, loteSalidaLimpio)
+                        ?: throw IllegalArgumentException("El lote $loteSalidaLimpio ya no existe en inventario.")
+                    loteKeyNc = resLoteNc.first
+                    // Copia mutable fresca del lote (resolverLote ya la entrega así): se escribe
+                    // de vuelta al mapa al final; mutarla sola no cambia nada.
+                    val loteFrescoNc: MutableMap<String, Any> = resLoteNc.second
+                    @Suppress("UNCHECKED_CAST")
+                    loteDataNc = loteFrescoNc as MutableMap<Any?, Any?>
+                    val dispNc = ((loteDataNc["cantidad"] as? Number)?.toDouble() ?: 0.0).coerceAtLeast(0.0)
+                    if (salidaCantidad > dispNc + 0.001) {
+                        throw IllegalArgumentException("Solo hay $dispNc unidades disponibles en el lote $loteSalidaLimpio.")
+                    }
+                    // Costo de referencia desde la propia factura (línea del producto/lote).
+                    costoUnitSalida = fact.items.firstOrNull { li ->
+                        li.productoId == salidaProductoId &&
+                            (li.loteNumero.isBlank() || li.loteNumero.trim().equals(loteSalidaLimpio, ignoreCase = true))
+                    }?.costoUnitario ?: 0.0
+                }
+
                 val nuevoTotalEfectivo = (fact.totalPapel - totalAjustesActual - monto).coerceAtLeast(0.0)
                 val totalAbonado = fact.totalAbonadoReal
+
+                // La orden también baja su FACTURADO: si no, el pedido muestra deuda vieja
+                // mientras el papel ya vale menos (monto falso en historial). Lectura aquí
+                // (antes de escribir: Firestore exige reads-before-writes).
+                val pedidoIdNc = fact.pedidoId.trim()
+                val pedidoRefNc = if (pedidoIdNc.isNotBlank()) {
+                    FarmadonPaths.pedidosCompra(db, clienteId, sucursalId).document(pedidoIdNc)
+                } else null
+                val pedidoSnapNc = pedidoRefNc?.let { tx.get(it) }
 
                 // ══ CERO PLATA QUE SE EVAPORA (R3) ══
                 // Si ya pagamos MÁS de lo que la factura vale tras la nota de crédito,
@@ -538,6 +601,30 @@ class FacturaCompraRepository(
                     )
                 )
 
+                // Orden espejo: baja su FACTURADO en lo mismo y lo firma. Si la orden ya no
+                // existe, no se frena la nota (la verdad del dinero vive en la factura).
+                if (pedidoRefNc != null && pedidoSnapNc != null && pedidoSnapNc.exists()) {
+                    val montoPrevioNc = pedidoSnapNc.getDouble("montoFacturadoReal") ?: 0.0
+                    @Suppress("UNCHECKED_CAST")
+                    val bitacoraNc = (pedidoSnapNc.get("bitacora") as? List<Map<String, Any>>) ?: emptyList()
+                    val firmaNc = usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } }
+                    tx.update(
+                        pedidoRefNc,
+                        mapOf(
+                            "montoFacturadoReal" to Math.round((montoPrevioNc - monto).coerceAtLeast(0.0) * 100.0) / 100.0,
+                            "bitacora" to bitacoraNc + mapOf(
+                                "tipo" to "EDICION",
+                                "usuario" to firmaNc,
+                                "fecha" to fechaLegible,
+                                "fechaMs" to ahoraMs,
+                                "detalle" to "Nota de crédito $numDoc: FACTURADO baja S/ " +
+                                    String.format(java.util.Locale.US, "%.2f", monto) + "."
+                            ),
+                            "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        )
+                    )
+                }
+
                 if (provRefNc != null && provSnapNc != null) {
                     val entradaSaldo = mapOf(
                         "id" to idAjuste,
@@ -571,6 +658,63 @@ class FacturaCompraRepository(
                                 " pagados de más sin dónde guardarse. Crea de nuevo la ficha del proveedor y reintenta: nada se guardó."
                         )
                     }
+                }
+
+                // Puente stock: la mercadería SE VA del lote + kardex, en la misma transacción
+                // que baja la deuda. Si esto falla, la nota tampoco se escribe (cero mitades).
+                if (pideSalida && productRefNc != null && currentLotesNc != null && loteDataNc != null && loteKeyNc != null) {
+                    val dispSalida = ((loteDataNc["cantidad"] as? Number)?.toDouble() ?: 0.0).coerceAtLeast(0.0)
+                    val nuevaCantSalida = (dispSalida - salidaCantidad).coerceAtLeast(0.0)
+                    if (nuevaCantSalida < 0.001) {
+                        currentLotesNc.remove(loteKeyNc)
+                    } else {
+                        loteDataNc["cantidad"] = nuevaCantSalida
+                        currentLotesNc[loteKeyNc] = loteDataNc
+                    }
+                    val stockDispNc = currentLotesNc.values.sumOf { (it as? Map<*, *>)?.let { m -> (m["cantidad"] as? Number)?.toDouble() ?: 0.0 } ?: 0.0 }
+                    val stockTotNc = currentLotesNc.values.sumOf {
+                        val d = it as? Map<*, *>
+                        ((d?.get("cantidad") as? Number)?.toDouble() ?: 0.0) + ((d?.get("cantidadBloqueada") as? Number)?.toDouble() ?: 0.0)
+                    }
+                    val updatesProdNc = mutableMapOf<String, Any>(
+                        "lotes" to currentLotesNc,
+                        "stock" to stockDispNc,
+                        "stockTotal" to stockTotNc,
+                        "vencimientoMasCercano" to com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.vencimientoMasCercano(currentLotesNc),
+                        "actualizadoEl" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    )
+                    if (nuevaCantSalida < 0.001 && productSnapNc != null) {
+                        val princNc = productSnapNc.getString("lotePrioritarioId") ?: ""
+                        if (princNc.isNotBlank() &&
+                            (princNc.equals(com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.llaveLote(loteSalidaLimpio), true) || princNc.equals(loteSalidaLimpio, true))
+                        ) {
+                            updatesProdNc["lotePrioritarioId"] = ""
+                            updatesProdNc["lotePrioritarioPor"] = ""
+                            updatesProdNc["lotePrioritarioPorRol"] = ""
+                        }
+                    }
+                    tx.update(productRefNc, updatesProdNc)
+                    tx.set(
+                        tiendaRefNc.collection("movimientos").document("salida_$idAjuste"),
+                        mapOf(
+                            "id" to "salida_$idAjuste",
+                            "tipo" to "SALIDA_DEVOLUCION_PROVEEDOR",
+                            "productoId" to salidaProductoId,
+                            "productoNombre" to salidaProductoNombre.ifBlank { fact.items.firstOrNull { it.productoId == salidaProductoId }?.productoNombre ?: "" },
+                            "cantidadTotal" to -salidaCantidad,
+                            "costoTotal" to salidaCantidad * costoUnitSalida,
+                            "costoUnitario" to costoUnitSalida,
+                            "loteNumero" to loteSalidaLimpio,
+                            "vencimiento" to (loteDataNc["vencimiento"] as? String ?: ""),
+                            "usuarioEmail" to usuarioEmail,
+                            "usuarioNombre" to usuarioNombre.ifBlank { SessionManager.nombreUsuario },
+                            "pedidoId" to fact.pedidoId,
+                            "origen" to "NOTA_CREDITO_DEVOLUCION",
+                            "facturaNumero" to fact.numeroFactura,
+                            "notas" to "Devolución con NC $numDoc: ${motivo.trim()}",
+                            "fecha" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                        )
+                    )
                 }
             }.await()
 

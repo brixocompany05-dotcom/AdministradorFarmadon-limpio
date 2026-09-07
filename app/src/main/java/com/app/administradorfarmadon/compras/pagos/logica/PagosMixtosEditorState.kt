@@ -21,7 +21,9 @@ class PagosMixtosEditorState(
     val opcionesMetodo: List<String>,
     pagosIniciales: List<PagoDetalle>,
     /** Tope máximo: el saldo pendiente de la factura. El pago puede ser menor. */
-    val montoMaximo: Double
+    val montoMaximo: Double,
+    /** Si es true, al seleccionar un solo método se le asigna automáticamente el 100% sin pedir escribir el monto. */
+    val autoCompletarTotalUnicoMetodo: Boolean = false
 ) {
 
     /** Una fila editable: un método con su monto (y operación opcional). */
@@ -49,27 +51,34 @@ class PagosMixtosEditorState(
                 }
             }
         } else {
-        // Sin método preseleccionado: la persona elige el primero (los abonos pueden ser parciales).
-        emptyList()
+            // Sin método preseleccionado: la persona elige el primero (los abonos pueden ser parciales).
+            emptyList()
         }
         filas.addAll(iniciales)
         proximoId = (iniciales.maxOfOrNull { it.id } ?: -1) + 1
+        if (autoCompletarTotalUnicoMetodo && filas.size == 1 && filas[0].montoTexto.isBlank()) {
+            filas[0].montoTexto = if (montoMaximoActual > 0) String.format(Locale.US, "%.2f", montoMaximoActual) else ""
+        }
+    }
+
+    fun limpiar() {
+        filas.clear()
+        proximoId = 0
     }
 
     fun actualizarMontoMaximo(nuevoMonto: Double) {
         montoMaximoActual = nuevoMonto
+        if (autoCompletarTotalUnicoMetodo && filas.size == 1) {
+            filas[0].montoTexto = if (nuevoMonto > 0) String.format(Locale.US, "%.2f", nuevoMonto) else ""
+        }
     }
 
     fun cambiarMonto(id: Int, texto: String) {
         filas.firstOrNull { it.id == id }?.montoTexto = texto.filter { c -> c.isDigit() || c == '.' || c == ',' }
     }
 
-    /** Monto máximo que puede asignarse a una porción: jamás más que el total. */
-    fun montoMaximoParaFila(id: Int): Double {
-        val fila = filas.firstOrNull { it.id == id } ?: return 0.0
-        val otras = filas.filter { it.id != id }.sumOf { it.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0 }
-        return (montoMaximoActual - otras).coerceAtLeast(0.0)
-    }
+    /** Monto máximo que puede asignarse a una porción: el total de la factura. */
+    fun montoMaximoParaFila(id: Int): Double = montoMaximoActual
 
     fun cambiarOperacion(id: Int, operacion: String) {
         filas.firstOrNull { it.id == id }?.operacion = operacion
@@ -78,7 +87,6 @@ class PagosMixtosEditorState(
     fun agregarFila() {
         val disponibles = opcionesMetodo.filter { opcion -> filas.none { it.metodo == opcion } }
         val metodoNuevo = disponibles.firstOrNull() ?: return
-        // Al añadir otro método se abre vacío: la persona decide cuánto (abono en partes).
         filas.add(FilaPago(proximoId, metodoNuevo))
         proximoId++
     }
@@ -86,9 +94,19 @@ class PagosMixtosEditorState(
     /** Agrega un método concreto elegido por la persona (un solo paso, sin dropdown). */
     fun agregarMetodoEspecifico(metodo: String) {
         if (filas.any { it.metodo == metodo }) return
-        // Se abre vacío: la persona escribe cuánto pagó con este método.
-        filas.add(FilaPago(proximoId, metodo))
+        val nuevaFila = FilaPago(proximoId, metodo)
         proximoId++
+        filas.add(nuevaFila)
+        if (autoCompletarTotalUnicoMetodo) {
+            if (filas.size == 1) {
+                nuevaFila.montoTexto = if (montoMaximoActual > 0) String.format(Locale.US, "%.2f", montoMaximoActual) else ""
+            } else if (filas.size == 2 && filas[0].montoTexto == String.format(Locale.US, "%.2f", montoMaximoActual)) {
+                // Pasó de método único (100% automático) a pago repartido:
+                // Se limpian los montos para que el usuario escriba la distribución limpia de cada método
+                // sin falsas alarmas de sobrepago.
+                filas.forEach { it.montoTexto = "" }
+            }
+        }
     }
 
     /**
@@ -97,10 +115,16 @@ class PagosMixtosEditorState(
      */
     fun quitarPorMetodo(metodo: String) {
         filas.removeAll { it.metodo == metodo }
+        if (autoCompletarTotalUnicoMetodo && filas.size == 1) {
+            filas[0].montoTexto = if (montoMaximoActual > 0) String.format(Locale.US, "%.2f", montoMaximoActual) else ""
+        }
     }
 
     fun quitarFila(id: Int) {
         filas.removeAll { it.id == id }
+        if (autoCompletarTotalUnicoMetodo && filas.size == 1) {
+            filas[0].montoTexto = if (montoMaximoActual > 0) String.format(Locale.US, "%.2f", montoMaximoActual) else ""
+        }
     }
 
     val metodosDisponiblesParaAgregar: List<String>
@@ -110,11 +134,11 @@ class PagosMixtosEditorState(
     val sumaPorciones: Double
         get() = filas.sumOf { it.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0 }
 
-    /** Ninguna porción puede pasarse del total (regla estricta). */
+    /** Ninguna porción individual puede superar el total de la factura. */
     val algunaPorcionExcede: Boolean
         get() = filas.any { fila ->
             val montoFila = fila.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0
-            montoFila > montoMaximoParaFila(fila.id) + 0.01
+            montoFila > montoMaximoActual + 0.01
         }
 
     /** La suma de porciones jamás puede exceder el total. */
@@ -147,13 +171,20 @@ class PagosMixtosEditorState(
         get() {
             if (montoMaximoActual <= 0.0) return ""
             if (filas.isEmpty()) return "Elige al menos un método de pago"
-            if (algunaPorcionExcede) {
-                val fila = filas.firstOrNull { it.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0 > montoMaximoParaFila(it.id) + 0.01 }
-                if (fila != null) return "Este método no puede pagar más de " + formatear(montoMaximoParaFila(fila.id))
+            if (filas.size == 1 && autoCompletarTotalUnicoMetodo) {
+                return "✓ Pago total al contado con ${filas[0].metodo}: " + formatear(montoMaximoActual)
             }
-            if (sumaExcedeTotal) return "El pago excede el saldo por " + formatear(sumaPorciones - montoMaximoActual)
-            if (sumaPorciones <= 0.0) return "Falta escribir el monto de este método"
-            return "Pago indicado: " + formatear(sumaPorciones) + " · Queda por pagar: " + formatear((montoMaximoActual - sumaPorciones).coerceAtLeast(0.0))
+            if (algunaPorcionExcede) {
+                val fila = filas.firstOrNull { (it.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0) > montoMaximoActual + 0.01 }
+                if (fila != null) return "El monto en ${fila.metodo} supera el total (${formatear(montoMaximoActual)})"
+            }
+            if (sumaExcedeTotal) return "El pago excede el total por " + formatear(sumaPorciones - montoMaximoActual)
+            if (sumaPorciones <= 0.0) return "Escribe el monto para cada método elegido"
+            val restante = montoMaximoActual - sumaPorciones
+            if (restante > 0.01) {
+                return "Distribuido: " + formatear(sumaPorciones) + " · Falta asignar: " + formatear(restante)
+            }
+            return "✓ Total distribuido correctamente (" + formatear(sumaPorciones) + ")"
         }
 
     private fun formatear(valor: Double): String =

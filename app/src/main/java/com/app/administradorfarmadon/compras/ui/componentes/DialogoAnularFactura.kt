@@ -33,10 +33,11 @@ import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 import java.util.Locale
 
 private val MOTIVOS_ANULACION_FACTURA = listOf(
-    "La escribí mal o está duplicada",
+    "Me equivoqué al registrarla",
+    "Está duplicada (ya existe otra igual)",
     "La mercadería nunca llegó o llegó incompleta",
     "El producto o el lote es equivocado",
-    "Devolución al proveedor (parcial o total)",
+    "Devolución TOTAL al proveedor",
     "Conflicto con el proveedor"
 )
 
@@ -385,6 +386,16 @@ fun DialogoAnularFactura(
                                         style = FDType.Caption.copy(fontSize = s.textLabel.value.sp * 0.92f),
                                         color = FDColors.TextTertiary
                                     )
+                                    // Puente humano: el efectivo en mano NO entra solo a Caja (la caja
+                                    // es del turno abierto, no de Compras). Si no se registra el
+                                    // INGRESO manual, el arqueo descuadrará.
+                                    if ((metodoDevolucion ?: "").equals("Efectivo", ignoreCase = true)) {
+                                        Text(
+                                            "Ese efectivo debe ingresar a Caja (POS → INGRESO manual). Si no, el arqueo descuadrará.",
+                                            style = FDType.Label.copy(fontSize = s.textLabel.value.sp * 0.92f, fontWeight = FontWeight.Bold),
+                                            color = FDColors.Warning
+                                        )
+                                    }
                                 }
                             } else {
                                 Surface(

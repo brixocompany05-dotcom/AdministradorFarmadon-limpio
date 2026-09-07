@@ -39,16 +39,19 @@ class AppFarmadon : Application() {
         // Inicializar Canales de Notificación
         NotificationChannels.createNotificationChannels(this)
 
+        // Inicializar SharedPreferences esenciales de forma inmediata y sincrónica
+        SessionManager.init(this)
+        com.app.administradorfarmadon.ventas.compartido.datos.VentaBorradorLocalStore.init(this)
+        com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.datos.TecladoPrefs.init(this)
+        com.app.administradorfarmadon.configuracion.preferencias_sistema.impresion.datos.ImpresionPrefs.init(this)
+        com.app.administradorfarmadon.configuracion.preferencias_sistema.ux.datos.UxPrefs.init(this)
+
         appScope.launch {
             // Calibrar el reloj del servidor lo antes posible (al arranque de la app,
             // no solo al abrir Inventario/Menú). Restaura el último offset bueno y luego
             // reintenta medir contra Firestore; si no hay red, queda el último conocido.
             RelojServidorSincronizador.cargar(this@AppFarmadon)
             RelojServidorSincronizador.sincronizar(this@AppFarmadon)
-            SessionManager.init(this@AppFarmadon)
-            com.app.administradorfarmadon.configuracion.preferencias_sistema.teclado.datos.TecladoPrefs.init(this@AppFarmadon)
-            com.app.administradorfarmadon.configuracion.preferencias_sistema.impresion.datos.ImpresionPrefs.init(this@AppFarmadon)
-            com.app.administradorfarmadon.configuracion.preferencias_sistema.ux.datos.UxPrefs.init(this@AppFarmadon)
             NetworkHealthMonitor.init(this@AppFarmadon)
         }
 

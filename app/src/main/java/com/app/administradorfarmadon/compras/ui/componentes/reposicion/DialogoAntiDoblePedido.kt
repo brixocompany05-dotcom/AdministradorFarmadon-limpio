@@ -82,14 +82,14 @@ fun DialogoAntiDoblePedido(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)) {
                 val ordenesTxt = info?.ordenes?.filter { o -> o.isNotBlank() }?.joinToString()
-                    ?.let { o -> " ($o)" } ?: ""
+                    ?.let { o -> " (en orden $o)" } ?: ""
                 Text(
-                    "${prod.name}: ${info?.unidades ?: 0} unidades ya pedidas y en camino$ordenesTxt.",
-                    style = FDType.Body.copy(fontSize = 12.5.sp),
+                    "${prod.name}: ya tiene ${info?.unidades ?: 0} unidades en camino$ordenesTxt.",
+                    style = FDType.Body.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold),
                     color = FDColors.TextPrimary
                 )
                 Text(
-                    "¿Quieres añadir $cantidadExtraPropuesta más como pedido NUEVO a la misma droguería?",
+                    "¿Deseas sumar $cantidadExtraPropuesta unidades más a la reposición de este producto?",
                     style = FDType.BodySmall.copy(fontSize = 12.sp),
                     color = FDColors.TextSecondary
                 )
@@ -105,7 +105,7 @@ fun DialogoAntiDoblePedido(
                 shape = RoundedCornerShape(s.radiusInput * 0.75f)
             ) {
                 Text(
-                    "SÍ, AÑADIR $cantidadExtraPropuesta MÁS",
+                    "SÍ, SUMAR $cantidadExtraPropuesta UNIDADES",
                     style = FDType.Label.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp
@@ -119,7 +119,7 @@ fun DialogoAntiDoblePedido(
                 shape = RoundedCornerShape(s.radiusInput * 0.75f)
             ) {
                 Text(
-                    "NO, MEJOR NO",
+                    "CANCELAR",
                     style = FDType.Label.copy(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold

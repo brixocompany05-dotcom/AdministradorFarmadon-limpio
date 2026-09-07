@@ -1,4 +1,4 @@
-﻿# AGENTS.md — FARMADON
+# AGENTS.md — FARMADON
 
 ## Manifiesto · El producto que BRIXO le vende a las farmacias
 
@@ -138,6 +138,23 @@ listeners se cancelan limpiamente.
 - Estándar: bien o nada — jamás inventar, jamás perder en silencio.
 - Se invoca: **"hazle auditoría de verdad a [módulo]"**.
 
+### R14. CERO ESTADO OBSOLETO — REGLA GLOBAL DE CONSISTENCIA DE BrixoPanel
+- **Principio Fundamental:** Toda mutación exitosa invalida inmediatamente cualquier representación anterior de la entidad modificada. La interfaz nunca sobrevive a una realidad que ya cambió.
+- **Definición:** Toda mutación es una acción que cambia el estado persistente (anular, confirmar, registrar venta, devolver, abrir/cerrar caja, recibir mercadería, crear/confirmar/cancelar pedido, editar producto, cambiar stock/precio, registrar pago/abono, emitir/anular documento).
+- **Flujo Obligatorio:** `Usuario → Acción → Bloqueo inmediato UI → Esperar confirmación servidor → Si falla: mantener contexto y explicar error → Si éxito: cerrar contexto anterior → invalidar estado temporal (clearTransientState) → refrescar fuentes vivas → mostrar nuevo estado real`.
+- **Regla de oro:** **Una operación consumida no puede seguir pareciendo disponible.** Prohibido quedarse mirando la pantalla vieja con botones activos que permitan repetir la acción o crear duplicados.
+- **Las 6 Preguntas Obligatorias de toda Mutación:**
+  1. ¿Qué acción humana inició la mutación?
+  2. ¿Qué estado cambió en el servidor (Firestore)?
+  3. ¿Qué representaciones locales de ese dato existen actualmente en memoria o pantalla?
+  4. ¿Cómo y cuándo se destruye o invalida cada una de esas representaciones?
+  5. ¿Qué ve el usuario inmediatamente después de confirmar?
+  6. ¿Qué ocurre si el usuario presiona "Atrás"?
+- **Blindaje Concurrente Multi-Usuario:** Toda transacción re-lee el estado vivo en el servidor antes de escribir. Si otra terminal completó, canceló o cerró la entidad, se rechaza la mutación con mensaje humano claro y se expulsa el diálogo o contexto obsoleto de la pantalla.
+- **Separación estricta de estados:** El estado temporal del formulario (`transientState`) se destruye al confirmar (`clearTransientState()`). Prohibido reciclar formularios sucios o dejar modelos residuales en el ViewModel. La fuente de verdad es la base de datos viva, nunca la memoria casual de una pantalla.
+- **Blindaje del botón "Atrás":** El back stack debe retirar el contexto consumido. Al presionar Atrás, el sistema jamás debe regresar a un formulario o diálogo de una operación ya ejecutada.
+- Se rige por la skill: `estado-post-mutacion`.
+
 ---
 
 ## Límites Infranqueables
@@ -225,6 +242,9 @@ mantiene pequeño y cada skill se activa por el trabajo que realmente necesita.
   fácil de leer y cambiar.
 - `09-cerebro-comunicacion` — bocetos y explicaciones humanas para que el flujo se
   entienda antes de hablar de implementación.
+- `estado-post-mutacion` — ciclo de vida y transición post-mutación: bloqueo en vuelo,
+  confirmación real de servidor, purga de estado temporal, invalidación de caché,
+  blindaje de backstack y avance natural de la UI.
 
 ### Cómo se activan
 
@@ -232,6 +252,7 @@ mantiene pequeño y cada skill se activa por el trabajo que realmente necesita.
 Para el dominio específico de la tarea se activan las skills correspondientes:
 
 - ejecución corrida, análisis de consecuencias y cierre de tarea → `00-ejecucion-autonoma` (MASTER);
+- mutación de datos, recepciones, anulaciones, pedidos, pagos o cambios de estado → `estado-post-mutacion`;
 - pantalla, UI o experiencia Enterprise → `06-cerebro-diseno`;
 - plan, funcionalidad o decisión de producto → `cerebro-pensamiento`;
 - prevención, validaciones o recuperación → `prevencion-errores`;

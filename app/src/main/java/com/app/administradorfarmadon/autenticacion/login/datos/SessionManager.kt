@@ -53,6 +53,9 @@ object SessionManager {
     var dni: String by StringPreference("dni", "")
     var email: String by StringPreference("email", "")
 
+    private val _cajeroFlow = kotlinx.coroutines.flow.MutableStateFlow(idCajera)
+    val cajeroFlow: kotlinx.coroutines.flow.StateFlow<String> = _cajeroFlow
+
     var monedaCodigo: String by StringPreference("moneda_codigo", "PEN")
     var monedaSimbolo: String by StringPreference("moneda_simbolo", "S/")
 
@@ -84,6 +87,7 @@ object SessionManager {
         idCajera = id
         nombreUsuario = nombre
         rol = rolUsuario
+        _cajeroFlow.value = id
         if (tenantId.isNotBlank()) clienteId = tenantId
 
         // R1: La sede proviene EXCLUSIVAMENTE de la verdad del servidor (Firebase).
@@ -131,6 +135,7 @@ object SessionManager {
         
         idCajera = ""
         nombreUsuario = ""
+        _cajeroFlow.value = ""
         rol = "Administrador"
         clienteId = ""
         sucursalId = ""

@@ -85,7 +85,7 @@ object ReportesDatasetBuilder {
 
                 val ventasValidas = exito.listaVentas.filter { it.estado != Venta.ESTADO_ANULADA }
                 for (v in ventasValidas) {
-                    val comp = v.numeroCompleto.ifBlank { "${v.tipoComprobante} #${v.id.takeLast(6)}" }
+                    val comp = v.numeroCompleto.ifBlank { "${v.tipoComprobante} SIN NUMERO" }
                     val fStr = formatearFechaLima(v.fechaHoraMs)
                     // Prorrateo del descuento global de la venta para que el total coincida con Ventas Brutas (sum total).
                     val factorDesc = if (v.subtotal > 0.0) (v.total / v.subtotal).coerceIn(0.0, 1.0) else 1.0

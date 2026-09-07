@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +30,7 @@ import com.app.administradorfarmadon.compras.pagos.logica.EtiquetaMetodoPago
 import com.app.administradorfarmadon.compras.pagos.logica.PagosMixtosEditorState
 import com.app.administradorfarmadon.disenotemaapp.ui.recordarMedidaAdaptativa
 import com.app.administradorfarmadon.disenotemaapp.ui.tokens.TokensFarmadon
+import java.util.Locale
 
 /**
  * Editor visual del PAGO MIXTO. Un solo paso: todos los métodos están a la vista
@@ -110,15 +112,17 @@ fun PagosMixtosEditor(
             }
         }
 
-        // Cajones de cada método elegido.
-        estado.filas.forEach { fila ->
-            val excede = (fila.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0) > estado.montoMaximoParaFila(fila.id) + 0.01
+        // Si es método único con auto-completar activado (ej. Recepción al contado):
+        // Se muestra tarjeta limpia con el total sin pedir escribir el monto.
+        if (estado.autoCompletarTotalUnicoMetodo && estado.filas.size == 1) {
+            val fila = estado.filas.first()
             val necesitaOperacion = EtiquetaMetodoPago.requiereOperacion(fila.metodo)
-            var operacionAbierta by remember(fila.id) { mutableStateOf(false) }
+            var operacionAbierta by remember(fila.id) { mutableStateOf(fila.operacion.isNotBlank()) }
+
             Surface(
                 color = colores.cardBase,
                 shape = RoundedCornerShape(s.radiusCard * 0.75f),
-                border = BorderStroke(s.borderWidth, if (excede) colores.estadoPeligro.copy(alpha = 0.55f) else colores.cardBorde),
+                border = BorderStroke(s.borderWidth, colores.cardBorde),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -128,71 +132,61 @@ fun PagosMixtosEditor(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(s.xs)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            fila.metodo,
-                            modifier = Modifier.weight(1f),
-                            style = TokensFarmadon.tipografia.titulo3.copy(
-                                fontSize = s.textBody.value.sp,
-                                fontWeight = FontWeight.Black
-                            ),
-                            color = colores.textoPrincipal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            "Puede pagar hasta $simboloMoneda " + String.format(
-                                java.util.Locale.US, "%.2f", estado.montoMaximoParaFila(fila.id)
-                            ),
-                            style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
-                                fontSize = s.textLabel.value.sp * 0.82f,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = if (excede) colores.estadoPeligro else colores.textoTerciario
-                        )
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Quitar método",
-                            tint = colores.textoTerciario,
-                            modifier = Modifier
-                                .size(s.iconSmall)
-                                .clip(RoundedCornerShape(s.radiusChip))
-                                .clickable(enabled = !soloLectura) { estado.quitarPorMetodo(fila.metodo) }
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(s.xs),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = fila.montoTexto,
-                            onValueChange = { estado.cambiarMonto(fila.id, it) },
-                            enabled = !soloLectura,
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            label = { Text("¿CUÁNTO? ($simboloMoneda)", fontSize = s.textLabel.value.sp * 0.82f) },
-                            isError = excede,
-                            textStyle = TokensFarmadon.tipografia.cuerpo.copy(
-                                fontSize = s.textInput.value.sp,
-                                fontWeight = FontWeight.Bold,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(s.xs)
+                        ) {
+                            Text(
+                                fila.metodo,
+                                style = TokensFarmadon.tipografia.titulo3.copy(
+                                    fontSize = s.textBody.value.sp,
+                                    fontWeight = FontWeight.Black
+                                ),
+                                color = colores.textoPrincipal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Surface(
+                                color = colores.estadoExito.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(s.radiusChip)
+                            ) {
+                                Text(
+                                    "100% al contado",
+                                    style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
+                                        fontSize = s.textLabel.value.sp * 0.8f,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = colores.estadoExito,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(s.xs)
+                        ) {
+                            Text(
+                                "$simboloMoneda " + String.format(Locale.US, "%.2f", estado.montoMaximoActual),
+                                style = TokensFarmadon.tipografia.titulo3.copy(
+                                    fontSize = s.textBody.value.sp * 1.05f,
+                                    fontWeight = FontWeight.Black
+                                ),
                                 color = colores.textoPrincipal
-                            ),
-                            shape = RoundedCornerShape(s.radiusInput),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = if (excede) colores.estadoPeligro else colores.textoPrincipal,
-                                unfocusedBorderColor = if (excede) colores.estadoPeligro else colores.cardBorde,
-                                focusedContainerColor = colores.fondoBase,
-                                unfocusedContainerColor = colores.fondoBase,
-                                focusedTextColor = colores.textoPrincipal,
-                                unfocusedTextColor = colores.textoPrincipal
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
+                            )
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Quitar método",
+                                tint = colores.textoTerciario,
+                                modifier = Modifier
+                                    .size(s.iconSmall)
+                                    .clip(RoundedCornerShape(s.radiusChip))
+                                    .clickable(enabled = !soloLectura) { estado.quitarPorMetodo(fila.metodo) }
+                            )
+                        }
                     }
-                    // N° de operación: solo donde existe de verdad (Yape, Plin, transferencia, cheque).
-                    // Se expande/contrae para no estorbar cuando no se necesita.
+
                     if (necesitaOperacion) {
                         Surface(
                             color = Color.Transparent,
@@ -203,14 +197,14 @@ fun PagosMixtosEditor(
                                 .clickable { operacionAbierta = !operacionAbierta }
                         ) {
                             Row(
-                                modifier = Modifier.padding(vertical = s.xs),
+                                modifier = Modifier.padding(vertical = s.xs * 0.5f),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(s.xs * 0.5f)
                             ) {
                                 Text(
                                     if (operacionAbierta) "Ocultar N° de operación" else "Añadir N° de operación (opcional)",
                                     style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
-                                        fontSize = s.textLabel.value.sp * 0.9f,
+                                        fontSize = s.textLabel.value.sp * 0.88f,
                                         fontWeight = FontWeight.Bold
                                     ),
                                     color = colores.textoPrincipal
@@ -245,28 +239,170 @@ fun PagosMixtosEditor(
                             )
                         }
                     }
-                    if (excede) {
-                        Text(
-                            "Ojo: este método solo puede pagar hasta $simboloMoneda " + String.format(
-                                java.util.Locale.US, "%.2f", estado.montoMaximoParaFila(fila.id)
-                            ),
-                            style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
-                                fontSize = s.textBody.value.sp * 0.9f,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = colores.estadoPeligro
-                        )
+                }
+            }
+        } else {
+            // Cajones de cada método elegido (pagos divididos o edición manual).
+            estado.filas.forEach { fila ->
+                val excede = (fila.montoTexto.replace(',', '.').toDoubleOrNull() ?: 0.0) > estado.montoMaximoParaFila(fila.id) + 0.01
+                val necesitaOperacion = EtiquetaMetodoPago.requiereOperacion(fila.metodo)
+                var operacionAbierta by remember(fila.id) { mutableStateOf(fila.operacion.isNotBlank()) }
+                Surface(
+                    color = colores.cardBase,
+                    shape = RoundedCornerShape(s.radiusCard * 0.75f),
+                    border = BorderStroke(s.borderWidth, if (excede) colores.estadoPeligro.copy(alpha = 0.55f) else colores.cardBorde),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(s.padCard),
+                        verticalArrangement = Arrangement.spacedBy(s.xs)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                fila.metodo,
+                                modifier = Modifier.weight(1f),
+                                style = TokensFarmadon.tipografia.titulo3.copy(
+                                    fontSize = s.textBody.value.sp,
+                                    fontWeight = FontWeight.Black
+                                ),
+                                color = colores.textoPrincipal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Quitar método",
+                                tint = colores.textoTerciario,
+                                modifier = Modifier
+                                    .size(s.iconSmall)
+                                    .clip(RoundedCornerShape(s.radiusChip))
+                                    .clickable(enabled = !soloLectura) { estado.quitarPorMetodo(fila.metodo) }
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(s.xs),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = fila.montoTexto,
+                                onValueChange = { estado.cambiarMonto(fila.id, it) },
+                                enabled = !soloLectura,
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                label = { Text("Monto a pagar ($simboloMoneda)", fontSize = s.textLabel.value.sp * 0.82f) },
+                                isError = excede,
+                                textStyle = TokensFarmadon.tipografia.cuerpo.copy(
+                                    fontSize = s.textInput.value.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colores.textoPrincipal
+                                ),
+                                shape = RoundedCornerShape(s.radiusInput),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = if (excede) colores.estadoPeligro else colores.textoPrincipal,
+                                    unfocusedBorderColor = if (excede) colores.estadoPeligro else colores.cardBorde,
+                                    focusedContainerColor = colores.fondoBase,
+                                    unfocusedContainerColor = colores.fondoBase,
+                                    focusedTextColor = colores.textoPrincipal,
+                                    unfocusedTextColor = colores.textoPrincipal
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        // N° de operación: solo donde existe de verdad (Yape, Plin, transferencia, cheque).
+                        // Se expande/contrae para no estorbar cuando no se necesita.
+                        if (necesitaOperacion) {
+                            Surface(
+                                color = Color.Transparent,
+                                shape = RoundedCornerShape(s.radiusChip),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(s.radiusChip))
+                                    .clickable { operacionAbierta = !operacionAbierta }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = s.xs),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(s.xs * 0.5f)
+                                ) {
+                                    Text(
+                                        if (operacionAbierta) "Ocultar N° de operación" else "Añadir N° de operación (opcional)",
+                                        style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
+                                            fontSize = s.textLabel.value.sp * 0.9f,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = colores.textoPrincipal
+                                    )
+                                    Icon(
+                                        if (operacionAbierta) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        null,
+                                        tint = colores.textoTerciario,
+                                        modifier = Modifier.size(s.iconTiny)
+                                    )
+                                }
+                            }
+                            if (operacionAbierta || fila.operacion.isNotBlank()) {
+                                OutlinedTextField(
+                                    value = fila.operacion,
+                                    onValueChange = { estado.cambiarOperacion(fila.id, it) },
+                                    enabled = !soloLectura,
+                                    label = { Text("N° de operación", fontSize = s.textLabel.value.sp * 0.82f) },
+                                    singleLine = true,
+                                    textStyle = TokensFarmadon.tipografia.cuerpo.copy(
+                                        fontSize = s.textInput.value.sp,
+                                        color = colores.textoPrincipal
+                                    ),
+                                    shape = RoundedCornerShape(s.radiusInput),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = colores.textoPrincipal,
+                                        unfocusedBorderColor = colores.cardBorde,
+                                        focusedContainerColor = colores.fondoBase,
+                                        unfocusedContainerColor = colores.fondoBase
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                        if (excede) {
+                            Text(
+                                "Ojo: este monto supera el total de la compra ($simboloMoneda " + String.format(
+                                    java.util.Locale.US, "%.2f", estado.montoMaximoActual
+                                ) + ")",
+                                style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
+                                    fontSize = s.textBody.value.sp * 0.9f,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = colores.estadoPeligro
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Error global: la suma excede el total.
-        if (estado.sumaExcedeTotal) {
+        // Guía y estado de distribución en vivo cuando hay 2 o más métodos
+        if (estado.filas.size > 1) {
+            val estaExcedido = estado.sumaExcedeTotal || estado.algunaPorcionExcede
+            val estaCompleto = estado.cuadra && kotlin.math.abs(estado.sumaPorciones - estado.montoMaximoActual) <= 0.01
             Surface(
-                color = colores.peligroSutil,
+                color = when {
+                    estaExcedido -> colores.peligroSutil
+                    estaCompleto -> colores.estadoExito.copy(alpha = 0.12f)
+                    else -> colores.cardBase
+                },
                 shape = RoundedCornerShape(s.radiusChip),
-                border = BorderStroke(s.borderWidth, colores.estadoPeligro.copy(alpha = 0.4f)),
+                border = BorderStroke(
+                    s.borderWidth,
+                    when {
+                        estaExcedido -> colores.estadoPeligro.copy(alpha = 0.5f)
+                        estaCompleto -> colores.estadoExito.copy(alpha = 0.5f)
+                        else -> colores.cardBorde
+                    }
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -274,14 +410,31 @@ fun PagosMixtosEditor(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(s.xs)
                 ) {
-                    Icon(Icons.Default.WarningAmber, null, tint = colores.estadoPeligro, modifier = Modifier.size(s.iconSmall))
+                    Icon(
+                        imageVector = when {
+                            estaExcedido -> Icons.Default.WarningAmber
+                            estaCompleto -> Icons.Default.Check
+                            else -> Icons.Default.Info
+                        },
+                        contentDescription = null,
+                        tint = when {
+                            estaExcedido -> colores.estadoPeligro
+                            estaCompleto -> colores.estadoExito
+                            else -> colores.textoTerciario
+                        },
+                        modifier = Modifier.size(s.iconSmall)
+                    )
                     Text(
-                        estado.estadoVerificacion,
+                        text = estado.estadoVerificacion,
                         style = TokensFarmadon.tipografia.cuerpoPequeno.copy(
                             fontSize = s.textBody.value.sp * 0.92f,
                             fontWeight = FontWeight.Bold
                         ),
-                        color = colores.estadoPeligro
+                        color = when {
+                            estaExcedido -> colores.estadoPeligro
+                            estaCompleto -> colores.estadoExito
+                            else -> colores.textoSecundario
+                        }
                     )
                 }
             }

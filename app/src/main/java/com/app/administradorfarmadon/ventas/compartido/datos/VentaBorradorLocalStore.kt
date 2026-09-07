@@ -23,22 +23,61 @@ data class BorradorVentaLocal(
 
 object VentaBorradorLocalStore {
     private const val PREFS_NAME = "farmadon_pos_drafts"
+    private const val KEY_DEVICE_ID = "pos_device_id_v1"
+    @Volatile
     private var prefs: android.content.SharedPreferences? = null
 
     fun init(context: Context) {
         if (prefs == null) {
-            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            synchronized(this) {
+                if (prefs == null) {
+                    prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                }
+            }
         }
     }
 
-    private fun clave(farmaciaId: String, sucursalId: String): String = "draft_${farmaciaId}_$sucursalId"
+    /**
+     * Cada tablet tiene su hoja de borrador propia y estable.
+     * Sin esto, el mismo cajero en 2 aparatos se pisa la canasta: la última
+     * en guardar tapa a la otra y al reiniciar una pierde su venta.
+     */
+    private fun idDispositivo(): String {
+        val sp = prefs ?: return ""
+        var id = sp.getString(KEY_DEVICE_ID, null)
+        if (id.isNullOrBlank()) {
+            id = java.util.UUID.randomUUID().toString().take(8)
+            try {
+                sp.edit().putString(KEY_DEVICE_ID, id).commit()
+            } catch (_: Exception) {
+                return ""
+            }
+        }
+        return id.trim()
+    }
 
-    fun guardarBorrador(context: Context? = null, farmaciaId: String, sucursalId: String, borrador: BorradorVentaLocal) {
+    private fun claveBase(farmaciaId: String, sucursalId: String, cajeroId: String = ""): String =
+        if (cajeroId.isNotBlank()) "draft_${farmaciaId}_${sucursalId}_${cajeroId.trim()}"
+        else "draft_${farmaciaId}_$sucursalId"
+
+    private fun clave(farmaciaId: String, sucursalId: String, cajeroId: String = ""): String {
+        val base = claveBase(farmaciaId, sucursalId, cajeroId)
+        val dev = idDispositivo()
+        return if (dev.isBlank()) base else "${base}_d_$dev"
+    }
+
+    fun guardarBorrador(
+        context: Context? = null,
+        farmaciaId: String,
+        sucursalId: String,
+        cajeroId: String = "",
+        borrador: BorradorVentaLocal
+    ) {
         if (context != null) init(context)
         val sp = prefs ?: return
         if (farmaciaId.isBlank() || sucursalId.isBlank()) return
         if (borrador.items.isEmpty()) {
-            limpiarBorrador(context, farmaciaId, sucursalId)
+            limpiarBorrador(context, farmaciaId, sucursalId, cajeroId)
             return
         }
 
@@ -69,23 +108,37 @@ object VentaBorradorLocalStore {
                 itemObj.put("precioUnitario", it.precioUnitario)
                 itemObj.put("subtotal", it.subtotal)
                 itemObj.put("requiereReceta", it.requiereReceta)
+                itemObj.put("recetaVerificada", it.recetaVerificada)
                 itemObj.put("loteSugerido", it.loteSugerido)
                 itemObj.put("loteVencimientoSugerido", it.loteVencimientoSugerido)
                 itemObj.put("ubicacionAnaquel", it.ubicacionAnaquel)
                 itemObj.put("cantidadDevuelta", it.cantidadDevuelta)
+                itemObj.put("costoTotalReal", it.costoTotalReal)
                 itemsArr.put(itemObj)
             }
             json.put("items", itemsArr)
 
-            sp.edit().putString(clave(farmaciaId, sucursalId), json.toString()).apply()
-        } catch (_: Exception) {}
+            sp.edit().putString(clave(farmaciaId, sucursalId, cajeroId), json.toString()).commit()
+        } catch (e: Exception) {
+            android.util.Log.e("VentaBorradorLocalStore", "Error guardando borrador: ${e.message}", e)
+        }
     }
 
-    fun obtenerBorrador(context: Context? = null, farmaciaId: String, sucursalId: String): BorradorVentaLocal? {
+    fun obtenerBorrador(
+        context: Context? = null,
+        farmaciaId: String,
+        sucursalId: String,
+        cajeroId: String = ""
+    ): BorradorVentaLocal? {
         if (context != null) init(context)
         val sp = prefs ?: return null
         if (farmaciaId.isBlank() || sucursalId.isBlank()) return null
-        val raw = sp.getString(clave(farmaciaId, sucursalId), null) ?: return null
+        // Rescate en orden: hoja de ESTE aparato, luego hoja vieja del cajero (antes del fix),
+        // luego hoja legada sin cajero. Cada aparato recupera lo suyo.
+        val raw = (if (cajeroId.isNotBlank()) sp.getString(clave(farmaciaId, sucursalId, cajeroId), null) else null)
+            ?: (if (cajeroId.isNotBlank()) sp.getString(claveBase(farmaciaId, sucursalId, cajeroId), null) else null)
+            ?: sp.getString(claveBase(farmaciaId, sucursalId), null)
+            ?: return null
         return try {
             val json = JSONObject(raw)
             val idempotenciaId = json.optString("idempotenciaId", "")
@@ -120,10 +173,12 @@ object VentaBorradorLocalStore {
                             precioUnitario = itObj.optDouble("precioUnitario", 0.0),
                             subtotal = itObj.optDouble("subtotal", 0.0),
                             requiereReceta = itObj.optBoolean("requiereReceta", false),
+                            recetaVerificada = itObj.optBoolean("recetaVerificada", false),
                             loteSugerido = itObj.optString("loteSugerido", ""),
                             loteVencimientoSugerido = itObj.optString("loteVencimientoSugerido", ""),
                             ubicacionAnaquel = itObj.optString("ubicacionAnaquel", ""),
-                            cantidadDevuelta = itObj.optInt("cantidadDevuelta", 0)
+                            cantidadDevuelta = itObj.optInt("cantidadDevuelta", 0),
+                            costoTotalReal = itObj.optDouble("costoTotalReal", 0.0)
                         )
                     )
                 }
@@ -139,16 +194,29 @@ object VentaBorradorLocalStore {
                 confirmoReceta = confirmoReceta,
                 timestamp = timestamp
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.e("VentaBorradorLocalStore", "Error obteniendo borrador: ${e.message}", e)
             null
         }
     }
 
-    fun limpiarBorrador(context: Context? = null, farmaciaId: String, sucursalId: String) {
+    fun limpiarBorrador(
+        context: Context? = null,
+        farmaciaId: String,
+        sucursalId: String,
+        cajeroId: String = ""
+    ) {
         if (context != null) init(context)
         val sp = prefs ?: return
         if (farmaciaId.isBlank() || sucursalId.isBlank()) return
-        sp.edit().remove(clave(farmaciaId, sucursalId)).apply()
+        val editor = sp.edit()
+        if (cajeroId.isNotBlank()) {
+            editor.remove(clave(farmaciaId, sucursalId, cajeroId))
+            editor.remove(claveBase(farmaciaId, sucursalId, cajeroId))
+        }
+        editor.remove(clave(farmaciaId, sucursalId))
+        editor.remove(claveBase(farmaciaId, sucursalId))
+        editor.commit()
     }
 
     /**
@@ -157,6 +225,6 @@ object VentaBorradorLocalStore {
      */
     fun limpiarTodo(context: Context? = null) {
         if (context != null) init(context)
-        prefs?.edit()?.clear()?.apply()
+        prefs?.edit()?.clear()?.commit()
     }
 }

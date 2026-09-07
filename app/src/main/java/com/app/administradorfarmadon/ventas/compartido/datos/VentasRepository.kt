@@ -93,7 +93,9 @@ class VentasRepository(
         idempotenciaId: String = "",
         autorizadoPorId: String = "",
         autorizadoPorNombre: String = "",
-        autorizadoPorRol: String = ""
+        autorizadoPorRol: String = "",
+        recetaVerificadaPor: String = "",
+        recetaVerificadaEnMs: Long = 0L
     ): Result<Venta> {
         val (farmaciaId, sucursalId) = ids()
             ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
@@ -172,6 +174,16 @@ class VentasRepository(
         val montoRecibido = sumaPagos
         val vuelto = redondear2((montoRecibido - totalCalculado).coerceAtLeast(0.0))
 
+        if (posConfig.estaVigente && vuelto > posConfig.caja.vueltoMax + 0.009) {
+            val maxVueltoStr = String.format(Locale.US, "%.2f", posConfig.caja.vueltoMax)
+            val vueltoStr = String.format(Locale.US, "%.2f", vuelto)
+            return Result.failure(
+                IllegalArgumentException(
+                    "El vuelto (S/ $vueltoStr) supera el límite máximo de vuelto en efectivo permitido por la sede (máx S/ $maxVueltoStr)."
+                )
+            )
+        }
+
         val rawIdem = idempotenciaId.trim().ifBlank { UUID.randomUUID().toString() }
         val ventaId = if (rawIdem.startsWith("v_")) rawIdem else "v_$rawIdem"
 
@@ -180,7 +192,7 @@ class VentasRepository(
             val diaClave = formatoDiaClave().format(Date(ahoraMs))
 
             val ventaRef = FarmadonPaths.ventas(db, farmaciaId, sucursalId).document(ventaId)
-            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, SessionManager.idCajera)
             val contadorRef = FarmadonPaths.contadores(db, farmaciaId, sucursalId).document("ventas")
 
             val distinctProductIds = items.map { it.productoId }.distinct()
@@ -231,41 +243,22 @@ class VentasRepository(
                     if (instanciaValida == null) {
                         throw IllegalArgumentException("El método de pago '${pago.nombreMetodo.ifBlank { pago.tipoId }}' no está activo para esta sede.")
                     }
-                    val tipoIdLimpio = (instanciaValida["tipoId"] as? String) ?: pago.tipoId
-                    val tipoInfo = com.app.administradorfarmadon.configuracion.metodospago.modelo.TIPOS_PAGO_FIJOS.firstOrNull { it.id == tipoIdLimpio }
-                    if (tipoInfo?.requiereOperacion == true && pago.numeroOperacion.isBlank()) {
-                        throw IllegalArgumentException("El método de pago '${pago.nombreMetodo.ifBlank { tipoIdLimpio }}' requiere número de operación obligatorio.")
-                    }
                 }
                 val emisorVerificado = emisorSnap.getBoolean("verificadoOk") == true
                 if (!emisorVerificado) {
                     throw IllegalStateException("FACTURACIÓN ELECTRÓNICA PENDIENTE: El administrador debe completar y verificar el emisor en Configuración → Facturación Electrónica antes de cobrar.")
                 }
 
-                val estadoCajaStr = punteroSnap.getString("estado") ?: CajaSesion.ESTADO_CERRADA
-                if (estadoCajaStr != CajaSesion.ESTADO_ABIERTA) {
-                    throw IllegalStateException("La caja está cerrada. Ábrela para cobrar.")
-                }
-                val sesionId = punteroSnap.getString("sesionId").orEmpty()
+                val estadoCajaObj = CajaRepository.parseEstadoCaja(punteroSnap.data)
+                com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja.exigirTurnoOperativo(
+                    estadoCaja = estadoCajaObj,
+                    accion = "cobrar o registrar ventas",
+                    cajeroIdEsperado = SessionManager.idCajera,
+                    ahoraMs = ahoraMs
+                )
+                val sesionId = estadoCajaObj.sesionId
                 if (sesionId.isBlank()) {
                     throw IllegalStateException("No hay un turno de caja válido asociado a la caja abierta.")
-                }
-                val aperturaCajaMs = (punteroSnap.get("aperturaMs") as? Number)?.toLong() ?: 0L
-                if (aperturaCajaMs > 0L) {
-                    val tzLima = TimeZone.getTimeZone("America/Lima")
-                    val calApertura =
-                        Calendar.getInstance(tzLima).apply { timeInMillis = aperturaCajaMs }
-                    val calHoy = Calendar.getInstance(tzLima).apply { timeInMillis = ahoraMs }
-                    val esDiaAnterior = calApertura.get(Calendar.YEAR) < calHoy.get(Calendar.YEAR) ||
-                            (calApertura.get(Calendar.YEAR) == calHoy.get(Calendar.YEAR) &&
-                             calApertura.get(Calendar.DAY_OF_YEAR) < calHoy.get(Calendar.DAY_OF_YEAR))
-                    if (esDiaAnterior) {
-                        val fmt = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).apply { timeZone = tzLima }
-                        throw IllegalStateException(
-                            "Existe una caja abierta pendiente de cierre del ${fmt.format(Date(aperturaCajaMs))}. " +
-                            "Por seguridad contable y aislamiento de jornadas, debe cerrarla en Cierre de Caja antes de registrar ventas hoy."
-                        )
-                    }
                 }
 
                 // ── 3. CORRELATIVO Y COMPROBANTE (Series por sucursal - FASE F0) ──
@@ -350,18 +343,29 @@ class VentasRepository(
 
                         // Reconstrucción de molde de trabajo con el estado vivo de lotes (Regla 6)
                         val lotesMoldeTrabajo = lotesDeTrabajo.mapValues { (k, v) ->
+                            val cantLote = ((v["cantidad"] as? Number)?.toDouble() ?: 0.0).coerceAtLeast(0.0)
+                            val costoU = (v["costoCompraUnitario"] as? Number)?.toDouble()
+                                ?: (v["costoUnitario"] as? Number)?.toDouble()
+                                ?: (v["costoUnitarioReal"] as? Number)?.toDouble()
+                                ?: (v["costo"] as? Number)?.toDouble()
+                                ?: (if (molde.precioCompra > 0.0) molde.precioCompra else 0.0)
+                            val costoComp = (v["costoUltimoIngreso"] as? Number)?.toDouble()
+                                ?: (v["costoCompra"] as? Number)?.toDouble()
+                                ?: (v["costoTotal"] as? Number)?.toDouble()
+                                ?: (if (costoU > 0.0 && cantLote > 0.0) costoU * cantLote else 0.0)
                             LoteProducto(
                                 numero = v["numero"] as? String ?: k,
                                 vencimiento = v["vencimiento"] as? String ?: "",
-                                cantidad = ((v["cantidad"] as? Number)?.toDouble() ?: 0.0).coerceAtLeast(0.0),
+                                cantidad = cantLote,
                                 cantidadBloqueada = (v["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0,
                                 proveedorNombre = (v["proveedor"] as? String) ?: (v["proveedorNombre"] as? String) ?: "",
                                 proveedorId = v["proveedorId"] as? String ?: "",
                                 nroFactura = (v["factura"] as? String) ?: (v["nroFactura"] as? String) ?: "",
-                                costoUltimoIngreso = (v["costoCompra"] as? Number)?.toDouble() ?: 0.0,
-                                costoCompraUnitario = (v["costoUnitario"] as? Number)?.toDouble() ?: 0.0,
+                                costoUltimoIngreso = costoComp,
+                                costoCompraUnitario = costoU,
                                 fecha = v["fecha"] as? String ?: "",
                                 loteId = v["loteId"] as? String ?: FechaVencimientoHelper.llaveLote(v["numero"] as? String ?: k),
+                                noValorizado = v["noValorizado"] == true,
                                 ventasRegistradas = (v["ventasRegistradas"] as? Number)?.toDouble() ?: 0.0
                             )
                         }
@@ -395,7 +399,10 @@ class VentasRepository(
 
                             lotesDeTrabajo[loteKey] = loteData
 
-                            val costoUnitarioLote = redondear2(CostoRealLote.costoUnitario(loteData))
+                            val costoCalculado = CostoRealLote.costoUnitario(loteData)
+                            val costoUnitarioLote = redondear2(
+                                if (costoCalculado > 0.0) costoCalculado else if (molde.precioCompra > 0.0) molde.precioCompra else 0.0
+                            )
                             if (costoUnitarioLote <= 0.0 || loteData["noValorizado"] == true) {
                                 throw IllegalStateException("El lote '${d.loteNumero}' de '${molde.nombre}' no tiene costo registrado (S/ 0.00). Muestras o productos sin compra no se pueden vender por POS.")
                             }
@@ -517,6 +524,7 @@ class VentasRepository(
                             "precioUnitario" to redondear2(item.precioUnitario),
                             "subtotal" to redondear2(item.subtotal),
                             "requiereReceta" to item.requiereReceta,
+                            "recetaVerificada" to item.recetaVerificada,
                             "cantidadDevuelta" to 0,
                             "costoTotalReal" to redondear2(item.costoTotalReal),
                             "lotesConsumidos" to item.lotesConsumidos.map { lc ->
@@ -548,6 +556,7 @@ class VentasRepository(
                     "vuelto" to vuelto,
                     "estado" to Venta.ESTADO_COMPLETADA,
                     "cajaSesionId" to sesionId,
+                    "cajaId" to estadoCajaObj.cajaIdentificador,
                     "cajeroId" to SessionManager.idCajera,
                     "cajeroNombre" to SessionManager.nombreUsuario,
                     "fechaHoraMs" to ahoraMs,
@@ -557,6 +566,9 @@ class VentasRepository(
                     "autorizadoPorId" to autorizadoPorId.trim(),
                     "autorizadoPorNombre" to autorizadoPorNombre.trim(),
                     "autorizadoPorRol" to autorizadoPorRol.trim(),
+                    "recetaVerificada" to (confirmoReceta && itemsFinalesDeVenta.any { it.requiereReceta }),
+                    "recetaVerificadaPor" to recetaVerificadaPor.trim(),
+                    "recetaVerificadaEnMs" to recetaVerificadaEnMs,
                     "creadoEl" to FieldValue.serverTimestamp()
                 )
                 tx.set(ventaRef, ventaData)
@@ -630,6 +642,7 @@ class VentasRepository(
                             "referenciaId" to ventaId,
                             "referenciaNumero" to numeroCompleto,
                             "cajaSesionId" to sesionId,
+                            "cajaId" to estadoCajaObj.cajaIdentificador,
                             "usuarioId" to SessionManager.idCajera,
                             "usuarioNombre" to SessionManager.nombreUsuario,
                             "fechaMs" to ahoraMs,
@@ -656,6 +669,7 @@ class VentasRepository(
                     vuelto = vuelto,
                     estado = Venta.ESTADO_COMPLETADA,
                     cajaSesionId = sesionId,
+                    cajaId = estadoCajaObj.cajaIdentificador,
                     cajeroId = SessionManager.idCajera,
                     cajeroNombre = SessionManager.nombreUsuario,
                     fechaHoraMs = ahoraMs,
@@ -664,7 +678,10 @@ class VentasRepository(
                     moduloOrigen = "POS",
                     autorizadoPorId = autorizadoPorId.trim(),
                     autorizadoPorNombre = autorizadoPorNombre.trim(),
-                    autorizadoPorRol = autorizadoPorRol.trim()
+                    autorizadoPorRol = autorizadoPorRol.trim(),
+                    recetaVerificada = confirmoReceta && itemsFinalesDeVenta.any { it.requiereReceta },
+                    recetaVerificadaPor = recetaVerificadaPor.trim(),
+                    recetaVerificadaEnMs = recetaVerificadaEnMs
                 )
             }.await()
 
@@ -726,7 +743,7 @@ class VentasRepository(
             val ahoraMs = HoraServidor.ahoraMs()
             val devRef = FarmadonPaths.devoluciones(db, farmaciaId, sucursalId).document(devId)
             val ventaRef = FarmadonPaths.ventas(db, farmaciaId, sucursalId).document(ventaId)
-            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, SessionManager.idCajera)
             val contadorRef = FarmadonPaths.contadores(db, farmaciaId, sucursalId).document("ventas")
 
             val distinctProductIds = itemsADevolver.map { it.productoId }.distinct()
@@ -750,11 +767,14 @@ class VentasRepository(
                 }
 
                 val punteroSnap = tx.get(pointerRef)
-                val estadoCajaStr = punteroSnap.getString("estado") ?: CajaSesion.ESTADO_CERRADA
-                if (estadoCajaStr != CajaSesion.ESTADO_ABIERTA) {
-                    throw IllegalStateException("La caja está cerrada. Ábrela para registrar devoluciones.")
-                }
-                val sesionId = punteroSnap.getString("sesionId").orEmpty()
+                val estadoCajaObj = CajaRepository.parseEstadoCaja(punteroSnap.data)
+                com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja.exigirTurnoOperativo(
+                    estadoCaja = estadoCajaObj,
+                    accion = "procesar devoluciones",
+                    cajeroIdEsperado = SessionManager.idCajera,
+                    ahoraMs = ahoraMs
+                )
+                val sesionId = estadoCajaObj.sesionId
 
                 val contadorSnap = tx.get(contadorRef)
                 val sucursalRef = FarmadonPaths.sucursal(db, farmaciaId, sucursalId)
@@ -919,7 +939,7 @@ class VentasRepository(
                                     "vencimiento" to lc.vencimiento,
                                     "cantidad" to cantARestituir,
                                     "ventasRegistradas" to 0.0,
-                                    "fecha" to SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(ahoraMs)),
+                                    "fecha" to formatoDiaClave().format(Date(ahoraMs)),
                                     "fechaMs" to ahoraMs
                                 )
                             }
@@ -1001,10 +1021,14 @@ class VentasRepository(
                     "montoReembolso" to montoReembolsoTotal,
                     "costoTotalDevuelto" to costoTotalDevuelto,
                     "metodoReembolso" to metodoReembolso,
+                    "ventaCajaSesionId" to venta.cajaSesionId,
+                    "ventaCajeroId" to venta.cajeroId,
+                    "ventaCajeroNombre" to venta.cajeroNombre,
                     "motivo" to motivo.trim(),
                     "usuarioId" to SessionManager.idCajera,
                     "usuarioNombre" to SessionManager.nombreUsuario,
                     "cajaSesionId" to sesionId,
+                    "cajaId" to estadoCajaObj.cajaIdentificador,
                     "fechaMs" to ahoraMs,
                     "diaClave" to diaClave,
                     "creadoEl" to FieldValue.serverTimestamp()
@@ -1052,6 +1076,7 @@ class VentasRepository(
                         "precioUnitario" to redondear2(item.precioUnitario),
                         "subtotal" to redondear2(item.subtotal),
                         "requiereReceta" to item.requiereReceta,
+                        "recetaVerificada" to item.recetaVerificada,
                         "cantidadDevuelta" to item.cantidadDevuelta,
                         "costoTotalReal" to redondear2(item.costoTotalReal),
                         "lotesConsumidos" to item.lotesConsumidos.map { lc ->
@@ -1088,6 +1113,22 @@ class VentasRepository(
                 val ventasPorMetodo = (punteroSnap.get("ventasPorMetodo") as? Map<String, Any>)
                     ?.mapValues { (_, v) -> (v as? Number)?.toDouble() ?: 0.0 }
                     ?.toMutableMap() ?: mutableMapOf()
+
+                if (metodoReembolso == "EFECTIVO") {
+                    val fondoInicial = (punteroSnap.get("fondoInicial") as? Number)?.toDouble() ?: 0.0
+                    val ingresos = (punteroSnap.get("ingresos") as? Number)?.toDouble() ?: 0.0
+                    val retiros = (punteroSnap.get("retiros") as? Number)?.toDouble() ?: 0.0
+                    val ventasEfectivo = ventasPorMetodo["EFECTIVO"] ?: 0.0
+                    val efectivoEnCaja = redondear2(fondoInicial + ventasEfectivo + ingresos - retiros)
+                    if (montoReembolsoTotal > efectivoEnCaja + 0.009) {
+                        val dispStr = String.format(Locale.US, "%.2f", efectivoEnCaja)
+                        val reqStr = String.format(Locale.US, "%.2f", montoReembolsoTotal)
+                        throw IllegalStateException(
+                            "Efectivo insuficiente en caja. El cajón cuenta con S/ $dispStr y el reembolso requiere S/ $reqStr. " +
+                            "Realiza un ingreso de dinero en caja o elige otro método de reembolso."
+                        )
+                    }
+                }
 
                 val actualMetodo = ventasPorMetodo[metodoReembolso] ?: 0.0
                 ventasPorMetodo[metodoReembolso] = redondear2(actualMetodo - montoReembolsoTotal)
@@ -1131,6 +1172,7 @@ class VentasRepository(
                     "referenciaId" to devId,
                     "referenciaNumero" to venta.numeroCompleto,
                     "cajaSesionId" to sesionId,
+                    "cajaId" to estadoCajaObj.cajaIdentificador,
                     "usuarioId" to SessionManager.idCajera,
                     "usuarioNombre" to SessionManager.nombreUsuario,
                     "fechaMs" to ahoraMs,
@@ -1150,10 +1192,14 @@ class VentasRepository(
                     items = itemsDevolucionDataList,
                     montoReembolso = montoReembolsoTotal,
                     metodoReembolso = metodoReembolso,
+                    ventaCajaSesionId = venta.cajaSesionId,
+                    ventaCajeroId = venta.cajeroId,
+                    ventaCajeroNombre = venta.cajeroNombre,
                     motivo = motivo.trim(),
                     usuarioId = SessionManager.idCajera,
                     usuarioNombre = SessionManager.nombreUsuario,
                     cajaSesionId = sesionId,
+                    cajaId = estadoCajaObj.cajaIdentificador,
                     fechaMs = ahoraMs,
                     diaClave = diaClave,
                     costoTotalDevuelto = costoTotalDevuelto
@@ -1205,7 +1251,7 @@ class VentasRepository(
         return try {
             val ahoraMs = HoraServidor.ahoraMs()
             val ventaRef = FarmadonPaths.ventas(db, farmaciaId, sucursalId).document(ventaId)
-            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, SessionManager.idCajera)
             val contadorRef = FarmadonPaths.contadores(db, farmaciaId, sucursalId).document("ventas")
 
             var ventaAnuladaResult: Venta? = null
@@ -1230,12 +1276,30 @@ class VentasRepository(
                     throw IllegalStateException("Esa venta ya tiene devoluciones registradas (${venta.estado}). No se puede anular.")
                 }
 
-                val punteroSnap = tx.get(pointerRef)
-                val estadoCajaStr = punteroSnap.getString("estado") ?: CajaSesion.ESTADO_CERRADA
-                if (estadoCajaStr != CajaSesion.ESTADO_ABIERTA) {
-                    throw IllegalStateException("La caja está cerrada. Ábrela para registrar anulaciones de venta.")
+                val cIdSesion = SessionManager.idCajera.trim()
+                if (cIdSesion.isNotBlank() && venta.cajeroId.isNotBlank() && venta.cajeroId != cIdSesion) {
+                    throw IllegalStateException(
+                        "AISLAMIENTO DE CAJA: Esta venta pertenece a la caja del cajero '${venta.cajeroNombre.ifBlank { venta.cajeroId }}'. " +
+                        "Solo el cajero titular puede anular las ventas de su propio turno."
+                    )
                 }
-                val sesionId = punteroSnap.getString("sesionId").orEmpty()
+
+                val punteroSnap = tx.get(pointerRef)
+                val estadoCajaObj = CajaRepository.parseEstadoCaja(punteroSnap.data)
+                com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja.exigirTurnoOperativo(
+                    estadoCaja = estadoCajaObj,
+                    accion = "anular comprobantes de venta",
+                    cajeroIdEsperado = SessionManager.idCajera,
+                    ahoraMs = ahoraMs
+                )
+                val sesionId = estadoCajaObj.sesionId
+                if (venta.cajaSesionId.isNotBlank() && venta.cajaSesionId != sesionId) {
+                    val turnoCorto = if (venta.cajaSesionId.length > 6) venta.cajaSesionId.takeLast(6) else venta.cajaSesionId
+                    throw IllegalStateException(
+                        "Esta venta pertenece al turno de caja #$turnoCorto, el cual ya fue cerrado y arqueado. " +
+                        "Para no alterar el balance del turno actual, debes procesar una Devolución (Nota de Crédito) desde la pestaña Devoluciones."
+                    )
+                }
 
                 val contadorSnap = tx.get(contadorRef)
                 val sucursalRef = FarmadonPaths.sucursal(db, farmaciaId, sucursalId)
@@ -1306,7 +1370,7 @@ class VentasRepository(
                                 "vencimiento" to lc.vencimiento,
                                 "cantidad" to cantARestituir,
                                 "ventasRegistradas" to 0.0,
-                                "fecha" to SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(ahoraMs)),
+                                "fecha" to formatoDiaClave().format(Date(ahoraMs)),
                                 "fechaMs" to ahoraMs
                             )
                         }
@@ -1428,6 +1492,7 @@ class VentasRepository(
                             "referenciaId" to venta.id,
                             "referenciaNumero" to venta.numeroCompleto,
                             "cajaSesionId" to sesionId,
+                            "cajaId" to estadoCajaObj.cajaIdentificador,
                             "usuarioId" to SessionManager.idCajera,
                             "usuarioNombre" to SessionManager.nombreUsuario,
                             "fechaMs" to ahoraMs,
@@ -1486,14 +1551,15 @@ class VentasRepository(
 
     /**
      * Observa en vivo las ventas del día actual (R8/R9).
-     * Consulta simple de 1 solo campo (diaClave) y orden en memoria (Regla 9).
+     * Consulta simple de 1 solo campo (diaClave) y orden/filtro en memoria (Regla 9).
+     * Si se proporciona cajeroId, aísla exclusivamente las ventas de ese cajero.
      */
-    fun observarVentasDelDia(): Flow<List<Venta>> = callbackFlow {
+    fun observarVentasDelDia(cajeroId: String = ""): Flow<List<Venta>> = callbackFlow {
         val (farmaciaId, sucursalId) = ids() ?: run {
             close(IllegalStateException("No hay sesión de farmacia activa."))
             return@callbackFlow
         }
-        val hoy = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(HoraServidor.ahoraMs()))
+        val hoy = formatoDiaClave().format(Date(HoraServidor.ahoraMs()))
         val ref = FarmadonPaths.ventas(db, farmaciaId, sucursalId)
             .whereEqualTo("diaClave", hoy)
 
@@ -1503,7 +1569,9 @@ class VentasRepository(
                 close(err)
                 return@addSnapshotListener
             }
+            val cidLimpio = cajeroId.trim()
             val lista = snap?.documents?.mapNotNull { parseVenta(it.id, it.data) }
+                ?.filter { if (cidLimpio.isBlank()) true else it.cajeroId == cidLimpio }
                 ?.sortedByDescending { it.fechaHoraMs }
                 ?: emptyList()
             trySend(lista)
@@ -1513,16 +1581,17 @@ class VentasRepository(
 
     /**
      * Observa en vivo las devoluciones (notas de crédito) del día actual (R8/R9).
-     * Consulta simple de 1 solo campo (diaClave) y orden en memoria.
+     * Consulta simple de 1 solo campo (diaClave) y orden/filtro en memoria.
      * Permite que Ventas del Día cuadre el neto del día con la caja:
      * neto del día = ventas brutas de hoy − reembolsos de hoy (aunque sean de ventas de ayer).
+     * Si se proporciona cajeroId, aísla exclusivamente las devoluciones realizadas por ese cajero.
      */
-    fun observarDevolucionesDelDia(): Flow<List<DevolucionVenta>> = callbackFlow {
+    fun observarDevolucionesDelDia(cajeroId: String = ""): Flow<List<DevolucionVenta>> = callbackFlow {
         val (farmaciaId, sucursalId) = ids() ?: run {
             close(IllegalStateException("No hay sesión de farmacia activa."))
             return@callbackFlow
         }
-        val hoy = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(HoraServidor.ahoraMs()))
+        val hoy = formatoDiaClave().format(Date(HoraServidor.ahoraMs()))
         val ref = FarmadonPaths.devoluciones(db, farmaciaId, sucursalId)
             .whereEqualTo("diaClave", hoy)
 
@@ -1532,7 +1601,9 @@ class VentasRepository(
                 close(err)
                 return@addSnapshotListener
             }
+            val cidLimpio = cajeroId.trim()
             val lista = snap?.documents?.mapNotNull { parseDevolucion(it.id, it.data) }
+                ?.filter { if (cidLimpio.isBlank()) true else it.usuarioId == cidLimpio }
                 ?.sortedByDescending { it.fechaMs }
                 ?: emptyList()
             trySend(lista)
@@ -1608,15 +1679,52 @@ class VentasRepository(
     }
 
     /**
-     * Observa en vivo las ventas suspendidas (parqueadas) de la sucursal.
+     * Observa en tiempo real una venta individual por su ID (R8/R14).
+     * Garantiza reactividad (<50ms) en devoluciones y detalles si otra terminal la anula o devuelve.
      */
-    fun observarSuspendidas(): Flow<List<VentaSuspendida>> = callbackFlow {
+    fun observarVenta(ventaId: String): Flow<Venta?> = callbackFlow {
         val (farmaciaId, sucursalId) = ids() ?: run {
             close(IllegalStateException("No hay sesión de farmacia activa."))
             return@callbackFlow
         }
-        val ref = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId)
+        if (ventaId.isBlank()) {
+            trySend(null)
+            close()
+            return@callbackFlow
+        }
+        val ref = FarmadonPaths.ventas(db, farmaciaId, sucursalId).document(ventaId)
         val listener = ref.addSnapshotListener { snap, err ->
+            if (err != null) {
+                Log.e(TAG, "Error escuchando venta $ventaId: ${err.message}", err)
+                close(err)
+                return@addSnapshotListener
+            }
+            if (snap == null || !snap.exists()) {
+                trySend(null)
+            } else {
+                trySend(parseVenta(snap.id, snap.data))
+            }
+        }
+        awaitClose { listener.remove() }
+    }
+
+    /**
+     * Observa en vivo las ventas suspendidas (parqueadas) del cajero en sesión.
+     * Regla de Producto (R1): Cada cajero opera y ve exclusivamente sus propias ventas suspendidas.
+     */
+    fun observarSuspendidas(cajeroIdParam: String = ""): Flow<List<VentaSuspendida>> = callbackFlow {
+        val (farmaciaId, sucursalId) = ids() ?: run {
+            close(IllegalStateException("No hay sesión de farmacia activa."))
+            return@callbackFlow
+        }
+        val cajeroId = cajeroIdParam.trim().ifBlank { SessionManager.idCajera.trim() }
+        val ref = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId)
+        val query = if (cajeroId.isNotBlank()) {
+            ref.whereEqualTo("creadoPorId", cajeroId)
+        } else {
+            ref
+        }
+        val listener = query.addSnapshotListener { snap, err ->
             if (err != null) {
                 Log.e(TAG, "Error escuchando ventas suspendidas: ${err.message}", err)
                 close(err)
@@ -1646,52 +1754,115 @@ class VentasRepository(
 
         return try {
             val ahoraMs = HoraServidor.ahoraMs()
-            val docRef = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId).document()
+            val pointerSnap = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, SessionManager.idCajera).get().await()
+            val estadoCajaObj = CajaRepository.parseEstadoCaja(pointerSnap.data)
+            com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja.exigirTurnoOperativo(
+                estadoCaja = estadoCajaObj,
+                accion = "suspender ventas",
+                cajeroIdEsperado = SessionManager.idCajera,
+                ahoraMs = ahoraMs
+            )
+
+            val cajeroId = SessionManager.idCajera.trim()
+            val docPrefix = if (cajeroId.isNotBlank()) "pausa_${cajeroId}_" else "pausa_"
+
+            val suspendidasRef = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId)
+
+            // Detección de números en uso EXCLUSIVAMENTE para ESTE cajero (aislamiento total R1)
+            val snapSuspendidas = if (cajeroId.isNotBlank()) {
+                suspendidasRef.whereEqualTo("creadoPorId", cajeroId).get().await()
+            } else {
+                suspendidasRef.get().await()
+            }
+
+            val numerosEnUso = snapSuspendidas.documents.mapNotNull { doc ->
+                val porId = Regex("""${Regex.escape(docPrefix)}(\d+)""", RegexOption.IGNORE_CASE)
+                    .find(doc.id)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                    ?: Regex("""pausa_(\d+)""", RegexOption.IGNORE_CASE)
+                    .find(doc.id)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                val porNota = Regex("""Pausa\s+(\d+)""", RegexOption.IGNORE_CASE)
+                    .find(doc.getString("nota").orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
+                porId ?: porNota
+            }.toSet()
+
+            var candidato = 1
+            while (candidato in numerosEnUso) {
+                candidato++
+            }
+
+            val nombreCliente = cliente.nombre.trim()
+            val tieneClienteReal = nombreCliente.isNotBlank() &&
+                !nombreCliente.equals("Cliente General", ignoreCase = true) &&
+                !nombreCliente.equals("Consumidor Final", ignoreCase = true) &&
+                cliente.tipoDocumento != "NINGUNO"
             val subtotal = redondear2(items.sumOf { it.precioUnitario * it.cantidad })
             val descuentoRedondeado = redondear2(descuento.coerceAtLeast(0.0))
             val total = redondear2((subtotal - descuentoRedondeado).coerceAtLeast(0.0))
-            val suspData = mapOf(
-                "id" to docRef.id,
-                "items" to items.map { item ->
-                    mapOf(
-                        "productoId" to item.productoId,
-                        "nombreProducto" to item.nombreProducto,
-                        "empaque" to item.empaque,
-                        "presentacionId" to item.presentacionId,
-                        "presentacionNombre" to item.presentacionNombre,
-                        "cantidad" to item.cantidad,
-                        "precioUnitario" to redondear2(item.precioUnitario),
-                        "subtotal" to redondear2(item.subtotal),
-                        "requiereReceta" to item.requiereReceta,
-                        "cantidadDevuelta" to 0,
-                        "lotesConsumidos" to emptyList<Map<String, Any>>()
-                    )
-                },
-                "cliente" to mapOf(
-                    "tipoDocumento" to cliente.tipoDocumento,
-                    "numeroDocumento" to cliente.numeroDocumento,
-                    "nombre" to cliente.nombre,
-                    "clienteId" to cliente.clienteId
-                ),
-                "subtotal" to subtotal,
-                "descuento" to descuentoRedondeado,
-                "total" to total,
-                "nota" to nota.trim(),
-                "creadoPorId" to SessionManager.idCajera,
-                "creadoPorNombre" to SessionManager.nombreUsuario,
-                "fechaMs" to ahoraMs,
-                "creadoEl" to FieldValue.serverTimestamp()
-            )
-            docRef.set(suspData).await()
+
+            // Transacción atómica en Firestore: garantiza casillero único por cajero
+            val (docIdFinal, notaFinal) = db.runTransaction { tx ->
+                var num = candidato
+                var targetRef = suspendidasRef.document("$docPrefix$num")
+                var targetSnap = tx.get(targetRef)
+
+                while (targetSnap.exists()) {
+                    num++
+                    targetRef = suspendidasRef.document("$docPrefix$num")
+                    targetSnap = tx.get(targetRef)
+                }
+
+                val notaGenerada = if (nota.isNotBlank() && !nota.startsWith("Pausa", ignoreCase = true)) {
+                    if (tieneClienteReal) "Pausa $num · $nombreCliente · ${nota.trim()}" else "Pausa $num · ${nota.trim()}"
+                } else {
+                    if (tieneClienteReal) "Pausa $num · $nombreCliente" else "Pausa $num"
+                }
+
+                val suspData = mapOf(
+                    "id" to targetRef.id,
+                    "items" to items.map { item ->
+                        mapOf(
+                            "productoId" to item.productoId,
+                            "nombreProducto" to item.nombreProducto,
+                            "empaque" to item.empaque,
+                            "presentacionId" to item.presentacionId,
+                            "presentacionNombre" to item.presentacionNombre,
+                            "cantidad" to item.cantidad,
+                            "precioUnitario" to redondear2(item.precioUnitario),
+                            "subtotal" to redondear2(item.subtotal),
+                            "requiereReceta" to item.requiereReceta,
+                            "recetaVerificada" to item.recetaVerificada,
+                            "cantidadDevuelta" to 0,
+                            "lotesConsumidos" to emptyList<Map<String, Any>>()
+                        )
+                    },
+                    "cliente" to mapOf(
+                        "tipoDocumento" to cliente.tipoDocumento,
+                        "numeroDocumento" to cliente.numeroDocumento,
+                        "nombre" to cliente.nombre,
+                        "clienteId" to cliente.clienteId
+                    ),
+                    "subtotal" to subtotal,
+                    "descuento" to descuentoRedondeado,
+                    "total" to total,
+                    "nota" to notaGenerada,
+                    "creadoPorId" to SessionManager.idCajera,
+                    "creadoPorNombre" to SessionManager.nombreUsuario,
+                    "fechaMs" to ahoraMs,
+                    "creadoEl" to FieldValue.serverTimestamp()
+                )
+                tx.set(targetRef, suspData)
+                Pair(targetRef.id, notaGenerada)
+            }.await()
+
             Result.success(
                 VentaSuspendida(
-                    id = docRef.id,
+                    id = docIdFinal,
                     items = items,
                     cliente = cliente,
                     subtotal = subtotal,
                     descuento = descuentoRedondeado,
                     total = total,
-                    nota = nota.trim(),
+                    nota = notaFinal,
                     creadoPorId = SessionManager.idCajera,
                     creadoPorNombre = SessionManager.nombreUsuario,
                     fechaMs = ahoraMs
@@ -1705,8 +1876,8 @@ class VentasRepository(
 
     /**
      * Reanuda atómicamente una venta suspendida mediante transacción:
-     * verifica que aún exista en Firestore, la elimina para que otra caja no la retome,
-     * y retorna la venta recuperada (ALTO 3).
+     * verifica que aún exista en Firestore y pertenezca al cajero en sesión (R1),
+     * la elimina para retirarla de la nube y retorna la venta recuperada.
      */
     suspend fun reanudarVentaSuspendida(id: String): Result<VentaSuspendida> {
         val (farmaciaId, sucursalId) = ids()
@@ -1714,11 +1885,28 @@ class VentasRepository(
         if (id.isBlank()) return Result.failure(IllegalArgumentException("ID de venta suspendida no válido."))
 
         return try {
+            val ahoraMs = HoraServidor.ahoraMs()
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, SessionManager.idCajera)
             val suspRef = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId).document(id)
             val susp = db.runTransaction { tx ->
+                val pointerSnap = tx.get(pointerRef)
+                val estadoCajaObj = CajaRepository.parseEstadoCaja(pointerSnap.data)
+                com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja.exigirTurnoOperativo(
+                    estadoCaja = estadoCajaObj,
+                    accion = "recuperar ventas suspendidas",
+                    cajeroIdEsperado = SessionManager.idCajera,
+                    ahoraMs = ahoraMs
+                )
+
                 val snap = tx.get(suspRef)
                 if (!snap.exists()) {
-                    throw IllegalStateException("Esta venta suspendida ya fue recuperada o descartada desde otra terminal.")
+                    throw IllegalStateException("Esta venta suspendida ya fue recuperada o descartada.")
+                }
+                val titular = snap.getString("creadoPorId").orEmpty().trim()
+                val cajeroActual = SessionManager.idCajera.trim()
+                if (titular.isNotBlank() && cajeroActual.isNotBlank() && titular != cajeroActual) {
+                    val titularNombre = snap.getString("creadoPorNombre").orEmpty().ifBlank { "otro cajero" }
+                    throw IllegalStateException("AISLAMIENTO DE CAJA: Esta venta pausada pertenece a $titularNombre. Cada cajero opera y reanuda únicamente sus propias ventas.")
                 }
                 val parsed = parseVentaSuspendida(snap.id, snap.data)
                     ?: throw IllegalStateException("Los datos de la venta suspendida están corruptos.")
@@ -1735,13 +1923,25 @@ class VentasRepository(
 
     /**
      * Elimina una venta suspendida tras haber sido descartada.
+     * Solo el cajero titular puede descartar sus propias ventas (R1).
      */
     suspend fun eliminarSuspendida(id: String): Result<Unit> {
         val (farmaciaId, sucursalId) = ids()
             ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
         if (id.isBlank()) return Result.failure(IllegalArgumentException("ID de venta suspendida no válido."))
         return try {
-            FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId).document(id).delete().await()
+            val docRef = FarmadonPaths.ventasSuspendidas(db, farmaciaId, sucursalId).document(id)
+            db.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                if (!snap.exists()) return@runTransaction
+                val titular = snap.getString("creadoPorId").orEmpty().trim()
+                val cajeroActual = SessionManager.idCajera.trim()
+                if (titular.isNotBlank() && cajeroActual.isNotBlank() && titular != cajeroActual) {
+                    val titularNombre = snap.getString("creadoPorNombre").orEmpty().ifBlank { "otro cajero" }
+                    throw IllegalStateException("AISLAMIENTO DE CAJA: Esta venta pausada pertenece a $titularNombre. Solo el cajero titular puede eliminarla.")
+                }
+                tx.delete(docRef)
+            }.await()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Error eliminando venta suspendida: ${e.message}", e)
@@ -1850,6 +2050,7 @@ class VentasRepository(
                     precioUnitario = (itemMap["precioUnitario"] as? Number)?.toDouble() ?: 0.0,
                     subtotal = (itemMap["subtotal"] as? Number)?.toDouble() ?: 0.0,
                     requiereReceta = itemMap["requiereReceta"] as? Boolean ?: false,
+                    recetaVerificada = itemMap["recetaVerificada"] as? Boolean ?: false,
                     lotesConsumidos = lotesCons,
                     cantidadDevuelta = (itemMap["cantidadDevuelta"] as? Number)?.toInt() ?: 0,
                     costoTotalReal = (itemMap["costoTotalReal"] as? Number)?.toDouble() ?: 0.0
@@ -1885,6 +2086,7 @@ class VentasRepository(
                 vuelto = (data["vuelto"] as? Number)?.toDouble() ?: 0.0,
                 estado = data["estado"] as? String ?: Venta.ESTADO_COMPLETADA,
                 cajaSesionId = data["cajaSesionId"] as? String ?: "",
+                cajaId = data["cajaId"] as? String ?: "",
                 cajeroId = data["cajeroId"] as? String ?: "",
                 cajeroNombre = data["cajeroNombre"] as? String ?: "",
                 fechaHoraMs = (data["fechaHoraMs"] as? Number)?.toLong() ?: 0L,
@@ -1905,7 +2107,10 @@ class VentasRepository(
                 devolucionMetodoReembolso = data["devolucionMetodoReembolso"] as? String ?: "",
                 autorizadoPorId = data["autorizadoPorId"] as? String ?: "",
                 autorizadoPorNombre = data["autorizadoPorNombre"] as? String ?: "",
-                autorizadoPorRol = data["autorizadoPorRol"] as? String ?: ""
+                autorizadoPorRol = data["autorizadoPorRol"] as? String ?: "",
+                recetaVerificada = data["recetaVerificada"] as? Boolean ?: false,
+                recetaVerificadaPor = data["recetaVerificadaPor"] as? String ?: "",
+                recetaVerificadaEnMs = (data["recetaVerificadaEnMs"] as? Number)?.toLong() ?: 0L
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parseando Venta $id: ${e.message}", e)
@@ -1943,10 +2148,14 @@ class VentasRepository(
                 items = items,
                 montoReembolso = (data["montoReembolso"] as? Number)?.toDouble() ?: 0.0,
                 metodoReembolso = data["metodoReembolso"] as? String ?: "EFECTIVO",
+                ventaCajaSesionId = data["ventaCajaSesionId"] as? String ?: "",
+                ventaCajeroId = data["ventaCajeroId"] as? String ?: "",
+                ventaCajeroNombre = data["ventaCajeroNombre"] as? String ?: "",
                 motivo = data["motivo"] as? String ?: "",
                 usuarioId = data["usuarioId"] as? String ?: "",
                 usuarioNombre = data["usuarioNombre"] as? String ?: "",
                 cajaSesionId = data["cajaSesionId"] as? String ?: "",
+                cajaId = data["cajaId"] as? String ?: "",
                 fechaMs = (data["fechaMs"] as? Number)?.toLong() ?: 0L,
                 diaClave = data["diaClave"] as? String ?: "",
                 costoTotalDevuelto = (data["costoTotalDevuelto"] as? Number)?.toDouble() ?: 0.0,
@@ -1984,6 +2193,7 @@ class VentasRepository(
                     precioUnitario = (itemMap["precioUnitario"] as? Number)?.toDouble() ?: 0.0,
                     subtotal = (itemMap["subtotal"] as? Number)?.toDouble() ?: 0.0,
                     requiereReceta = itemMap["requiereReceta"] as? Boolean ?: false,
+                    recetaVerificada = itemMap["recetaVerificada"] as? Boolean ?: false,
                     lotesConsumidos = emptyList(),
                     cantidadDevuelta = 0
                 )

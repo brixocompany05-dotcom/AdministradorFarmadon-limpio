@@ -97,8 +97,7 @@ val TIPOS_PAGO_FIJOS: List<TipoPagoFijo> = listOf(
         campos = listOf(
             CampoTipoPago("numero", "N° de Yape", "987 654 321", esNumerico = true),
             CampoTipoPago("titular", "Titular", "Nombre del titular")
-        ),
-        requiereOperacion = true
+        )
     ),
     TipoPagoFijo(
         id = "PLIN",
@@ -109,8 +108,7 @@ val TIPOS_PAGO_FIJOS: List<TipoPagoFijo> = listOf(
         campos = listOf(
             CampoTipoPago("numero", "N° de Plin", "987 654 321", esNumerico = true),
             CampoTipoPago("titular", "Titular", "Nombre del titular")
-        ),
-        requiereOperacion = true
+        )
     ),
     TipoPagoFijo(
         id = "TRANSFERENCIA",
@@ -122,8 +120,7 @@ val TIPOS_PAGO_FIJOS: List<TipoPagoFijo> = listOf(
             CampoTipoPago("banco", "Banco", "BCP, BBVA, Interbank…"),
             CampoTipoPago("cuenta", "N° de cuenta", "Número de cuenta o interbancario", esNumerico = true),
             CampoTipoPago("titular", "Titular", "Nombre del titular")
-        ),
-        requiereOperacion = true
+        )
     ),
     TipoPagoFijo(
         id = "TARJETA_POS",

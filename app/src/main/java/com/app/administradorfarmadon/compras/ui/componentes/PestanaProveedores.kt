@@ -253,32 +253,12 @@ fun PestanaProveedores(
 
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.6f), thickness = s.separatorH)
 
-                // ── BUSCADOR DE PROVEEDOR ──
-                OutlinedTextField(
-                    value = busquedaProveedor,
-                    onValueChange = { busquedaProveedor = it },
-                    placeholder = { Text("Buscar droguería, RUC o contacto...", fontSize = 12.sp, color = FDColors.InputPlaceholder) },
-                    leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall)) },
-                    trailingIcon = if (busquedaProveedor.isNotBlank()) {
-                        {
-                            IconButton(onClick = { busquedaProveedor = "" }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Limpiar búsqueda", tint = FDColors.TextTertiary, modifier = Modifier.size(14.dp))
-                            }
-                        }
-                    } else null,
-                    singleLine = true,
-                    shape = FDShapes.Small,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = FDColors.InputBackground,
-                        unfocusedContainerColor = FDColors.InputBackground,
-                        focusedBorderColor = FDColors.BorderFocus,
-                        unfocusedBorderColor = FDColors.InputBorder,
-                        focusedTextColor = FDColors.InputText,
-                        unfocusedTextColor = FDColors.InputText
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(s.inputMinH)
+                // ── BUSCADOR DE PROVEEDOR CÓMODO Y ESPACIOSO ──
+                CampoBuscadorModerno(
+                    busqueda = busquedaProveedor,
+                    onBusquedaChange = { busquedaProveedor = it },
+                    placeholder = "Buscar droguería, RUC o contacto...",
+                    altura = s.inputMinH
                 )
 
                 // ── FILTROS RÁPIDOS Y CONTADOR EN VIVO ──

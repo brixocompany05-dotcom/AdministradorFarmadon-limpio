@@ -1433,5 +1433,72 @@ class AnaliticaCalculadoraTest {
         assertEquals(central.utilidadBruta, sumaUtilidad, 0.001)
     }
 
+    // ── 40. COMBINAR ESTADOS DE CAJA (punteros por cajero → estado agregado de la sede) ──
+    private fun crearPunteroCaja(
+        cajero: String,
+        fondo: Double,
+        ventasEfectivo: Double = 0.0,
+        aperturaMs: Long = 1_000_000L,
+        estado: String = com.app.administradorfarmadon.ventas.compartido.modelo.CajaSesion.ESTADO_ABIERTA
+    ): EstadoCaja = EstadoCaja(
+        estado = estado,
+        sesionId = "ses-$cajero",
+        fondoInicial = fondo,
+        aperturaMs = aperturaMs,
+        abiertoPorNombre = cajero,
+        cajeroId = cajero,
+        cajaId = "caja_$cajero",
+        ventasPorMetodo = if (ventasEfectivo > 0.0) mapOf("EFECTIVO" to ventasEfectivo) else emptyMap()
+    )
+
+    @Test
+    fun combinarEstadosCaja_variosCajeros_sumaTodoYConservaAperturaMasAntigua() {
+        val rosa = crearPunteroCaja("Rosa", fondo = 100.0, ventasEfectivo = 800.0, aperturaMs = 1_000L)
+        val jose = crearPunteroCaja("José", fondo = 50.0, ventasEfectivo = 500.0, aperturaMs = 2_000L)
+
+        val total = AnaliticaCalculadora.combinarEstadosCaja(listOf(rosa, jose))
+
+        assertEquals(com.app.administradorfarmadon.ventas.compartido.modelo.CajaSesion.ESTADO_ABIERTA, total.estado)
+        assertEquals(150.0, total.fondoInicial, 0.001)
+        // Esperado agregado: (100 fondo + 800 ventas) + (50 fondo + 500 ventas) = 1,450.0
+        assertEquals(1450.0, total.efectivoEsperado, 0.001)
+        assertEquals(1_000L, total.aperturaMs)
+        assertEquals("2 cajeros con turno abierto", total.abiertoPorNombre)
+    }
+
+    @Test
+    fun combinarEstadosCaja_sinTurnosAbiertos_devuelveCajaCerradaVacia() {
+        val cerrada = crearPunteroCaja("Rosa", fondo = 100.0, estado = com.app.administradorfarmadon.ventas.compartido.modelo.CajaSesion.ESTADO_CERRADA)
+        val total = AnaliticaCalculadora.combinarEstadosCaja(listOf(cerrada))
+
+        assertEquals(com.app.administradorfarmadon.ventas.compartido.modelo.CajaSesion.ESTADO_CERRADA, total.estado)
+        assertEquals(0.0, total.fondoInicial, 0.001)
+    }
+
+    @Test
+    fun combinarEstadosCaja_turnoUnico_conservaNombreYDatos() {
+        val rosa = crearPunteroCaja("Rosa", fondo = 100.0, ventasEfectivo = 800.0)
+        val total = AnaliticaCalculadora.combinarEstadosCaja(listOf(rosa))
+
+        assertEquals("Rosa", total.abiertoPorNombre)
+        assertEquals(900.0, total.efectivoEsperado, 0.001)
+    }
+
+    @Test
+    fun dineroYCaja_turnoAbierto_noInventaContadoFisico() {
+        val turnoVivo = crearPunteroCaja("Rosa", fondo = 100.0, ventasEfectivo = 800.0)
+        val res = AnaliticaCalculadora.calcularDineroYCaja(
+            sesiones = emptyList(),
+            movimientos = emptyList(),
+            estadoCajaActual = turnoVivo,
+            metricasVentas = AnaliticaCalculadora.calcular(emptyList(), emptyList()),
+            esPeriodoHoy = true
+        )
+        // El esperado incluye el turno vivo; el contado solo arqueos reales (aquí: ninguno).
+        assertEquals(900.0, res.cajaEsperadaTotal, 0.001)
+        assertEquals(0.0, res.cajaContadaTotal, 0.001)
+        assertEquals(0.0, res.diferenciaCajaTotal, 0.001)
+    }
+
     private fun redondear2(v: Double): Double = kotlin.math.round(v * 100.0) / 100.0
 }

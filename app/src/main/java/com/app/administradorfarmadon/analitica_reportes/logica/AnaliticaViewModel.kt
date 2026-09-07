@@ -183,10 +183,13 @@ class AnaliticaViewModel(
                         repository.observarVentasHoy(farmaciaId, sucursalEfectiva, hoyClave),
                         repository.observarDevolucionesHoy(farmaciaId, sucursalEfectiva, hoyClave),
                         repository.observarEstadoCaja(farmaciaId, sucursalEfectiva)
-                    ) { ventas, devs, estadoCaja ->
-                        Triple(ventas, devs, estadoCaja)
-                    }.collect { (ventas, devs, estadoCaja) ->
+                    ) { ventas, devs, punterosCaja ->
+                        Triple(ventas, devs, punterosCaja)
+                    }.collect { (ventas, devs, punterosCaja) ->
                         if (miJobId != cargaJobId) return@collect
+
+                        // Turnos vivos: uno por cajero; se combinan en un único estado de la sede (R1/R13).
+                        val estadoCaja = AnaliticaCalculadora.combinarEstadosCaja(punterosCaja)
 
                         if (sedeSel == "TODAS" && sucursales.size > 1) {
                             val sedesRestantes = sucursales.map { it.id }.filter { it != sucursalEfectiva }
@@ -273,7 +276,7 @@ class AnaliticaViewModel(
         finMs: Long,
         jobId: Long = 0L
     ) {
-        val fuentesOK = mutableSetOf(FuenteDatos.VENTAS, FuenteDatos.CAJA)
+        val fuentesOK = mutableSetOf(FuenteDatos.VENTAS)
         val fuentesFallidas = mutableMapOf<FuenteDatos, String>()
 
         // 1. Cálculo central determinista
@@ -307,29 +310,42 @@ class AnaliticaViewModel(
 
 
 
+        var cajaLegible = true
+
         val metodosConfig = try {
             repository.obtenerMetodosPagoConfigurados(farmaciaId, sucursalId)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            fuentesFallidas[FuenteDatos.CAJA] = e.message ?: "No se pudo sincronizar los métodos de pago"
             emptyList()
         }
 
         val sesionesPeriodo = try {
             repository.obtenerSesionesCajaPeriodo(farmaciaId, sucursalId, inicioMs, finMs)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            cajaLegible = false
+            fuentesFallidas[FuenteDatos.CAJA] = e.message ?: "No se pudo sincronizar los turnos de caja"
             emptyList()
         }
 
         val movsCajaPeriodo = try {
             repository.obtenerMovimientosCajaPeriodo(farmaciaId, sucursalId, inicioMs, finMs)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            cajaLegible = false
+            fuentesFallidas[FuenteDatos.CAJA] = e.message ?: "No se pudo sincronizar los movimientos de caja"
             emptyList()
         }
 
         val estadoCajaPuntual = if (_periodoSeleccionado.value == PeriodoAnalitica.HOY) {
             estadoCaja
         } else {
-            try { repository.obtenerEstadoCajaPuntual(farmaciaId, sucursalId) } catch (_: Exception) { estadoCaja }
+            try { repository.obtenerEstadoCajaPuntual(farmaciaId, sucursalId) } catch (e: Exception) {
+                fuentesFallidas[FuenteDatos.CAJA] = e.message ?: "No se pudo sincronizar el estado de caja"
+                estadoCaja
+            }
         }
+
+        // R3/R9: CAJA solo se declara OK si todas sus lecturas tuvieron éxito.
+        if (cajaLegible && fuentesFallidas[FuenteDatos.CAJA] == null) fuentesOK.add(FuenteDatos.CAJA)
 
         val esPeriodoHoy = _periodoSeleccionado.value == PeriodoAnalitica.HOY
 
@@ -363,14 +379,26 @@ class AnaliticaViewModel(
         val esVacio = ventas.isEmpty() && devoluciones.isEmpty() && !hayActividadCaja
 
         // Conciliación fiscal POS ↔ SUNAT (documentos reales del período, no ceros).
+        var docsLegibles = true
         val docsFiscales = try {
             repository.obtenerFacturacionDocumentos(farmaciaId, sucursalId, inicioMs, finMs)
-        } catch (_: Exception) { emptyList() }
-        val conciliacionFiscal = AnaliticaCalculadora.construirConciliacionFiscal(ventas, devoluciones, docsFiscales)
+        } catch (e: Exception) {
+            docsLegibles = false
+            fuentesFallidas[FuenteDatos.FACTURACION] = e.message ?: "No se pudo sincronizar la facturación electrónica"
+            emptyList()
+        }
+        // R3: si la lectura falló, la conciliación NO se inventa (ni diferencias falsas ni "cuadrada" falsa).
+        val conciliacionFiscal = if (docsLegibles) {
+            AnaliticaCalculadora.construirConciliacionFiscal(ventas, devoluciones, docsFiscales)
+        } else ConciliacionFiscal()
 
         // Conciliación caja POS ↔ movimientos (cobros netos por método, cuadra con Cierre).
-        val punteroPeriodo = AnaliticaCalculadora.sumarVentasPorMetodoSesiones(sesionesPeriodo, estadoCajaPuntual, esPeriodoHoy)
-        val conciliacionCaja = AnaliticaCalculadora.construirConciliacionCaja(metricas, movsCajaPeriodo, punteroPeriodo)
+        val punteroPeriodo = if (cajaLegible) {
+            AnaliticaCalculadora.sumarVentasPorMetodoSesiones(sesionesPeriodo, estadoCajaPuntual, esPeriodoHoy)
+        } else emptyMap()
+        val conciliacionCaja = if (cajaLegible) {
+            AnaliticaCalculadora.construirConciliacionCaja(metricas, movsCajaPeriodo, punteroPeriodo)
+        } else ConciliacionCaja()
         val sedeNombreUnica = resolverEtiquetaSede(sucursalId, _sucursalesDisponibles.value)
         val sucursalesUi = AnaliticaCalculadora.calcularSucursales(
             mapOf(sucursalId to ventas),
@@ -420,8 +448,9 @@ class AnaliticaViewModel(
         finMs: Long,
         jobId: Long = 0L
     ) {
-        val fuentesOK = mutableSetOf(FuenteDatos.VENTAS, FuenteDatos.CAJA)
+        val fuentesOK = mutableSetOf(FuenteDatos.VENTAS)
         val fuentesFallidas = mutableMapOf<FuenteDatos, String>()
+        var cajaLegibleMulti = true
 
         val sedesIds = sucursales.map { it.id }.ifEmpty { ventasPorSede.keys.toList() }
         val nombresSedes = sucursales.associate {
@@ -459,7 +488,10 @@ class AnaliticaViewModel(
 
         val compras = try {
             val comprasPorSede = repository.obtenerComprasMultisede(farmaciaId, sedesIds, inicioMs, finMs)
-            val comprasConsolidadas = comprasPorSede.values.flatten().distinctBy { "${it.id}" }
+            // Dedup por sede + ID (igual que ventas/devoluciones): el mismo ID en dos sedes NO es el mismo documento.
+            val comprasConsolidadas = comprasPorSede.flatMap { (sId, fs) ->
+                fs.map { "${sId.ifBlank { "SIN_SEDE" }}_${it.id}" to it }
+            }.distinctBy { it.first }.map { it.second }
             fuentesOK.add(FuenteDatos.COMPRAS)
             AnaliticaCalculadora.calcularCompras(comprasConsolidadas)
         } catch (e: Exception) {
@@ -473,8 +505,13 @@ class AnaliticaViewModel(
             try {
                 todasSesionesMulti.addAll(repository.obtenerSesionesCajaPeriodo(farmaciaId, sId, inicioMs, finMs))
                 todosMovsMulti.addAll(repository.obtenerMovimientosCajaPeriodo(farmaciaId, sId, inicioMs, finMs))
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                cajaLegibleMulti = false
+                fuentesFallidas[FuenteDatos.CAJA] = e.message ?: "No se pudo sincronizar la caja de la sede $sId"
+            }
         }
+        // R3/R9: CAJA solo se declara OK si todas sus lecturas tuvieron éxito.
+        if (cajaLegibleMulti && fuentesFallidas[FuenteDatos.CAJA] == null) fuentesOK.add(FuenteDatos.CAJA)
 
         val esPeriodoHoyMulti = _periodoSeleccionado.value == PeriodoAnalitica.HOY
         val dineroYCajaMulti = AnaliticaCalculadora.calcularDineroYCaja(
@@ -500,7 +537,8 @@ class AnaliticaViewModel(
 
         val metodosConfigMultisede = try {
             repository.obtenerMetodosPagoMultisede(farmaciaId, sedesIds)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            fuentesFallidas[FuenteDatos.CAJA] = e.message ?: "No se pudo sincronizar los métodos de pago"
             emptyList()
         }
         // Verdad Vigente y Coherencia de Filtros: turnos consolidados de todas las sedes del período
@@ -509,12 +547,24 @@ class AnaliticaViewModel(
         val hayActividadCajaMulti = todasSesionesMulti.isNotEmpty() || todosMovsMulti.isNotEmpty() || (esPeriodoHoyMulti && estadoCaja.estado == CajaSesion.ESTADO_ABIERTA)
         val esVacioMulti = ventasConsolidadas.isEmpty() && devsConsolidadas.isEmpty() && !hayActividadCajaMulti
 
+        var docsLegiblesMulti = true
         val docsFiscalesMulti = try {
             repository.obtenerFacturacionDocumentosMultisede(farmaciaId, sedesIds, inicioMs, finMs)
-        } catch (_: Exception) { emptyList() }
-        val conciliacionFiscalMulti = AnaliticaCalculadora.construirConciliacionFiscal(ventasConsolidadas, devsConsolidadas, docsFiscalesMulti)
-        val punteroMulti = AnaliticaCalculadora.sumarVentasPorMetodoSesiones(todasSesionesMulti, estadoCaja, esPeriodoHoyMulti)
-        val conciliacionCajaMulti = AnaliticaCalculadora.construirConciliacionCaja(metricas, todosMovsMulti, punteroMulti)
+        } catch (e: Exception) {
+            docsLegiblesMulti = false
+            fuentesFallidas[FuenteDatos.FACTURACION] = e.message ?: "No se pudo sincronizar la facturación electrónica"
+            emptyList()
+        }
+        // R3: conciliaciones solo con lecturas completas; jamás fabricar descuadres ni "cuadrada" falsa.
+        val conciliacionFiscalMulti = if (docsLegiblesMulti) {
+            AnaliticaCalculadora.construirConciliacionFiscal(ventasConsolidadas, devsConsolidadas, docsFiscalesMulti)
+        } else ConciliacionFiscal()
+        val punteroMulti = if (cajaLegibleMulti) {
+            AnaliticaCalculadora.sumarVentasPorMetodoSesiones(todasSesionesMulti, estadoCaja, esPeriodoHoyMulti)
+        } else emptyMap()
+        val conciliacionCajaMulti = if (cajaLegibleMulti) {
+            AnaliticaCalculadora.construirConciliacionCaja(metricas, todosMovsMulti, punteroMulti)
+        } else ConciliacionCaja()
         val nombresMulti = sucursales.associate { it.id to (if (it.activa) it.nombre else "${it.nombre} (Inactiva)") }
             .ifEmpty { ventasPorSede.keys.associateWith { it } }
         val sucursalesMulti = AnaliticaCalculadora.calcularSucursales(ventasPorSede, devsPorSede, nombresMulti)

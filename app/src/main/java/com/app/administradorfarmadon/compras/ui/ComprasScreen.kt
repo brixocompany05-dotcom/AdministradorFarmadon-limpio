@@ -20,11 +20,14 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.app.administradorfarmadon.compras.logica.ComprasViewModel
+import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compras.ui.componentes.DialogoAnularFactura
 import com.app.administradorfarmadon.compras.ui.componentes.DialogoCrearProveedor
 import com.app.administradorfarmadon.compras.ui.componentes.DialogoNotaCredito
 import com.app.administradorfarmadon.compras.ui.componentes.DialogoProrrogarVencimiento
+import com.app.administradorfarmadon.compras.ui.componentes.PestanaHistorialPedidos
 import com.app.administradorfarmadon.compras.ui.componentes.RecepcionMercaderiaPanel
 import com.app.administradorfarmadon.compras.ui.componentes.PanelRegistrarPago
 import com.app.administradorfarmadon.compras.ui.componentes.PestanaCuentasPorPagar
@@ -83,6 +86,7 @@ fun ComprasScreen(
     if (state.mostrarDialogoProveedor) {
         DialogoCrearProveedor(
             proveedorEditando = state.proveedorEditando,
+            proveedoresExistentes = state.proveedores,
             guardando = state.guardandoProveedor,
             errorGuardado = state.errorGuardadoProveedor,
             onGuardar = { nom, ruc, cont, tel, em, dir, min -> viewModel.guardarProveedor(nom, ruc, cont, tel, em, dir, min) },
@@ -106,7 +110,9 @@ fun ComprasScreen(
                 estadoFactura = facturaViva.estadoPago,
                 autorizadoPlata = viewModel.esUsuarioAutorizadoPlata,
                 onDismiss = { viewModel.cerrarDialogoNotaCredito() },
-                onConfirmarNota = { num, monto, motivo -> viewModel.registrarNotaCredito(facturaViva.id, num, monto, motivo) }
+                onConfirmarNota = { num, monto, motivo, prodId, prodNombre, lote, cant ->
+                    viewModel.registrarNotaCredito(facturaViva.id, num, monto, motivo, prodId, prodNombre, lote, cant)
+                }
             )
         } else {
             LaunchedEffect(id) { viewModel.cerrarDialogoNotaCredito() }
@@ -128,9 +134,10 @@ fun ComprasScreen(
                     horizontalArrangement = Arrangement.spacedBy(s.gapTiny),
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    TabQuiet(label = "Reposición", count = state.productosAgrupadosPorProveedor.keys.size, selected = state.tabSeleccionada == "REPOSICION", onClick = { viewModel.seleccionarTab("REPOSICION") }, s = s)
-                    TabQuiet(label = "Proveedores", count = state.totalProveedores, selected = state.tabSeleccionada == "PROVEEDORES", onClick = { viewModel.seleccionarTab("PROVEEDORES") }, s = s)
-                    TabQuiet(label = "Cuentas", count = state.facturasPendientes.size, selected = state.tabSeleccionada == "CUENTAS", onClick = { viewModel.seleccionarTab("CUENTAS") }, s = s)
+                    TabQuiet(label = "Pedido a Proveedor", selected = state.tabSeleccionada == "REPOSICION", onClick = { viewModel.seleccionarTab("REPOSICION") }, s = s)
+                    TabQuiet(label = "Historial de Pedidos", selected = state.tabSeleccionada == "HISTORIAL", onClick = { viewModel.seleccionarTab("HISTORIAL") }, s = s)
+                    TabQuiet(label = "Proveedores", selected = state.tabSeleccionada == "PROVEEDORES", onClick = { viewModel.seleccionarTab("PROVEEDORES") }, s = s)
+                    TabQuiet(label = "Facturas / Cuentas", selected = state.tabSeleccionada == "CUENTAS", onClick = { viewModel.seleccionarTab("CUENTAS") }, s = s)
                 }
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.35f), thickness = s.separatorH, modifier = Modifier.padding(horizontal = s.padScreenH))
 
@@ -156,30 +163,40 @@ fun ComprasScreen(
                             pedidosGuardados = state.pedidosGuardados,
                             proveedores = state.proveedores,
                             pedidosPorProveedor = state.pedidosPorProveedor,
+                            contribuidoresCarrito = state.contribuidoresCarrito,
                             onModificarCantidadProducto = { prod, delta -> viewModel.modificarCantidadProducto(prod, delta) },
                             onReponerSugeridosProveedor = { viewModel.reponerSugeridosDeProveedor(it) },
                             onRealizarPedido = { viewModel.confirmarPedidoEnviado(it) },
-                            onEditarPedidoRealizado = { pedidoId, items -> viewModel.editarPedidoRealizado(pedidoId, items) },
-                            onEliminarPedidoRealizado = { viewModel.eliminarPedidoRealizado(it) },
-                            procesandoEdicionPedido = state.procesandoEdicionPedido,
-                            procesandoEliminacionPedido = state.procesandoEliminacionPedido,
                             onLimpiarPedidoProveedor = { viewModel.limpiarPedidoProveedor(it) },
                             enviandoPedido = state.enviandoPedido,
-                            onCancelarPedidoEnviado = { viewModel.cancelarPedidoEnviado(it) },
-                            onRecibirMercaderia = { viewModel.abrirDialogoRecepcion(it) },
-                            onCerrarOrdenConAjuste = { viewModel.cerrarOrdenConAjuste(it.id) },
-                            onDescartarProductoDePedido = { pid, prodId -> viewModel.descartarProductoDePedido(pid, prodId) },
                             enCaminoPorProducto = state.enCaminoPorProducto,
                             productoPendienteConfirmar = state.productoPendienteConfirmar,
                             cantidadExtraPropuesta = state.cantidadExtraPropuesta,
                             onConfirmarAdicionExtra = { viewModel.confirmarAdicionExtra() },
                             onDescartarAdicionExtra = { viewModel.descartarAdicionExtra() },
                             onVincularProducto = { prod, prov -> viewModel.vincularProductoAProveedor(prod.id, prov) },
+                            onRecibirMercaderia = { viewModel.abrirDialogoRecepcion(it) },
+                            onCerrarConAjuste = { viewModel.cerrarOrdenConAjuste(it.id) },
+                            onDescartarProducto = { pid, prodId -> viewModel.descartarProductoDePedido(pid, prodId) },
+                            onCancelarPedido = { viewModel.cancelarPedidoEnviado(it) },
                             listaState = viewModel.listaReposicion,
                             cargando = state.cargando,
                             errorEscucha = state.errorEscucha,
                             envioExitosoProveedor = state.envioExitosoProveedor,
                             onConsumirEnvioExitoso = { viewModel.consumirEnvioExitoso() }
+                        )
+                        "HISTORIAL" -> PestanaHistorialPedidos(
+                            pedidosGuardados = state.pedidosGuardados,
+                            simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" },
+                            s = s,
+                            onRecibirMercaderia = { viewModel.abrirDialogoRecepcion(it) },
+                            onCerrarConAjuste = { viewModel.cerrarOrdenConAjuste(it.id) },
+                            onDescartarProducto = { pid, prodId -> viewModel.descartarProductoDePedido(pid, prodId) },
+                            onCancelarPedido = { viewModel.cancelarPedidoEnviado(it) },
+                            anexandoFactura = state.anexandoFactura,
+                            onAnexarFactura = { pid, num, monto, cond, venc, emi ->
+                                viewModel.anexarFacturaAOrden(pid, num, monto, cond, venc, emi)
+                            }
                         )
                         "PROVEEDORES" -> {
                             val provSel = state.proveedorSeleccionado
@@ -232,22 +249,57 @@ fun ComprasScreen(
         }
 
         state.pedidoParaRecepcionar?.let { pedido ->
-            if (state.mostrarDialogoRecepcion && !state.cargandoIndiceRecepcion) {
-                RecepcionMercaderiaPanel(
-                    pedido = pedido,
-                    facturaExistente = state.facturaRecepcionExistente,
-                    procesando = state.procesandoRecepcion,
-                    indiceLotes = state.indiceLotesOrden,
-                    // Estricto por ID: con nombres duplicados, el nombre pinta saldo ajeno.
-                    saldoAFavorDisponible = state.proveedores.firstOrNull {
-                        it.id.isNotBlank() && it.id == pedido.proveedorId
-                    }?.saldoAFavor ?: 0.0,
-                    metodosPago = state.metodosPago,
-                    onDismiss = { viewModel.cerrarDialogoRecepcion() },
-                    onAsentarRecepcion = { numFact, condPago, fVencPago, fEmisionPapel, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj ->
-                        viewModel.asentarRecepcionPedido(pedido.id, numFact, condPago, fVencPago, fEmisionPapel, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj)
+            if (state.mostrarDialogoRecepcion) {
+                if (state.cargandoIndiceRecepcion) {
+                    Dialog(onDismissRequest = {}) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = FDColors.SurfaceElevated,
+                            border = BorderStroke(1.dp, FDColors.Border)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(24.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(28.dp),
+                                    color = FDColors.Primary,
+                                    strokeWidth = 3.dp
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        "Preparando recepción...",
+                                        style = FDType.Body.copy(fontWeight = FontWeight.Bold),
+                                        color = FDColors.TextPrimary
+                                    )
+                                    Text(
+                                        "Verificando lotes e historial del pedido",
+                                        style = FDType.Caption,
+                                        color = FDColors.TextTertiary
+                                    )
+                                }
+                            }
+                        }
                     }
-                )
+                } else {
+                    RecepcionMercaderiaPanel(
+                        pedido = pedido,
+                        facturaExistente = state.facturaRecepcionExistente,
+                        procesando = state.procesandoRecepcion,
+                        indiceLotes = state.indiceLotesOrden,
+                        // Estricto por ID: con nombres duplicados, el nombre pinta saldo ajeno.
+                        saldoAFavorDisponible = state.proveedores.firstOrNull {
+                            it.id.isNotBlank() && it.id == pedido.proveedorId
+                        }?.saldoAFavor ?: 0.0,
+                        metodosPago = state.metodosPago,
+                        facturasExistentes = state.facturas,
+                        onDismiss = { viewModel.cerrarDialogoRecepcion() },
+                        onAsentarRecepcion = { numFact, condPago, fVencPago, fEmisionPapel, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj ->
+                            viewModel.asentarRecepcionPedido(pedido.id, numFact, condPago, fVencPago, fEmisionPapel, montFact, pagado, metodoPago, pagosRec, saldoUsado, itemsRec, cerrarConAj)
+                        }
+                    )
+                }
             }
         }
 
@@ -270,7 +322,12 @@ fun ComprasScreen(
 }
 
 @Composable
-private fun TabQuiet(label: String, count: Int, selected: Boolean, onClick: () -> Unit, s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa) {
+private fun TabQuiet(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    s: com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
+) {
     Surface(
         color = if (selected) FDColors.SurfaceElevated else Color.Transparent,
         shape = RoundedCornerShape(topStart = s.radiusInput, topEnd = s.radiusInput),
@@ -278,8 +335,7 @@ private fun TabQuiet(label: String, count: Int, selected: Boolean, onClick: () -
     ) {
         Row(
             modifier = Modifier.padding(horizontal = s.gapXLarge, vertical = s.gapMedium),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(s.gapSmall)
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = label.uppercase(),
@@ -291,23 +347,6 @@ private fun TabQuiet(label: String, count: Int, selected: Boolean, onClick: () -
                 ),
                 color = if (selected) FDColors.Primary else FDColors.TextTertiary
             )
-            if (count > 0) {
-                Surface(
-                    color = if (selected) FDColors.Primary.copy(alpha = 0.12f) else FDColors.TextPrimary.copy(alpha = 0.05f),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(
-                        text = "$count",
-                        style = FDType.Caption.copy(
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = InterPremium
-                        ),
-                        color = if (selected) FDColors.Primary else FDColors.TextTertiary,
-                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                    )
-                }
-            }
         }
     }
 }

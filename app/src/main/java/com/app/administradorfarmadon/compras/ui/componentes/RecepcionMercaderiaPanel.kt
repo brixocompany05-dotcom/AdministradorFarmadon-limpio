@@ -73,6 +73,7 @@ fun RecepcionMercaderiaPanel(
     indiceLotes: Map<String, List<com.app.administradorfarmadon.compras.datos.LoteExistenteVista>> = emptyMap(),
     saldoAFavorDisponible: Double = 0.0,
     metodosPago: List<InstanciaPago> = emptyList(),
+    facturasExistentes: List<FacturaCompra> = emptyList(),
     onDismiss: () -> Unit,
     onAsentarRecepcion: (
         numeroFactura: String,
@@ -94,7 +95,9 @@ fun RecepcionMercaderiaPanel(
     // se borraría a medias lo que la persona ya escribió (lotes, vencimientos).
     // La verdad del saldo se re-verifica dentro de la transacción al guardar —
     // si otro lo usó mientras tanto, la operación aborta con la cifra real.
-    val estado = remember(pedido.id, facturaExistente?.id) { RecepcionMercaderiaEstado(pedido, indiceLotes, facturaExistente, saldoAFavorDisponible, metodosPago) }
+    val estado = remember(pedido.id, facturaExistente?.id) {
+        RecepcionMercaderiaEstado(pedido, indiceLotes, facturaExistente, saldoAFavorDisponible, metodosPago, facturasExistentes)
+    }
 
     var indexFilaEnFoco by remember { mutableIntStateOf(-1) }
     var yFilaSeleccionada by remember { mutableFloatStateOf(0f) }
@@ -159,36 +162,6 @@ fun RecepcionMercaderiaPanel(
                     border = BorderStroke(1.dp, colores.cardBorde.copy(alpha = 0.5f))
                 ) {
                     Column {
-                        // Barra superior de acciones rápidas
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "PRODUCTOS EN ESTA ORDEN",
-                                style = FDType.Label.copy(fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 1.sp),
-                                color = FDColors.TextTertiary
-                            )
-                            TextButton(
-                                onClick = {
-                                    estado.items.forEach { 
-                                        if (it.saldoPendiente > 0) it.cantidadRecibir = it.saldoPendiente.toString()
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(15.dp), tint = FDColors.Primary)
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    "Recibir todo lo pendiente",
-                                    style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                                    color = FDColors.Primary
-                                )
-                            }
-                        }
                         HorizontalDivider(thickness = 0.8.dp, color = colores.cardBorde.copy(alpha = 0.3f))
 
                         // Encabezados de Columnas alineados 1 a 1 con las celdas
@@ -314,32 +287,178 @@ fun RecepcionMercaderiaPanel(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             Text("LIQUIDACIÓN EJECUTIVA", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = FDColors.TextTertiary)
-                            Surface(color = FDColors.Background, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, FDColors.Border), modifier = Modifier.fillMaxWidth().onGloballyPositioned { yTotalLiquidacion = it.positionInRoot().y - rootY + 40f }) {
-                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    FilaResumenIndustrial("Items Inspeccionados", "${estado.items.count { (it.cantidadRecibir.toIntOrNull() ?: 0) > 0 }}")
-                                    FilaResumenIndustrial("Total Unidades", "${estado.unidadesCompradas + estado.unidadesRegalo}")
-                                    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = 0.5.dp)
-                                    FilaResumenIndustrial("Recibido antes", estado.unidadesRecibidasAntes.toString())
-                                    FilaResumenIndustrial("Esta entrega", estado.unidadesEstaEntrega.toString())
-                                    FilaResumenIndustrial("Faltará después", estado.unidadesPendientesDespues.toString())
-                                    FilaResumenIndustrial("Costo de mercadería hoy", "$simboloMoneda " + String.format(Locale.US, "%.2f", estado.totalCostoCalculado))
-                                    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = 0.5.dp)
-                                    Text("TOTAL DEL DOCUMENTO", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
-                                    Text("$simboloMoneda " + String.format(Locale.US, "%.2f", estado.totalFacturaFinal), style = FDType.NumericLg.copy(fontSize = 32.sp, fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
-                                    FilaResumenIndustrial("Pagado antes", "$simboloMoneda " + String.format(Locale.US, "%.2f", estado.montoPagadoAntes))
-                                    Text("Pagado ahora: $simboloMoneda " + String.format(Locale.US, "%.2f", estado.montoPagadoFinal.coerceAtLeast(0.0)), style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold), color = FDColors.TextSecondary)
-                                    FilaResumenIndustrial("Saldo después", "$simboloMoneda " + String.format(Locale.US, "%.2f", (estado.totalFacturaFinal - estado.montoPagadoAntes - estado.montoPagadoFinal.coerceAtLeast(0.0) - estado.saldoAFavorAplicado).coerceAtLeast(0.0)))
-                                    Surface(
-                                        color = if (estado.unidadesPendientesDespues > 0) FDColors.WarningSubtle else FDColors.SuccessSubtle,
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
+                            Surface(
+                                color = FDColors.Background,
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, FDColors.Border),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned { yTotalLiquidacion = it.positionInRoot().y - rootY + 40f }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    // Resumen físico compacto
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = if (estado.unidadesPendientesDespues > 0) "El proveedor aún debe ${estado.unidadesPendientesDespues} unidad(es)" else "El pedido quedará completo",
-                                            style = FDType.BodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                                            color = if (estado.unidadesPendientesDespues > 0) FDColors.Warning else FDColors.Success,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                            "MERCADERÍA EN ESTA ENTREGA",
+                                            style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
+                                            color = FDColors.TextTertiary
                                         )
+                                        Surface(
+                                            color = if (estado.unidadesPendientesDespues > 0) FDColors.WarningSubtle else FDColors.SuccessSubtle,
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (estado.unidadesPendientesDespues > 0) {
+                                                    "Parcial (falta ${estado.unidadesPendientesDespues})"
+                                                } else "Entrega Completa",
+                                                style = FDType.BodySmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                                color = if (estado.unidadesPendientesDespues > 0) FDColors.Warning else FDColors.Success,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // El faltante NO se decide aquí con un interruptor global: cada producto
+                                    // tiene su propio destino (uno ya no viene, otro llega mañana). Lo que no
+                                    // vendrá se descarta por producto en la orden, después de asentar.
+                                    if (estado.unidadesPendientesDespues > 0) {
+                                        Text(
+                                            "El saldo queda pendiente para la próxima entrega.",
+                                            style = FDType.Caption.copy(fontSize = 9.5.sp),
+                                            color = FDColors.TextTertiary
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            color = FDColors.SurfaceElevated,
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(0.5.dp, FDColors.Border)
+                                        ) {
+                                            Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                                Text("Items", style = FDType.Label.copy(fontSize = 9.sp), color = FDColors.TextTertiary)
+                                                Text(
+                                                    "${estado.items.count { (it.cantidadRecibir.toIntOrNull() ?: 0) > 0 }} de ${estado.items.size}",
+                                                    style = FDType.BodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Black),
+                                                    color = FDColors.TextPrimary
+                                                )
+                                            }
+                                        }
+                                        Surface(
+                                            modifier = Modifier.weight(1f),
+                                            color = FDColors.SurfaceElevated,
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(0.5.dp, FDColors.Border)
+                                        ) {
+                                            Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                                Text("Unidades hoy", style = FDType.Label.copy(fontSize = 9.sp), color = FDColors.TextTertiary)
+                                                Text(
+                                                    "${estado.unidadesEstaEntrega} und",
+                                                    style = FDType.BodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Black),
+                                                    color = FDColors.TextPrimary
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f), thickness = 0.5.dp)
+
+                                    // Resumen financiero: UNA sola verdad. El número grande es siempre
+                                    // el total de la factura: suma de filas, o del papel si se escribió.
+                                    val totalManualHoy = estado.montoFacturaManual.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 }
+                                    Text(
+                                        if (totalManualHoy != null) "TOTAL DEL PAPEL" else "TOTAL DE ESTA RECEPCIÓN",
+                                        style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
+                                        color = FDColors.TextTertiary
+                                    )
+                                    Text(
+                                        "$simboloMoneda " + String.format(Locale.US, "%.2f", estado.totalFacturaFinal),
+                                        style = FDType.NumericLg.copy(fontSize = 28.sp, fontWeight = FontWeight.Black),
+                                        color = FDColors.TextPrimary
+                                    )
+                                    if (totalManualHoy != null) {
+                                        Text(
+                                            "Filas suman $simboloMoneda " + String.format(Locale.US, "%.2f", estado.totalCostoCalculado),
+                                            style = FDType.Caption.copy(fontSize = 10.sp),
+                                            color = FDColors.TextTertiary
+                                        )
+                                    }
+                                    // Papel que continúa: su total ya quedó fijo, no se duplica.
+                                    // Lo grande de arriba es SOLO lo que llega hoy.
+                                    if (estado.facturaContinua && estado.montoPapelFijo != null) {
+                                        Text(
+                                            "Papel ${estado.numeroFactura.ifBlank { "S/C" }} · total S/ " +
+                                                String.format(Locale.US, "%.2f", estado.montoPapelFijo) + " (fijo)",
+                                            style = FDType.Caption.copy(fontSize = 10.sp),
+                                            color = FDColors.TextTertiary
+                                        )
+                                    }
+                                    // Papel nuevo con flete/descuento: si el total del papel difiere
+                                    // de las filas, se escribe aquí. Vacío = suma de filas.
+                                    if (!estado.facturaContinua) {
+                                        OutlinedTextField(
+                                            value = estado.montoFacturaManual,
+                                            onValueChange = { estado.onMontoFacturaChanged(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
+                                            label = { Text("TOTAL DEL PAPEL (si difiere)", fontSize = 10.sp) },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = FDColors.TextPrimary,
+                                                unfocusedBorderColor = FDColors.Border,
+                                                focusedContainerColor = FDColors.Background,
+                                                unfocusedContainerColor = FDColors.Background
+                                            )
+                                        )
+                                    }
+
+                                    if (estado.saldoAFavorAplicado > 0.0) {
+                                        FilaResumenIndustrial(
+                                            "Saldo a favor aplicado",
+                                            "- $simboloMoneda " + String.format(Locale.US, "%.2f", estado.saldoAFavorAplicado)
+                                        )
+                                    }
+
+                                    if (estado.montoPagadoAntes > 0.0) {
+                                        FilaResumenIndustrial(
+                                            "Abonado anteriormente",
+                                            "$simboloMoneda " + String.format(Locale.US, "%.2f", estado.montoPagadoAntes)
+                                        )
+                                    }
+
+                                    val netoAPagar = estado.liquidacionSaldoAFavor.netoAPagar
+                                    if (estado.condicionPago == "Contado") {
+                                        val pagadoAhora = estado.montoPagadoFinal.coerceAtLeast(0.0)
+                                        val saldoPendiente = (netoAPagar - pagadoAhora).coerceAtLeast(0.0)
+                                        FilaResumenIndustrial(
+                                            "Pagado en métodos",
+                                            "$simboloMoneda " + String.format(Locale.US, "%.2f", pagadoAhora)
+                                        )
+                                        if (saldoPendiente > 0.01) {
+                                            FilaResumenIndustrial(
+                                                "Falta por cubrir",
+                                                "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoPendiente)
+                                            )
+                                        }
+                                    } else {
+                                        val vencimiento = estado.fechaVencimientoPagoVisible ?: "Por definir"
+                                        FilaResumenIndustrial(
+                                            "A pagar a crédito",
+                                            "$simboloMoneda " + String.format(Locale.US, "%.2f", netoAPagar)
+                                        )
+                                        FilaResumenIndustrial("Vence", vencimiento)
                                     }
                                 }
                             }
@@ -351,6 +470,12 @@ fun RecepcionMercaderiaPanel(
                             onUsarChange = { estado.onUsarSaldoAFavorChanged(it) },
                             simboloMoneda = simboloMoneda
                         )
+
+                        LaunchedEffect(estado.totalCostoCalculado, estado.montoFacturaManual, estado.usarSaldoAFavor, estado.condicionPago) {
+                            if (estado.condicionPago == "Contado") {
+                                estado.sincronizarPagoContado()
+                            }
+                        }
 
                         var mostrarDatePickerEmision by remember { mutableStateOf(false) }
 
@@ -373,105 +498,147 @@ fun RecepcionMercaderiaPanel(
                             }
                         }
 
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // ── COMPROBANTE DEL PROVEEDOR ──
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             OutlinedTextField(
                                 value = estado.numeroFactura,
                                 onValueChange = { estado.onFacturaChanged(it) },
                                 readOnly = estado.facturaContinua,
+                                isError = estado.esFacturaDuplicada,
                                 label = { Text("N° FACTURA PROVEEDOR", fontSize = 10.sp) },
-                                supportingText = if (estado.facturaContinua) ({ Text("Misma factura", fontSize = 9.sp) }) else null,
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1.15f),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = FDColors.TextPrimary,
-                                    unfocusedBorderColor = FDColors.Border,
-                                    focusedContainerColor = FDColors.Background,
-                                    unfocusedContainerColor = FDColors.Background
-                                )
-                            )
-
-                            OutlinedTextField(
-                                value = estado.fechaEmisionPapel,
-                                onValueChange = { estado.onFechaEmisionPapelChanged(it) },
-                                readOnly = estado.facturaContinua,
-                                isError = estado.fechaEmisionInvalida,
-                                label = { Text("EMISIÓN COMPROBANTE", fontSize = 10.sp) },
-                                placeholder = { Text("DD/MM/AAAA", fontSize = 10.sp, color = FDColors.TextTertiary) },
-                                supportingText = if (estado.fechaEmisionInvalida) {
-                                    { Text("Fecha inválida o futura", fontSize = 9.sp, color = FDColors.Error) }
-                                } else if (estado.facturaContinua) {
-                                    { Text("Emisión original", fontSize = 9.sp) }
-                                } else null,
-                                trailingIcon = {
-                                    IconButton(
-                                        onClick = { mostrarDatePickerEmision = true },
-                                        enabled = !estado.facturaContinua
-                                    ) {
-                                        Icon(
-                                            Icons.Default.CalendarToday,
-                                            contentDescription = "Elegir fecha de emisión",
-                                            tint = if (estado.fechaEmisionInvalida) FDColors.Error else FDColors.Primary,
-                                            modifier = Modifier.size(17.dp)
+                                supportingText = when {
+                                    estado.esFacturaDuplicada -> ({
+                                        Text(
+                                            "⚠️ Ya registrada en otra orden",
+                                            color = FDColors.Error,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
                                         )
-                                    }
+                                    })
+                                    estado.facturaContinua -> ({ Text("Misma factura (entrega parcial)", fontSize = 9.sp) })
+                                    else -> null
                                 },
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(0.95f),
+                                modifier = Modifier.fillMaxWidth(),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = if (estado.fechaEmisionInvalida) FDColors.Error else FDColors.TextPrimary,
-                                    unfocusedBorderColor = if (estado.fechaEmisionInvalida) FDColors.Error else FDColors.Border,
+                                    focusedBorderColor = if (estado.esFacturaDuplicada) FDColors.Error else FDColors.TextPrimary,
+                                    unfocusedBorderColor = if (estado.esFacturaDuplicada) FDColors.Error else FDColors.Border,
+                                    errorBorderColor = FDColors.Error,
                                     focusedContainerColor = FDColors.Background,
                                     unfocusedContainerColor = FDColors.Background
                                 )
                             )
+
+                            // Emisión sutil y opcional (si no se toca, se asume hoy automáticamente)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = if (estado.fechaEmisionInvalida) FDColors.Error else FDColors.TextTertiary,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = if (estado.fechaEmisionPapel.isNotBlank()) {
+                                            "Fecha comprobante: ${estado.fechaEmisionPapel}"
+                                        } else {
+                                            "Fecha comprobante: Hoy (${estado.fechaEmisionFinal})"
+                                        },
+                                        style = FDType.BodySmall.copy(
+                                            fontSize = 11.sp,
+                                            fontWeight = if (estado.fechaEmisionPapel.isNotBlank()) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        color = if (estado.fechaEmisionInvalida) FDColors.Error else if (estado.fechaEmisionPapel.isNotBlank()) FDColors.TextPrimary else FDColors.TextSecondary
+                                    )
+                                }
+                                if (!estado.facturaContinua) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        if (estado.fechaEmisionPapel.isNotBlank()) {
+                                            Text(
+                                                text = "Usar hoy",
+                                                style = FDType.Label.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                                                color = FDColors.Primary,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .clickable { estado.onFechaEmisionPapelChanged("") }
+                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                            Text("·", color = FDColors.TextTertiary, fontSize = 10.sp)
+                                        }
+                                        Text(
+                                            text = if (estado.fechaEmisionPapel.isNotBlank()) "Modificar" else "Cambiar fecha",
+                                            style = FDType.Label.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                                            color = FDColors.Primary,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .clickable { mostrarDatePickerEmision = true }
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            if (estado.fechaEmisionInvalida) {
+                                Text(
+                                    "Fecha de emisión inválida o posterior a hoy",
+                                    style = FDType.BodySmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                    color = FDColors.Error,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
                         }
 
-                        OutlinedTextField(
-                            value = estado.montoFacturaManual,
-                            onValueChange = { estado.onMontoFacturaChanged(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
-                            readOnly = estado.facturaContinua,
-                            label = { Text("TOTAL DE LA FACTURA", fontSize = 10.sp) },
-                            supportingText = if (estado.facturaContinua) ({ Text("Continuando la misma factura", fontSize = 10.sp) }) else null,
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FDColors.TextPrimary, unfocusedBorderColor = FDColors.Border, focusedContainerColor = FDColors.Background, unfocusedContainerColor = FDColors.Background)
+                        // ── SELECTOR DE CONDICIÓN DE PAGO (CONTADO / CRÉDITO) PRIMERO ──
+                        Text(
+                            "CONDICIÓN DE PAGO",
+                            style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp),
+                            color = FDColors.TextTertiary
                         )
-
-                        OutlinedTextField(
-                            value = estado.montoPagadoManual,
-                            onValueChange = { estado.onMontoPagadoChanged(it.filter { c -> c.isDigit() || c == '.' || c == ',' }) },
-                            label = { Text("PAGO REGISTRADO AHORA", fontSize = 10.sp) },
-                            supportingText = { Text("Si no pagaste todavía, deja 0.00", fontSize = 10.sp) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = FDColors.TextPrimary, unfocusedBorderColor = FDColors.Border, focusedContainerColor = FDColors.Background, unfocusedContainerColor = FDColors.Background)
-                        )
-
-                        if (estado.montoPagadoFinal > 0.0) {
-                            PagosMixtosEditor(
-                                estado = estado.editorPagos
-                            )
-                        }
-
-                        Row(Modifier.fillMaxWidth().height(48.dp).background(FDColors.Background, RoundedCornerShape(12.dp)).border(1.dp, FDColors.Border, RoundedCornerShape(12.dp)).padding(4.dp)) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .background(FDColors.Background, RoundedCornerShape(12.dp))
+                                .border(1.dp, FDColors.Border, RoundedCornerShape(12.dp))
+                                .padding(4.dp)
+                        ) {
                             listOf("Contado", "Crédito").forEach { cond ->
                                 val sel = estado.condicionPago == cond
-                                Surface(modifier = Modifier.weight(1f).fillMaxHeight().clickable(enabled = !estado.facturaContinua) { estado.onCondicionPagoChanged(cond) }, color = if (sel) FDColors.SurfaceElevated else Color.Transparent, shape = RoundedCornerShape(9.dp), border = if (sel) BorderStroke(1.dp, FDColors.Border) else null) { Box(contentAlignment = Alignment.Center) { Text(cond.uppercase(), style = FDType.Label.copy(fontSize = 10.sp, fontWeight = if (sel) FontWeight.Black else FontWeight.Medium), color = if (sel) FDColors.TextPrimary else FDColors.TextTertiary) } }
+                                Surface(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clickable(enabled = !estado.facturaContinua) { estado.onCondicionPagoChanged(cond) },
+                                    color = if (sel) FDColors.SurfaceElevated else Color.Transparent,
+                                    shape = RoundedCornerShape(9.dp),
+                                    border = if (sel) BorderStroke(1.dp, FDColors.Border) else null
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            cond.uppercase(),
+                                            style = FDType.Label.copy(fontSize = 10.5.sp, fontWeight = if (sel) FontWeight.Black else FontWeight.Medium),
+                                            color = if (sel) FDColors.TextPrimary else FDColors.TextTertiary
+                                        )
+                                    }
+                                }
                             }
                         }
 
                         if (estado.condicionPago == "Crédito") {
                             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("VENCIMIENTO DEL PAGO", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
-                                
+                                Text("PLAZO / VENCIMIENTO DEL PAGO", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold), color = FDColors.TextTertiary)
+
                                 var mostrarDatePicker by remember { mutableStateOf(false) }
-                                
+
                                 if (mostrarDatePicker) {
                                     val datePickerState = rememberDatePickerState()
                                     DatePickerDialog(
@@ -479,8 +646,6 @@ fun RecepcionMercaderiaPanel(
                                         confirmButton = {
                                             TextButton(onClick = {
                                                 datePickerState.selectedDateMillis?.let { ms ->
-                                                    // El DatePicker entrega medianoche en UTC: formatear en hora
-                                                    // local (UTC-5 Perú) restaba UN DÍA al vencimiento elegido.
                                                     val sdf = java.text.SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
                                                     sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
                                                     estado.onFechaVencimientoPagoManualChanged(sdf.format(Date(ms)))
@@ -496,7 +661,12 @@ fun RecepcionMercaderiaPanel(
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf(15, 30, 45, 60).forEach { dias ->
                                         val selDias = estado.diasCredito == dias
-                                        Surface(modifier = Modifier.weight(1f).clickable { estado.onDiasCreditoChanged(dias) }, color = if (selDias) FDColors.SurfaceElevated else FDColors.Background, shape = RoundedCornerShape(9.dp), border = BorderStroke(1.dp, if (selDias) FDColors.TextPrimary.copy(alpha = 0.5f) else FDColors.Border)) {
+                                        Surface(
+                                            modifier = Modifier.weight(1f).clickable { estado.onDiasCreditoChanged(dias) },
+                                            color = if (selDias) FDColors.SurfaceElevated else FDColors.Background,
+                                            shape = RoundedCornerShape(9.dp),
+                                            border = BorderStroke(1.dp, if (selDias) FDColors.TextPrimary.copy(alpha = 0.5f) else FDColors.Border)
+                                        ) {
                                             Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 9.dp)) {
                                                 Text("$dias DÍAS", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = if (selDias) FontWeight.Black else FontWeight.Medium), color = if (selDias) FDColors.TextPrimary else FDColors.TextTertiary)
                                             }
@@ -505,9 +675,9 @@ fun RecepcionMercaderiaPanel(
                                     // Opción de calendario manual
                                     val esManual = estado.fechaVencimientoPagoVisible != null && estado.diasCredito == null
                                     Surface(
-                                        modifier = Modifier.weight(0.7f).clickable { mostrarDatePicker = true }, 
-                                        color = if (esManual) FDColors.SurfaceElevated else FDColors.Background, 
-                                        shape = RoundedCornerShape(9.dp), 
+                                        modifier = Modifier.weight(0.7f).clickable { mostrarDatePicker = true },
+                                        color = if (esManual) FDColors.SurfaceElevated else FDColors.Background,
+                                        shape = RoundedCornerShape(9.dp),
                                         border = BorderStroke(1.dp, if (esManual) FDColors.TextPrimary.copy(alpha = 0.5f) else FDColors.Border)
                                     ) {
                                         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(vertical = 9.dp)) {
@@ -515,10 +685,37 @@ fun RecepcionMercaderiaPanel(
                                         }
                                     }
                                 }
-                                
+
                                 if (estado.fechaVencimientoPagoVisible != null) {
                                     Text("Se pagará el: ${estado.fechaVencimientoPagoVisible}", style = FDType.BodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Black), color = FDColors.TextPrimary)
                                 }
+                            }
+                        } else {
+                            // CONTADO: Medios de pago (1 método = auto 100%, 2+ métodos = divide montos)
+                            if (estado.liquidacionSaldoAFavor.netoAPagar <= 0.0 && estado.totalFacturaFinal > 0.0) {
+                                Surface(
+                                    color = FDColors.SuccessSubtle,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, FDColors.Success.copy(alpha = 0.3f)),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                ) {
+                                    Row(
+                                        Modifier.padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(Icons.Default.Check, null, tint = FDColors.Success, modifier = Modifier.size(18.dp))
+                                        Text(
+                                            "El saldo a favor cubre el 100% de esta recepción. No se requiere pago adicional.",
+                                            style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
+                                            color = FDColors.Success
+                                        )
+                                    }
+                                }
+                            } else {
+                                PagosMixtosEditor(
+                                    estado = estado.editorPagos
+                                )
                             }
                         }
 
@@ -556,14 +753,16 @@ fun RecepcionMercaderiaPanel(
                                         estado.numeroFactura.trim().uppercase(),
                                         estado.condicionPago,
                                         if (estado.condicionPago == "Crédito") estado.fechaPagoCredito() ?: "" else "",
-                                        estado.fechaEmisionPapel,
+                                        estado.fechaEmisionFinal,
                                         estado.totalFacturaFinal,
-                                        estado.montoPagadoFinal,
-                                        estado.editorPagos.pagos.firstOrNull()?.metodoPago ?: "",
-                                        estado.editorPagos.pagos,
+                                        if (estado.condicionPago == "Crédito") 0.0 else estado.montoPagadoFinal,
+                                        if (estado.condicionPago == "Crédito") "" else (estado.editorPagos.pagos.firstOrNull()?.metodoPago ?: ""),
+                                        if (estado.condicionPago == "Crédito") emptyList() else estado.editorPagos.pagos,
                                         estado.saldoAFavorAplicado,
                                         items,
-                                        estado.decisionFaltante == "AJUSTE"
+                                        // La recepción asienta SOLO lo que llegó físicamente. El destino del
+                                        // faltante (esperar o descartar) se decide por producto en la orden.
+                                        false
                                     )
                                 }
                             }, 

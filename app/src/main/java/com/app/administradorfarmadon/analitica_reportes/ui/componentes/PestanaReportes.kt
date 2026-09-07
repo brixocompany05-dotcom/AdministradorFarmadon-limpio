@@ -29,6 +29,9 @@ import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
@@ -282,30 +285,59 @@ fun PestanaReportes(
                     // ACCIONES REALES DE EXPORTACIÓN E IMPRESIÓN
                     val exito = uiState as? AnaliticaUiState.Exito
                     val puedeExportar = exito != null && !estadoExportando
+                    val scope = rememberCoroutineScope()
+
+                    // R3/R9: jamás exportar un reporte "oficial" con fuentes fallidas sin avisar.
+                    fun bloquearSiParcial(exitoActual: AnaliticaUiState.Exito): Boolean {
+                        if (!exitoActual.esParcial) return false
+                        val faltantes = exitoActual.fuentesFallidas.values.joinToString(" · ")
+                        Toast.makeText(
+                            context,
+                            "No se puede exportar: hay fuentes con error de lectura ($faltantes). Presiona Reintentar y vuelve a intentarlo.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return true
+                    }
 
                     Button(
                         onClick = {
-                            if (exito != null) {
+                            val exitoActual = exito ?: return@Button
+                            if (estadoExportando) return@Button
+                            if (bloquearSiParcial(exitoActual)) return@Button
+
+                            estadoExportando = true
+                            scope.launch {
                                 try {
-                                    estadoExportando = true
-                                    val tabla = ReportesDatasetBuilder.construirReporte(
-                                        categoria = categoriaSeleccionada,
-                                        tipoReporte = tipoReporteSeleccionado,
-                                        exito = exito,
-                                        periodo = periodoInicial,
-                                        nombreSede = sedeNombre,
-                                        razonSocial = SessionManager.sucursalNombre.ifBlank { "Farmacia" },
-                                        ruc = SessionManager.clienteIdGarantizado.take(11).ifBlank { "—" }
-                                    )
-                                    if (formatoSalida == "PDF") {
-                                        val archivo = ReporteExportador.generarPdfEnCache(context, tabla)
-                                        ReporteExportador.compartirArchivo(context, archivo, "application/pdf", "Reporte: ${tabla.tipoReporte}")
-                                    } else {
-                                        val archivo = ReporteExportador.guardarCsvEnCache(context, tabla)
-                                        ReporteExportador.compartirArchivo(context, archivo, "text/csv", "Reporte: ${tabla.tipoReporte}")
+                                    val tabla = withContext(Dispatchers.IO) {
+                                        ReportesDatasetBuilder.construirReporte(
+                                            categoria = categoriaSeleccionada,
+                                            tipoReporte = tipoReporteSeleccionado,
+                                            exito = exitoActual,
+                                            periodo = periodoInicial,
+                                            nombreSede = sedeNombre,
+                                            razonSocial = SessionManager.sucursalNombre.ifBlank { "Farmacia" },
+                                            // R12: sin RUC real en sesión se deja vacío ("—" en membrete); jamás el ID interno.
+                                            ruc = ""
+                                        )
+                                    }
+                                    val archivo = withContext(Dispatchers.IO) {
+                                        if (formatoSalida == "PDF") {
+                                            ReporteExportador.generarPdfEnCache(context, tabla)
+                                        } else {
+                                            ReporteExportador.guardarCsvEnCache(context, tabla)
+                                        }
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        if (formatoSalida == "PDF") {
+                                            ReporteExportador.compartirArchivo(context, archivo, "application/pdf", "Reporte: ${tabla.tipoReporte}")
+                                        } else {
+                                            ReporteExportador.compartirArchivo(context, archivo, "text/csv", "Reporte: ${tabla.tipoReporte}")
+                                        }
                                     }
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Error al exportar: ${e.message}", Toast.LENGTH_LONG).show()
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(context, "Error al exportar: ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
                                 } finally {
                                     estadoExportando = false
                                 }
@@ -339,21 +371,34 @@ fun PestanaReportes(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                if (exito != null) {
+                                val exitoActual = exito ?: return@OutlinedButton
+                                if (estadoExportando) return@OutlinedButton
+                                if (bloquearSiParcial(exitoActual)) return@OutlinedButton
+
+                                estadoExportando = true
+                                scope.launch {
                                     try {
-                                        val tabla = ReportesDatasetBuilder.construirReporte(
-                                            categoria = categoriaSeleccionada,
-                                            tipoReporte = tipoReporteSeleccionado,
-                                            exito = exito,
-                                            periodo = periodoInicial,
-                                            nombreSede = sedeNombre,
-                                            razonSocial = SessionManager.sucursalNombre.ifBlank { "Farmacia" },
-                                            ruc = SessionManager.clienteIdGarantizado.take(11).ifBlank { "—" }
-                                        )
-                                        val archivo = ReporteExportador.generarPdfEnCache(context, tabla)
+                                        val tabla = withContext(Dispatchers.IO) {
+                                            ReportesDatasetBuilder.construirReporte(
+                                                categoria = categoriaSeleccionada,
+                                                tipoReporte = tipoReporteSeleccionado,
+                                                exito = exitoActual,
+                                                periodo = periodoInicial,
+                                                nombreSede = sedeNombre,
+                                                razonSocial = SessionManager.sucursalNombre.ifBlank { "Farmacia" },
+                                                ruc = ""
+                                            )
+                                        }
+                                        val archivo = withContext(Dispatchers.IO) {
+                                            ReporteExportador.generarPdfEnCache(context, tabla)
+                                        }
                                         ReporteExportador.imprimir(context, archivo, "Reporte_${tabla.tipoReporte.replace(" ", "_")}")
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "Error al imprimir: ${e.message}", Toast.LENGTH_LONG).show()
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Error al imprimir: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    } finally {
+                                        estadoExportando = false
                                     }
                                 }
                             },
@@ -369,24 +414,37 @@ fun PestanaReportes(
 
                         OutlinedButton(
                             onClick = {
-                                if (exito != null) {
+                                val exitoActual = exito ?: return@OutlinedButton
+                                if (estadoExportando) return@OutlinedButton
+                                if (bloquearSiParcial(exitoActual)) return@OutlinedButton
+
+                                estadoExportando = true
+                                scope.launch {
                                     try {
-                                        val zipArchivo = ReporteExportador.generarPaqueteContadorZip(
-                                            context = context,
-                                            exito = exito,
-                                            periodo = periodoInicial,
-                                            nombreSede = sedeNombre,
-                                            razonSocial = SessionManager.sucursalNombre.ifBlank { "Farmacia" },
-                                            ruc = SessionManager.clienteIdGarantizado.take(11).ifBlank { "—" }
-                                        )
-                                        ReporteExportador.compartirArchivo(
-                                            context = context,
-                                            archivo = zipArchivo,
-                                            mimeType = "application/zip",
-                                            titulo = "Paquete de información para el contador - Sede $sedeNombre - $periodoInicial"
-                                        )
+                                        val zipArchivo = withContext(Dispatchers.IO) {
+                                            ReporteExportador.generarPaqueteContadorZip(
+                                                context = context,
+                                                exito = exitoActual,
+                                                periodo = periodoInicial,
+                                                nombreSede = sedeNombre,
+                                                razonSocial = SessionManager.sucursalNombre.ifBlank { "Farmacia" },
+                                                ruc = ""
+                                            )
+                                        }
+                                        withContext(Dispatchers.Main) {
+                                            ReporteExportador.compartirArchivo(
+                                                context = context,
+                                                archivo = zipArchivo,
+                                                mimeType = "application/zip",
+                                                titulo = "Paquete de información para el contador - Sede $sedeNombre - $periodoInicial"
+                                            )
+                                        }
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "Error al generar paquete: ${e.message}", Toast.LENGTH_LONG).show()
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Error al generar paquete: ${e.message}", Toast.LENGTH_LONG).show()
+                                        }
+                                    } finally {
+                                        estadoExportando = false
                                     }
                                 }
                             },

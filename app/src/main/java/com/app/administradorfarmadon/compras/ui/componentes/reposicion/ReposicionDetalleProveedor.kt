@@ -9,21 +9,26 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.app.administradorfarmadon.compras.datos.PedidoCompra
 import com.app.administradorfarmadon.compras.logica.PedidoProveedor
 import com.app.administradorfarmadon.compras.logica.ProductoEnCamino
+import com.app.administradorfarmadon.compras.ui.componentes.CampoBuscadorModerno
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
@@ -49,6 +54,8 @@ fun ReposicionDetalleProveedor(
     pedidoActivo: PedidoProveedor?,
     enviandoPedido: Boolean,
     s: MedidaAdaptativa,
+    ordenEnCamino: PedidoCompra? = null,
+    contribuidoresProv: Map<String, Map<String, Int>> = emptyMap(),
     onVolver: () -> Unit,
     onModificarCantidad: (PharmProduct, Int) -> Unit,
     onReponerSugeridos: () -> Unit,
@@ -73,6 +80,19 @@ fun ReposicionDetalleProveedor(
         it.stock <= it.minStock &&
                 (carroProv[it.id] ?: 0) == 0 &&
                 (enCaminoPorProducto[it.id]?.unidades ?: 0) == 0
+    }
+
+    // Orden visual estable: lo que se acaba arriba (fondo naranja), lo demás abajo.
+    // Se ordena por stock, no por carrito, para que la fila no salte al marcar cantidad.
+    val urgentesVisibles = remember(productosVisibles) {
+        productosVisibles.filter {
+            it.stock <= 0 || (it.minStock > 0 && it.stock <= it.minStock)
+        }
+    }
+    val restoVisibles = remember(productosVisibles) {
+        productosVisibles.filterNot {
+            it.stock <= 0 || (it.minStock > 0 && it.stock <= it.minStock)
+        }
     }
 
     // Pedido en vivo: solo lo que tiene cantidad, en el mismo orden del catálogo.
@@ -115,7 +135,8 @@ fun ReposicionDetalleProveedor(
                     style = FDType.Label.copy(
                         fontSize = s.textLabel.value.sp,
                         fontWeight = FontWeight.Bold
-                    )
+                    ),
+                    color = FDColors.TextPrimary
                 )
             }
 
@@ -143,7 +164,8 @@ fun ReposicionDetalleProveedor(
                         style = FDType.Label.copy(
                             fontSize = s.textLabel.value.sp,
                             fontWeight = FontWeight.Black
-                        )
+                        ),
+                        color = FDColors.Primary
                     )
                 }
             }
@@ -154,6 +176,44 @@ fun ReposicionDetalleProveedor(
             thickness = s.separatorH,
             modifier = Modifier.padding(top = s.gapMedium)
         )
+
+        if (ordenEnCamino != null) {
+            Surface(
+                color = FDColors.Primary.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(s.radiusCard),
+                border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = s.gapSmall)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.LocalShipping,
+                        contentDescription = null,
+                        tint = FDColors.Primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "ORDEN EN CAMINO ABIERTA: ${ordenEnCamino.numeroOrden}",
+                            style = FDType.Label.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Black),
+                            color = FDColors.Primary
+                        )
+                        Text(
+                            text = "Este proveedor ya tiene ${ordenEnCamino.items.size} productos (${ordenEnCamino.totalUnidades} unidades) en camino. Los productos que agregues aquí se sumarán directamente a esta orden.",
+                            style = FDType.BodySmall.copy(fontSize = 11.sp),
+                            color = FDColors.TextSecondary
+                        )
+                    }
+                }
+            }
+        }
 
         // ── Workspace enmarcado: un solo cuadro que abraza catálogo y carrito ──
         Surface(
@@ -181,22 +241,11 @@ fun ReposicionDetalleProveedor(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(s.gapMedium)
                 ) {
-                    OutlinedTextField(
-                        value = busquedaLocal,
-                        onValueChange = { busquedaLocal = it },
-                        placeholder = { Text("Buscar producto, categoría o laboratorio…", fontSize = 13.sp) },
-                        leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall)) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(s.radiusInput),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = FDColors.SurfaceElevated,
-                            unfocusedContainerColor = FDColors.SurfaceElevated,
-                            focusedBorderColor = FDColors.Primary,
-                            unfocusedBorderColor = FDColors.Border,
-                            focusedTextColor = FDColors.TextPrimary,
-                            unfocusedTextColor = FDColors.TextPrimary
-                        ),
-                        modifier = Modifier.fillMaxWidth().height(s.inputMinH)
+                    CampoBuscadorModerno(
+                        busqueda = busquedaLocal,
+                        onBusquedaChange = { busquedaLocal = it },
+                        placeholder = "Buscar producto, categoría o laboratorio…",
+                        altura = s.inputMinH
                     )
                 }
 
@@ -218,18 +267,51 @@ fun ReposicionDetalleProveedor(
                     LazyColumn(
                         modifier = Modifier.weight(1f).fillMaxWidth()
                     ) {
-                        items(productosVisibles, key = { it.id }) { prod ->
-                            FilaProductoDetalleProveedor(
-                                prod = prod,
-                                cantPedir = carroProv[prod.id] ?: 0,
-                                enCamino = enCaminoPorProducto[prod.id]?.unidades ?: 0,
-                                simboloMoneda = simboloMoneda,
-                                esSinProveedor = esSinProveedor,
-                                proveedores = proveedores,
-                                s = s,
-                                onModificarCantidad = { delta -> onModificarCantidad(prod, delta) },
-                                onVincular = onVincular
-                            )
+                        if (urgentesVisibles.isNotEmpty()) {
+                            item(key = "cab_urgentes") {
+                                Text(
+                                    text = "LO QUE SE ACABA (${urgentesVisibles.size})",
+                                    style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
+                                    color = FDColors.Warning,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                )
+                            }
+                            items(urgentesVisibles, key = { it.id }) { prod ->
+                                FilaProductoDetalleProveedor(
+                                    prod = prod,
+                                    cantPedir = carroProv[prod.id] ?: 0,
+                                    enCamino = enCaminoPorProducto[prod.id]?.unidades ?: 0,
+                                    simboloMoneda = simboloMoneda,
+                                    esSinProveedor = esSinProveedor,
+                                    proveedores = proveedores,
+                                    s = s,
+                                    onModificarCantidad = { delta -> onModificarCantidad(prod, delta) },
+                                    onVincular = onVincular
+                                )
+                            }
+                        }
+                        if (restoVisibles.isNotEmpty()) {
+                            item(key = "cab_resto") {
+                                Text(
+                                    text = "LO DEMÁS",
+                                    style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
+                                    color = FDColors.TextTertiary,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                )
+                            }
+                            items(restoVisibles, key = { it.id }) { prod ->
+                                FilaProductoDetalleProveedor(
+                                    prod = prod,
+                                    cantPedir = carroProv[prod.id] ?: 0,
+                                    enCamino = enCaminoPorProducto[prod.id]?.unidades ?: 0,
+                                    simboloMoneda = simboloMoneda,
+                                    esSinProveedor = esSinProveedor,
+                                    proveedores = proveedores,
+                                    s = s,
+                                    onModificarCantidad = { delta -> onModificarCantidad(prod, delta) },
+                                    onVincular = onVincular
+                                )
+                            }
                         }
                     }
                 }
@@ -277,6 +359,33 @@ fun ReposicionDetalleProveedor(
 
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
 
+                val todosContribuidores = remember(contribuidoresProv) {
+                    contribuidoresProv.values.flatMap { it.keys }.distinct().filter { it.isNotBlank() }
+                }
+                if (todosContribuidores.size > 1) {
+                    Surface(
+                        color = FDColors.Primary.copy(alpha = 0.06f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, FDColors.Primary.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Default.People, null, tint = FDColors.Primary, modifier = Modifier.size(13.dp))
+                            Text(
+                                text = "Equipo colaborando en vivo: ${todosContribuidores.joinToString(", ") { it.substringBefore('@') }}",
+                                style = FDType.BodySmall.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                                color = FDColors.Primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
                 if (itemsPedido.isEmpty()) {
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -316,6 +425,32 @@ fun ReposicionDetalleProveedor(
                                         style = FDType.BodySmall.copy(fontSize = 11.sp),
                                         color = FDColors.TextTertiary
                                     )
+                                    // Quién marcó cada unidad: siempre visible, chico y
+                                    // discreto, para que cualquier "está sumando de más"
+                                    // se compruebe al instante sin discutir.
+                                    val contribs = contribuidoresProv[prod.id].orEmpty()
+                                    if (contribs.isNotEmpty()) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = FDColors.TextTertiary.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                            Text(
+                                                text = contribs.entries.joinToString(" · ") { (quien, aporte) ->
+                                                    "${nombreCortoColaborador(quien)} agregó $aporte"
+                                                },
+                                                style = FDType.BodySmall.copy(fontSize = 9.5.sp),
+                                                color = FDColors.TextTertiary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
                                 }
                                 Text(
                                     text = "$simboloMoneda ${String.format(Locale.US, "%.2f", subtotalItem)}",
@@ -326,7 +461,9 @@ fun ReposicionDetalleProveedor(
                                     color = FDColors.TextPrimary
                                 )
                             }
-                            HorizontalDivider(color = FDColors.Border.copy(alpha = 0.35f))
+                            // Raya entre productos del carrito: gris visible en claro,
+                            // gris blanquecino en oscuro (100% token, sin color fijo).
+                            HorizontalDivider(color = FDColors.TextTertiary.copy(alpha = 0.55f))
                         }
                     }
                 }
@@ -381,21 +518,27 @@ fun ReposicionDetalleProveedor(
                                     modifier = Modifier.size(s.iconSmall)
                                 )
                             }
+
                         }
 
+                        // Estándar global: primario negro+blanco en claro, marfil+negro
+                        // en oscuro (se invierte solo con el tema). Apagado: mismo
+                        // botón atenuado, sin perder contraste.
+                        val puedeEnviar = pedidoActivo?.tieneItems == true && !enviandoPedido
                         Button(
                             onClick = { pedidoActivo?.let(onRealizarPedido) },
-                            enabled = pedidoActivo?.tieneItems == true && !enviandoPedido,
+                            enabled = puedeEnviar,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = FDColors.Primary,
                                 contentColor = FDColors.PrimaryText,
-                                disabledContainerColor = FDColors.TextPrimary.copy(alpha = 0.05f),
-                                disabledContentColor = FDColors.TextTertiary.copy(alpha = 0.4f)
+                                disabledContainerColor = FDColors.Primary,
+                                disabledContentColor = FDColors.PrimaryText
                             ),
                             shape = RoundedCornerShape(s.radiusButton),
                             modifier = Modifier
                                 .weight(1f)
                                 .height(s.btnMediumH)
+                                .alpha(if (puedeEnviar) 1f else 0.45f)
                         ) {
                             if (enviandoPedido) {
                                 CircularProgressIndicator(
@@ -405,12 +548,13 @@ fun ReposicionDetalleProveedor(
                                 )
                             } else {
                                 Text(
-                                    text = "REALIZAR PEDIDO",
+                                    text = if (ordenEnCamino != null) "SUMAR A ORDEN (${ordenEnCamino.numeroOrden})" else "REALIZAR PEDIDO",
                                     style = FDType.Label.copy(
                                         fontWeight = FontWeight.Black,
                                         fontSize = s.textLabel.value.sp,
                                         letterSpacing = 0.4.sp
-                                    )
+                                    ),
+                                    color = FDColors.PrimaryText
                                 )
                             }
                         }
@@ -460,7 +604,8 @@ fun ReposicionDetalleProveedor(
                         style = FDType.Label.copy(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black
-                        )
+                        ),
+                        color = FDColors.PrimaryText
                     )
                 }
             },
@@ -474,10 +619,18 @@ fun ReposicionDetalleProveedor(
                         style = FDType.Label.copy(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
-                        )
+                        ),
+                        color = FDColors.Primary
                     )
                 }
             }
         )
     }
+}
+
+/** Nombre corto y amable para la línea de "quién agregó": sin correo, con mayúscula. */
+private fun nombreCortoColaborador(clave: String): String {
+    val base = clave.substringBefore('@').trim()
+    if (base.isBlank()) return "Equipo"
+    return base.replaceFirstChar { it.uppercase() }
 }

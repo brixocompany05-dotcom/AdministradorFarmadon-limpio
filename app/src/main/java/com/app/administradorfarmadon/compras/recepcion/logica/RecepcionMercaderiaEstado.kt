@@ -16,6 +16,7 @@ import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimien
 import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
@@ -28,17 +29,59 @@ class RecepcionMercaderiaEstado(
     val indiceLotes: Map<String, List<LoteExistenteVista>> = emptyMap(),
     private val facturaExistente: FacturaCompra? = null,
     saldoAFavorDisponible: Double = 0.0,
-    metodosPagoConfigurados: List<InstanciaPago> = emptyList()
+    metodosPagoConfigurados: List<InstanciaPago> = emptyList(),
+    val facturasExistentes: List<FacturaCompra> = emptyList()
 ) {
     val saldoAFavorDisponible: Double = saldoAFavorDisponible.coerceAtLeast(0.0)
     private val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+
+    companion object {
+        /** S/C (con o sin sufijo) significa "llegó sin papel", jamás un comprobante. */
+        fun esSinComprobante(numero: String): Boolean {
+            val n = numero.trim().uppercase()
+            return n == "S/C" || n.startsWith("S/C")
+        }
+    }
     private val ultimaRecepcionConFactura = pedido.recepciones.asReversed()
-        .firstOrNull { it.numeroFactura.isNotBlank() }
+        // S/C NO es papel: una entrega sin comprobante no encadena ni bloquea la siguiente.
+        // Así la factura que llega después se escribe libre en la próxima recepción.
+        .firstOrNull { it.numeroFactura.isNotBlank() && !esSinComprobante(it.numeroFactura) }
     private val fechaVencimientoExistente = facturaExistente?.fechaVencimientoPago?.takeIf { it.isNotBlank() }
         ?: ultimaRecepcionConFactura?.fechaVencimientoPago?.takeIf { it.isNotBlank() }
 
     val facturaContinua: Boolean get() = facturaExistente != null || ultimaRecepcionConFactura != null
+    /** Total del papel que continúa (fijo, jamás se reescribe ni se duplica). */
+    val montoPapelFijo: Double? get() =
+        facturaExistente?.montoTotal?.takeIf { it > 0 }
+            ?: ultimaRecepcionConFactura?.montoFactura?.takeIf { it > 0 }
     val fechaVencimientoPagoVisible: String? get() = fechaVencimientoPagoManual ?: fechaVencimientoExistente
+
+    val facturaDuplicadaDeOtroPedido: FacturaCompra?
+        get() {
+            val num = numeroFactura.trim().uppercase()
+            if (num.isBlank() || num == "S/C" || num.startsWith("S/C")) return null
+            if (facturaExistente != null && facturaExistente.numeroFactura.trim().equals(num, ignoreCase = true)) {
+                return null
+            }
+            val provId = pedido.proveedorId.trim()
+            val provNombre = pedido.proveedorNombre.trim().uppercase()
+
+            return facturasExistentes.firstOrNull { fac ->
+                val facNum = fac.numeroFactura.trim().uppercase()
+                val matchNum = facNum == num ||
+                    facNum.replace("/", "-").replace(" ", "_") == num.replace("/", "-").replace(" ", "_")
+                if (!matchNum) return@firstOrNull false
+
+                val provCoincide = (provId.isNotBlank() && fac.proveedorId.trim() == provId) ||
+                    (fac.proveedorNombre.trim().uppercase() == provNombre)
+                if (!provCoincide) return@firstOrNull false
+
+                fac.pedidoId != pedido.id
+            }
+        }
+
+    val esFacturaDuplicada: Boolean
+        get() = facturaDuplicadaDeOtroPedido != null
 
     var numeroFactura by mutableStateOf(
         facturaExistente?.numeroFactura?.trim()?.uppercase()
@@ -51,6 +94,9 @@ class RecepcionMercaderiaEstado(
     )
         private set
 
+    val fechaEmisionFinal: String
+        get() = fechaEmisionPapel.trim().ifBlank { sdf.format(Date(HoraServidor.ahoraMs())) }
+
     fun onFechaEmisionPapelChanged(valor: String) {
         fechaEmisionPapel = valor
         errorGeneral = null
@@ -59,30 +105,19 @@ class RecepcionMercaderiaEstado(
         private set
     var diasCredito by mutableStateOf<Int?>(null)
         private set
-    var montoFacturaManual by mutableStateOf(
-        facturaExistente?.montoTotal?.takeIf { it > 0 }
-            ?.let { String.format(Locale.US, "%.2f", it) }
-            ?: ultimaRecepcionConFactura?.montoFactura?.takeIf { it > 0 }
-                ?.let { String.format(Locale.US, "%.2f", it) }
-                .orEmpty()
-    )
+    // El total manual nace vacío: si la factura continúa, el papel ya tiene su total fijo
+    // y pre-llenarlo envenenaría el acta con el monto viejo aunque las filas de hoy sumen
+    // otro. Sin pre-llenado, el total de esta entrega nace de sus propias filas.
+    var montoFacturaManual by mutableStateOf("")
         private set
     var montoPagadoManual by mutableStateOf("0.00")
         private set
     var usarSaldoAFavor by mutableStateOf(false)
         private set
-    var decisionFaltante by mutableStateOf("PARCIAL")
-        private set
     var fechaVencimientoPagoManual by mutableStateOf<String?>(null)
         private set
     var errorGeneral by mutableStateOf<String?>(null)
         private set
-
-    // Al abrir con pago al contado, el monto a pagar se auto-completa (total menos
-    // saldo a favor): el usuario no escribe de más ni de menos por descuido.
-    init {
-        if (condicionPago == "Contado") sincronizarPagoContado()
-    }
 
     /** Métodos REALES de esta sucursal para pagar al proveedor (sin POS: el POS
      * cobra a clientes, no paga proveedores). */
@@ -97,7 +132,8 @@ class RecepcionMercaderiaEstado(
             EtiquetaMetodoPago.baseParaProveedores
         },
         pagosIniciales = emptyList(),
-        montoMaximo = 0.0
+        montoMaximo = 0.0,
+        autoCompletarTotalUnicoMetodo = true
     )
 
     val items = pedido.items.map { item ->
@@ -112,6 +148,12 @@ class RecepcionMercaderiaEstado(
         )
     }
 
+    // Al abrir con pago al contado, el monto a pagar se auto-completa (total menos
+    // saldo a favor): el usuario no escribe de más ni de menos por descuido.
+    init {
+        if (condicionPago == "Contado") sincronizarPagoContado()
+    }
+
     fun onFacturaChanged(valor: String) {
         numeroFactura = valor.uppercase()
         errorGeneral = null
@@ -119,8 +161,14 @@ class RecepcionMercaderiaEstado(
 
     fun onCondicionPagoChanged(condicion: String) {
         condicionPago = condicion
-        if (condicion == "Contado") sincronizarPagoContado()
-        else if (condicion == "Crédito") fechaVencimientoPagoManual = null
+        if (condicion == "Contado") {
+            sincronizarPagoContado()
+        } else if (condicion == "Crédito") {
+            montoPagadoManual = "0.00"
+            editorPagos.limpiar()
+            fechaVencimientoPagoManual = null
+            diasCredito = null
+        }
         errorGeneral = null
     }
     fun onDiasCreditoChanged(dias: Int) { 
@@ -147,14 +195,14 @@ class RecepcionMercaderiaEstado(
         if (condicionPago == "Contado") sincronizarPagoContado()
         errorGeneral = null
     }
-    fun onDecisionFaltanteChanged(decision: String) { decisionFaltante = decision }
     fun onErrorMostrado() { errorGeneral = null }
     fun setError(msg: String) { errorGeneral = msg }
 
     /** Al contado se paga todo al recibir: el monto se auto-completa (total menos saldo a favor). */
-    private fun sincronizarPagoContado() {
+    fun sincronizarPagoContado() {
+        if (condicionPago != "Contado") return
         val auto = liquidacionSaldoAFavor.netoAPagar
-        if (auto > 0.0) {
+        if (auto >= 0.0) {
             montoPagadoManual = String.format(Locale.US, "%.2f", auto)
             editorPagos.actualizarMontoMaximo(auto)
         }
@@ -173,9 +221,12 @@ class RecepcionMercaderiaEstado(
         (it.cantidadRecibir.toIntOrNull() ?: 0) * (it.costoUnitario.replace(',', '.').toDoubleOrNull() ?: 0.0)
     }
     val totalFacturaFinal: Double
-        get() = montoFacturaManual.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 } ?: 0.0
+        get() = montoFacturaManual.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 } ?: totalCostoCalculado
     val montoPagadoFinal: Double
-        get() = montoPagadoManual.replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 } ?: -1.0
+        get() {
+            if (condicionPago == "Crédito") return 0.0
+            return editorPagos.sumaPorciones
+        }
     val liquidacionSaldoAFavor: SaldoAFavorLiquidacion
         get() = SaldoAFavorCalculo.liquidacion(saldoAFavorDisponible, usarSaldoAFavor, deudaVivaAntesDePago)
     val saldoAFavorAplicado: Double
@@ -202,10 +253,36 @@ class RecepcionMercaderiaEstado(
         get() = items.mapNotNull { it.loteNumero.trim().uppercase().takeIf { s -> s.isNotBlank() && !indiceLotes.containsKey(s) } }
             .groupingBy { it }.eachCount().filterValues { it > 1 }.keys.toList()
 
+    val soloRegalosSinCompra: Boolean
+        get() {
+            val entregas = items.filter { it.totalHoy > 0 }
+            return entregas.isNotEmpty() && entregas.none { (it.cantidadRecibir.toIntOrNull() ?: 0) > 0 }
+        }
+
+    val itemsSinLote: List<String>
+        get() = items.filter { it.totalHoy > 0 && it.loteNumero.trim().isBlank() }
+            .map { it.productoNombre }
+
+    val itemsVtoInvalido: List<String>
+        get() = items.filter { fila ->
+            if (fila.totalHoy <= 0) return@filter false
+            val vto = FechaVencimientoHelper.normalizar(fila.vencimiento.trim()) ?: fila.vencimiento.trim()
+            val diasVto = if (vto.isBlank()) null else FechaVencimientoHelper.diasHastaVencer(vto)
+            diasVto == null || diasVto <= 0
+        }.map { it.productoNombre }
+
+    val itemsSinCosto: List<String>
+        get() = items.filter { fila ->
+            val cant = fila.cantidadRecibir.toIntOrNull() ?: 0
+            val costUn = fila.costoUnitario.replace(',', '.').toDoubleOrNull() ?: 0.0
+            cant > 0 && costUn <= 0.0
+        }.map { it.productoNombre }
+
     /** Pago declarado vs detalle por método: deben ser EL MISMO número (tolerancia 1 céntimo). */
     val descuadreDetallePago: Boolean
-        get() = montoPagadoFinal > 0.0 &&
-            kotlin.math.abs(editorPagos.sumaPorciones - montoPagadoFinal) > 0.01
+        get() = condicionPago == "Contado" && liquidacionSaldoAFavor.netoAPagar > 0.0 &&
+            editorPagos.filas.isNotEmpty() &&
+            kotlin.math.abs(editorPagos.sumaPorciones - liquidacionSaldoAFavor.netoAPagar) > 0.01
 
     /** Validación en vivo de la fecha de emisión del comprobante (R3: cero fallos en silencio) */
     val fechaEmisionInvalida: Boolean
@@ -233,29 +310,78 @@ class RecepcionMercaderiaEstado(
 
     // ── PREVENCIÓN ACTIVA: el botón se bloquea solo y dice qué falta ──
     val puedeAsentar: Boolean
-        get() = algoPorRecibir && numeroFactura.isNotBlank() && totalFacturaFinal > 0.0 && montoPagadoFinal >= 0.0 &&
-            montoPagadoFinal <= (liquidacionSaldoAFavor.netoAPagar + 0.01) &&
-            (!esContado || montoPagadoFinal >= (liquidacionSaldoAFavor.netoAPagar - 0.01)) &&
-            !faltaPlazoCredito &&
-            !fechaEmisionInvalida &&
-            itemsConSobrante.isEmpty() &&
-            (montoPagadoFinal <= 0.0 || (editorPagos.cuadra && !descuadreDetallePago))
+        get() {
+            if (!algoPorRecibir) return false
+            if (soloRegalosSinCompra) return false
+            if (numeroFactura.isBlank()) return false
+            if (esFacturaDuplicada) return false
+            if (totalFacturaFinal <= 0.0) return false
+            if (fechaEmisionInvalida) return false
+            if (itemsConSobrante.isNotEmpty()) return false
+            if (itemsSinLote.isNotEmpty()) return false
+            if (itemsVtoInvalido.isNotEmpty()) return false
+            if (itemsSinCosto.isNotEmpty()) return false
+            if (lotesRepetidosNuevos.isNotEmpty()) return false
+
+            if (condicionPago == "Crédito") {
+                return !faltaPlazoCredito
+            }
+
+            // Contado:
+            if (liquidacionSaldoAFavor.netoAPagar > 0.0) {
+                if (editorPagos.filas.isEmpty()) return false
+                if (!editorPagos.cuadra) return false
+                val suma = editorPagos.sumaPorciones
+                if (kotlin.math.abs(suma - liquidacionSaldoAFavor.netoAPagar) > 0.01) return false
+            }
+            return true
+        }
+
     val razonesBloqueo: List<String>
         get() = buildList {
             if (!algoPorRecibir) add("Escribe las unidades que están llegando hoy")
+            if (soloRegalosSinCompra) add("Incluye al menos una unidad comprada (los regalos acompañan una compra)")
             if (numeroFactura.isBlank()) add("Falta el N° de factura del proveedor")
+            if (esFacturaDuplicada) {
+                val fac = facturaDuplicadaDeOtroPedido
+                val fecha = fac?.fechaEmision?.ifBlank { fac.fechaRegistro }.orEmpty()
+                val detalle = if (fac?.pedidoNumeroOrden?.isNotBlank() == true) "en la orden ${fac.pedidoNumeroOrden}" else "en un comprobante previo"
+                add("La factura '$numeroFactura' ya fue registrada para este proveedor $detalle${if (fecha.isNotBlank()) " el $fecha" else ""}. Usa un comprobante no registrado.")
+            }
             if (fechaEmisionInvalida) add("La fecha de emisión del comprobante debe ser válida (dd/mm/aaaa) y no futura")
-            if (totalFacturaFinal <= 0.0) add("Escribe el total que aparece en la factura")
-            if (montoPagadoFinal < 0.0) add("El pago registrado no es válido")
-            if (montoPagadoFinal > (liquidacionSaldoAFavor.netoAPagar + 0.01)) add("El pago supera el saldo de la factura (después del descuento)")
-            if (esContado && montoPagadoFinal >= 0.0 && montoPagadoFinal < (liquidacionSaldoAFavor.netoAPagar - 0.01)) add("Para contado, el pago debe cubrir el total (después del saldo a favor)")
-            if (montoPagadoFinal > 0.0 && !editorPagos.cuadra) add("La distribución del pago no cuadra: reparte el monto entre los métodos")
-            if (descuadreDetallePago) add("El detalle por métodos (${String.format(java.util.Locale.US, "%.2f", editorPagos.sumaPorciones)}) no cuadra con el pago registrado (${String.format(java.util.Locale.US, "%.2f", montoPagadoFinal)}). Deben ser el mismo monto.")
-            if (faltaPlazoCredito) add("Elige los días de crédito")
+            if (totalFacturaFinal <= 0.0) add("Ingresa las cantidades y costos de los productos recibidos para calcular el total")
             if (itemsConSobrante.isNotEmpty()) add("Recibes más de lo pedido en: ${itemsConSobrante.joinToString(", ")}. El máximo es lo que falta del pedido; el exceso solo puede ir en REG.")
+            if (itemsSinLote.isNotEmpty()) add("Falta escribir el lote físico en: ${itemsSinLote.joinToString(", ")}")
+            if (itemsVtoInvalido.isNotEmpty()) add("Fecha de vencimiento inválida o vencida en: ${itemsVtoInvalido.joinToString(", ")}")
+            if (itemsSinCosto.isNotEmpty()) add("Falta costo unitario en: ${itemsSinCosto.joinToString(", ")}")
+            if (lotesRepetidosNuevos.isNotEmpty()) add("El lote '${lotesRepetidosNuevos.first()}' está repetido en distintos productos nuevos")
+
+            if (condicionPago == "Crédito") {
+                if (faltaPlazoCredito) add("Elige el plazo de crédito (días o fecha de vencimiento)")
+            } else {
+                // Contado
+                if (liquidacionSaldoAFavor.netoAPagar > 0.0) {
+                    if (editorPagos.filas.isEmpty()) {
+                        add("Selecciona el método con el que se pagó al contado")
+                    } else if (!editorPagos.cuadra) {
+                        add("La distribución del pago no cuadra: reparte el monto entre los métodos")
+                    } else {
+                        val dif = editorPagos.sumaPorciones - liquidacionSaldoAFavor.netoAPagar
+                        if (dif > 0.01) {
+                            add("El pago por métodos excede el total a pagar por " + String.format(Locale.US, "%.2f", dif))
+                        } else if (dif < -0.01) {
+                            add("El pago por métodos aún no cubre el total: falta " + String.format(Locale.US, "%.2f", -dif))
+                        }
+                    }
+                }
+            }
         }
+
     val faltaPlazoCredito: Boolean
-        get() = condicionPago == "Crédito" && (diasCredito ?: 0) <= 0 && fechaVencimientoExistente.isNullOrBlank()
+        get() = condicionPago == "Crédito" &&
+            (diasCredito ?: 0) <= 0 &&
+            fechaVencimientoExistente.isNullOrBlank() &&
+            fechaVencimientoPagoManual.isNullOrBlank()
 
     fun fechaPagoCredito(): String? {
         if (condicionPago != "Crédito") return null
@@ -272,6 +398,10 @@ class RecepcionMercaderiaEstado(
 
     /** Construye la lista final para asentar. Retorna null si alguna regla falla. */
     fun construirItemsAAsentar(): List<ItemRecepcionEntrega>? {
+        if (esFacturaDuplicada) {
+            setError("La factura '$numeroFactura' ya existe para este proveedor. No se puede duplicar comprobantes.")
+            return null
+        }
         if (fechaEmisionInvalida) {
             setError("La fecha de emisión del comprobante debe ser válida (dd/mm/aaaa) y no posterior a hoy.")
             return null
@@ -316,7 +446,7 @@ class RecepcionMercaderiaEstado(
                 costoTotalReal = cant * costUn
             ))
         }
-        if (resultado.isEmpty() && decisionFaltante != "AJUSTE") {
+        if (resultado.isEmpty()) {
             setError("Debes ingresar al menos 1 producto con cantidad mayor a cero.")
             return null
         }

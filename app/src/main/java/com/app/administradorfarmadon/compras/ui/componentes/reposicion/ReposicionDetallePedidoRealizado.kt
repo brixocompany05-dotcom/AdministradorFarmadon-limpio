@@ -1,26 +1,30 @@
 package com.app.administradorfarmadon.compras.ui.componentes.reposicion
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Inventory
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,48 +32,47 @@ import com.app.administradorfarmadon.compras.datos.EntradaBitacoraPedido
 import com.app.administradorfarmadon.compras.datos.PedidoCompra
 import com.app.administradorfarmadon.compras.datos.RecepcionEntrega
 import com.app.administradorfarmadon.compras.logica.ItemPedidoCompra
+import com.app.administradorfarmadon.compras.logica.MaquinaEstadosPedido
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 import java.util.Locale
 
 /**
- * Detalle de un pedido REALIZADO: consulta, edición con bitácora interna
- * (qué cambió, quién, cuándo) y eliminación total del rastro si el pedido muere.
- * Para los pedidos que siguen en camino, aquí también se recibe la mercadería
- * (botón RECIBIR MERCADERÍA) y se resuelve lo que nunca llegará (cancelar o cerrar
- * con ajuste). El pedido resuelto queda como historial en la misma lista.
+ * Detalle de un pedido REALIZADO: consulta con pestañas (productos, entregas, bitácora),
+ * recepción de mercadería y resolución de lo que nunca llegará (cancelar, cerrar con
+ * ajuste o descartar por producto). Crecer (+5 del jefe) entra por enviar; encoger
+ * por descarte. Sin edición libre ni borrado: la historia no se reescribe.
  */
 @Composable
 fun ReposicionDetallePedidoRealizado(
     pedido: PedidoCompra,
     simboloMoneda: String,
-    procesandoEdicion: Boolean,
-    procesandoEliminacion: Boolean,
     s: MedidaAdaptativa,
     onVolver: () -> Unit,
-    onEditarPedido: (PedidoCompra, List<ItemPedidoCompra>) -> Unit,
-    onEliminarPedido: (PedidoCompra) -> Unit,
     onRecibirMercaderia: () -> Unit = {},
     onCerrarConAjuste: () -> Unit = {},
-    onCancelar: () -> Unit = {}
+    onCancelar: () -> Unit = {},
+    onDescartarProducto: (String) -> Unit = {},
+    // Solo lectura (historial/vitrina): muestra todo, no ofrece ninguna acción.
+    soloLectura: Boolean = false,
+    // Anexar papel tardío: solo cuando hay mercadería sin comprobante (orden con S/C).
+    mostrarAnexarFactura: Boolean = false,
+    anexandoFactura: Boolean = false,
+    onAnexarFactura: (String, Double, String, String, String) -> Unit = { _, _, _, _, _ -> }
 ) {
-    var modoEdicion by remember { mutableStateOf(false) }
-    var itemsEditando by remember { mutableStateOf<List<ItemPedidoCompra>?>(null) }
-    var confirmarEliminacion by remember { mutableStateOf(false) }
     var confirmarAjuste by remember { mutableStateOf(false) }
     var confirmarCancelacion by remember { mutableStateOf(false) }
+    var mostrarMenu by remember { mutableStateOf(false) }
+    var productoParaDescartar by remember { mutableStateOf<ItemPedidoCompra?>(null) }
+    var mostrarDialogoAnexar by remember { mutableStateOf(false) }
+    // Pestañas del detalle: cada historia en su carril, cero scroll infinito.
+    var tabDetalle by remember(pedido.id) { mutableIntStateOf(0) } // 0 productos · 1 entregas · 2 bitácora
 
-    val itemsVisibles = itemsEditando ?: pedido.items
-    val hayCambios = itemsEditando != null && itemsEditando != pedido.items
-    val puedeGuardar = hayCambios && itemsEditando.orEmpty().any { it.cantidad > 0 }
-    val esPendiente = pedido.estado == "ENVIADO" || pedido.estado == "ENTREGA_PARCIAL"
-
-    // En modo edición, el botón atrás del sistema cancela la edición (vuelve a consulta).
-    BackHandler(enabled = modoEdicion) {
-        modoEdicion = false
-        itemsEditando = null
-    }
+    val puedeRecibir = MaquinaEstadosPedido.puedeRecibir(pedido.estado)
+    val puedeCancelar = MaquinaEstadosPedido.puedeCancelar(pedido.estado, pedido.recepciones.size)
+    val puedeCerrarConAjuste = MaquinaEstadosPedido.puedeCerrarConAjuste(pedido.estado, pedido.recepciones.size)
+    val esPendiente = MaquinaEstadosPedido.perteneceAEnCamino(pedido.estado)
 
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -82,14 +85,7 @@ fun ReposicionDetallePedidoRealizado(
             horizontalArrangement = Arrangement.spacedBy(s.gapTiny)
         ) {
             IconButton(
-                onClick = {
-                    if (modoEdicion) {
-                        modoEdicion = false
-                        itemsEditando = null
-                    } else {
-                        onVolver()
-                    }
-                },
+                onClick = onVolver,
                 modifier = Modifier.size(s.iconMedium)
             ) {
                 Icon(
@@ -123,6 +119,61 @@ fun ReposicionDetallePedidoRealizado(
                     color = FDColors.TextTertiary
                 )
             }
+
+            // Menú ⋮ : las acciones secundarias (cancelar, cerrar con ajuste) viven aquí
+            // para que el cuerpo muestre solo RECIBIR MERCADERÍA. Sin opciones, sin icono.
+            // En solo lectura (historial) no hay menú: la historia no se toca.
+            if (!soloLectura && (puedeCancelar || puedeCerrarConAjuste)) {
+                Box {
+                    IconButton(
+                        onClick = { mostrarMenu = true },
+                        modifier = Modifier.size(s.iconMedium)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "Más opciones",
+                            tint = FDColors.TextPrimary,
+                            modifier = Modifier.size(s.iconSmall)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = mostrarMenu,
+                        onDismissRequest = { mostrarMenu = false },
+                        containerColor = FDColors.SurfaceElevated
+                    ) {
+                        if (puedeCancelar) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Cancelar orden",
+                                        style = FDType.Body.copy(fontSize = 12.5.sp),
+                                        color = FDColors.Error
+                                    )
+                                },
+                                onClick = {
+                                    mostrarMenu = false
+                                    confirmarCancelacion = true
+                                }
+                            )
+                        }
+                        if (puedeCerrarConAjuste) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Cerrar con ajuste",
+                                        style = FDType.Body.copy(fontSize = 12.5.sp),
+                                        color = FDColors.TextPrimary
+                                    )
+                                },
+                                onClick = {
+                                    mostrarMenu = false
+                                    confirmarAjuste = true
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
@@ -136,108 +187,141 @@ fun ReposicionDetallePedidoRealizado(
             )
         }
 
-        // Items del pedido (consulta o edición)
+        // Pestañas subrayadas con contador: productos, entregas y bitácora
+        // viven en carriles separados.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            PestanaDetalle(
+                texto = "PRODUCTOS",
+                conteo = pedido.items.size,
+                seleccionado = tabDetalle == 0,
+                onClick = { tabDetalle = 0 },
+                modifier = Modifier.weight(1f)
+            )
+            PestanaDetalle(
+                texto = "ENTREGAS",
+                conteo = pedido.recepciones.size,
+                seleccionado = tabDetalle == 1,
+                onClick = { tabDetalle = 1 },
+                modifier = Modifier.weight(1f)
+            )
+            PestanaDetalle(
+                texto = "BITÁCORA",
+                conteo = pedido.bitacora.size,
+                seleccionado = tabDetalle == 2,
+                onClick = { tabDetalle = 2 },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
+
+        // Items del pedido (solo consulta: crecer es +5 por enviar, encoger es descarte)
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)
         ) {
-            items(itemsVisibles, key = { it.productoId }) { item ->
-                if (modoEdicion) {
-                    FilaItemEdicionPedido(
+            if (tabDetalle == 0) {
+                items(pedido.items, key = { it.productoId }) { item ->
+                    FilaItemConsultaPedido(
                         item = item,
                         simboloMoneda = simboloMoneda,
                         s = s,
-                        onCambiarCantidad = { delta ->
-                            itemsEditando = itemsEditando?.map { itm ->
-                                if (itm.productoId == item.productoId) {
-                                    itm.copy(cantidad = (itm.cantidad + delta).coerceAtLeast(itm.cantidadRecibida))
-                                } else itm
-                            }
-                        },
-                        onQuitar = {
-                            itemsEditando = itemsEditando?.filterNot { it.productoId == item.productoId }
-                        }
+                        // Destino por línea: solo lo pendiente puede declararse "no llegará".
+                        // Coca muere aquí; Pepsi sigue esperando. Sin switch global.
+                        // En solo lectura no hay link: la historia no se toca.
+                        mostrarNoLlegara = !soloLectura && esPendiente && item.saldoPendiente > 0,
+                        onNoLlegara = { productoParaDescartar = item }
                     )
-                } else {
-                    FilaItemConsultaPedido(item = item, simboloMoneda = simboloMoneda, s = s)
                 }
             }
-            item(key = "bitacora") {
-                SeccionBitacora(pedido.bitacora, s = s)
+            if (tabDetalle == 2) {
+                item(key = "bitacora") {
+                    SeccionBitacora(pedido.bitacora, s = s)
+                }
             }
-            item(key = "recepciones") {
-                SeccionRecepciones(
-                    recepciones = pedido.recepciones,
-                    simboloMoneda = simboloMoneda,
-                    s = s
-                )
+            if (tabDetalle == 1) {
+                item(key = "recepciones") {
+                    SeccionRecepciones(
+                        recepciones = pedido.recepciones,
+                        simboloMoneda = simboloMoneda,
+                        s = s
+                    )
+                }
             }
         }
 
-        // Pie: edición o total
-        if (modoEdicion) {
+        // Pie: total + acción
+        // Total estilo carrito ENCIMA del botón, separado con raya:
+        // "Total" a la izquierda, monto a la derecha.
+        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(s.gapSmall)
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.ShoppingCart,
+                        contentDescription = null,
+                        tint = FDColors.Primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        "Total",
+                        style = FDType.Label.copy(fontWeight = FontWeight.Black, fontSize = 13.sp),
+                        color = FDColors.TextPrimary
+                    )
+                }
+                Text(
+                    text = "$simboloMoneda ${String.format(Locale.US, "%.2f", pedido.totalInversion)}",
+                    style = FDType.Numeric.copy(
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp
+                    ),
+                    color = FDColors.TextPrimary
+                )
+            }
+            if (pedido.montoFacturadoReal > 0) {
+                Text(
+                    text = "FACTURADO: $simboloMoneda ${String.format(Locale.US, "%.2f", pedido.montoFacturadoReal)}",
+                    style = FDType.Label.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black
+                    ),
+                    color = FDColors.Primary,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End
+                )
+            }
+            // Papel tardío: hay mercadería sin comprobante. Nace la deuda, el stock ni se toca.
+            if (mostrarAnexarFactura) {
                 OutlinedButton(
-                    onClick = {
-                        modoEdicion = false
-                        itemsEditando = null
-                    },
-                    enabled = !procesandoEdicion,
+                    onClick = { mostrarDialogoAnexar = true },
                     shape = RoundedCornerShape(s.radiusButton),
-                    border = BorderStroke(s.borderWidth, FDColors.Border),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.TextSecondary),
+                    border = BorderStroke(s.borderWidth, FDColors.Primary.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Primary),
                     modifier = Modifier
-                        .weight(0.4f)
-                        .height(s.btnMediumH)
+                        .fillMaxWidth()
+                        .height(s.btnSmallH * 0.85f)
                 ) {
                     Text(
-                        "CANCELAR",
+                        "ANEXAR FACTURA",
                         style = FDType.Label.copy(
                             fontSize = s.textLabel.value.sp,
                             fontWeight = FontWeight.Bold
                         )
                     )
                 }
-                Button(
-                    onClick = { itemsEditando?.let { onEditarPedido(pedido, it) } },
-                    enabled = !procesandoEdicion && puedeGuardar,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FDColors.Primary,
-                        contentColor = FDColors.PrimaryText
-                    ),
-                    shape = RoundedCornerShape(s.radiusButton),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(s.btnMediumH)
-                ) {
-                    if (procesandoEdicion) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(s.iconSmall),
-                            color = FDColors.PrimaryText,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text(
-                            "GUARDAR CAMBIOS",
-                            style = FDType.Label.copy(
-                                fontSize = s.textLabel.value.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        )
-                    }
-                }
             }
-        } else {
-            if (esPendiente) {
-                // Pedido en camino: aquí se recibe la mercadería y se resuelve
-                // lo que nunca llegará. Nada queda a medias sin explicación.
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(s.gapSmall)
-                ) {
+            if (!soloLectura && esPendiente) {
+                // Pedido en camino: el cuerpo muestra SOLO recibir mercadería.
+                // Cancelar y cerrar con ajuste viven en el menú ⋮ de la cabecera.
+                if (puedeRecibir) {
                     Button(
                         onClick = onRecibirMercaderia,
                         colors = ButtonDefaults.buttonColors(
@@ -264,149 +348,8 @@ fun ReposicionDetallePedidoRealizado(
                             )
                         )
                     }
-                    if (pedido.estado == "ENVIADO") {
-                        OutlinedButton(
-                            onClick = { confirmarCancelacion = true },
-                            shape = RoundedCornerShape(s.radiusButton),
-                            border = BorderStroke(s.borderWidth, FDColors.Warning.copy(alpha = 0.5f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Warning),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(s.btnSmallH * 0.85f)
-                        ) {
-                            Text(
-                                "CANCELAR ORDEN (no llegará)",
-                                style = FDType.Label.copy(
-                                    fontSize = s.textLabel.value.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = { confirmarAjuste = true },
-                            shape = RoundedCornerShape(s.radiusButton),
-                            border = BorderStroke(s.borderWidth, FDColors.Warning.copy(alpha = 0.5f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Warning),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(s.btnSmallH * 0.85f)
-                        ) {
-                            Text(
-                                "CERRAR CON AJUSTE (quiebre de stock)",
-                                style = FDType.Label.copy(
-                                    fontSize = s.textLabel.value.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
-                        }
-                    }
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                if (pedido.montoFacturadoReal > 0) {
-                    Text(
-                        text = "FACTURADO: $simboloMoneda ${String.format(Locale.US, "%.2f", pedido.montoFacturadoReal)}",
-                        style = FDType.Label.copy(
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        ),
-                        color = FDColors.Primary
-                    )
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        "TOTAL INVERSIÓN",
-                        style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp),
-                        color = FDColors.TextTertiary
-                    )
-                    Text(
-                        text = "$simboloMoneda ${String.format(Locale.US, "%.2f", pedido.totalInversion)}",
-                        style = FDType.Numeric.copy(
-                            fontWeight = FontWeight.Black,
-                            fontSize = 18.sp
-                        ),
-                        color = FDColors.TextPrimary
-                    )
-                }
-            }
-        }
-    }
-
-    // Confirmación: eliminar borra el pedido completo y todo su rastro
-    if (confirmarEliminacion) {
-        AlertDialog(
-            onDismissRequest = { confirmarEliminacion = false },
-            containerColor = FDColors.SurfaceElevated,
-            title = {
-                Text(
-                    "¿Eliminar este pedido?",
-                    style = FDType.Heading3.copy(
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    color = FDColors.TextPrimary
-                )
-            },
-            text = {
-                Text(
-                    "Se borrará el pedido completo de ${pedido.proveedorNombre}, incluida su bitácora. Esta acción no se puede deshacer.",
-                    style = FDType.Body.copy(fontSize = 12.5.sp),
-                    color = FDColors.TextSecondary
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        confirmarEliminacion = false
-                        onEliminarPedido(pedido)
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FDColors.Error,
-                        contentColor = FDColors.Surface
-                    ),
-                    shape = RoundedCornerShape(s.radiusInput * 0.75f)
-                ) {
-                    if (procesandoEliminacion) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(s.iconSmall),
-                            color = FDColors.Surface,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text(
-                            "SÍ, ELIMINAR TODO",
-                            style = FDType.Label.copy(
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        )
-                    }
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { confirmarEliminacion = false },
-                    enabled = !procesandoEliminacion,
-                    shape = RoundedCornerShape(s.radiusInput * 0.75f)
-                ) {
-                    Text(
-                        "CANCELAR",
-                        style = FDType.Label.copy(
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                }
-            }
-        )
     }
 
     DialogosPedidoEnviado(
@@ -414,7 +357,7 @@ fun ReposicionDetallePedidoRealizado(
         unidadesPendientes = pedido.items.sumOf { it.saldoPendiente },
         confirmarAjuste = confirmarAjuste,
         confirmarCancelacion = confirmarCancelacion,
-        productoParaDescartar = null,
+        productoParaDescartar = productoParaDescartar,
         s = s,
         onConfirmarAjuste = {
             confirmarAjuste = false
@@ -426,9 +369,161 @@ fun ReposicionDetallePedidoRealizado(
             onCancelar()
         },
         onCancelarCancelacion = { confirmarCancelacion = false },
-        onConfirmarDescartar = {},
-        onCancelarDescartar = {}
+        onConfirmarDescartar = { idProd ->
+            productoParaDescartar = null
+            onDescartarProducto(idProd)
+        },
+        onCancelarDescartar = { productoParaDescartar = null }
     )
+
+    // Anexar papel tardío: número + total del papel + condición. Nace la deuda;
+    // el stock ni se toca (ya entró). La fecha de emisión es hoy salvo que se indique.
+    if (mostrarDialogoAnexar) {
+        var numero by remember { mutableStateOf("") }
+        var montoTxt by remember { mutableStateOf("") }
+        var condicion by remember { mutableStateOf("Crédito") }
+        var vencimiento by remember { mutableStateOf("") }
+        var emision by remember { mutableStateOf("") }
+        val montoNum = montoTxt.replace(',', '.').toDoubleOrNull() ?: 0.0
+        val numeroLimpio = numero.trim().uppercase()
+        val numeroValido = numeroLimpio.isNotBlank() &&
+            numeroLimpio != "S/C" && !numeroLimpio.startsWith("S/C")
+        // Fechas, si se escriben, con forma de fecha; basura no entra.
+        val fechaValida: (String) -> Boolean = {
+            it.isBlank() || Regex("^\\d{2}/\\d{2}/\\d{4}$").matches(it)
+        }
+        val puedeConfirmar = numeroValido && montoNum > 0.0 &&
+            fechaValida(vencimiento.trim()) && fechaValida(emision.trim()) && !anexandoFactura
+        AlertDialog(
+            onDismissRequest = { if (!anexandoFactura) mostrarDialogoAnexar = false },
+            containerColor = FDColors.SurfaceElevated,
+            title = {
+                Text(
+                    "Anexar factura",
+                    style = FDType.Heading3.copy(fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                    color = FDColors.TextPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "El papel llegó después de la mercadería. Nace la deuda en Cuentas; el stock no se mueve.",
+                        style = FDType.Body.copy(fontSize = 12.5.sp),
+                        color = FDColors.TextSecondary
+                    )
+                    OutlinedTextField(
+                        value = numero,
+                        onValueChange = { numero = it.uppercase() },
+                        label = { Text("N° FACTURA", fontSize = 10.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = montoTxt,
+                        onValueChange = { montoTxt = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
+                        label = { Text("TOTAL DEL PAPEL", fontSize = 10.sp) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Contado", "Crédito").forEach { cond ->
+                            val sel = condicion == cond
+                            Surface(
+                                color = if (sel) FDColors.Primary.copy(alpha = 0.12f) else FDColors.Surface,
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, if (sel) FDColors.Primary else FDColors.Border),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { condicion = cond }
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        cond.uppercase(),
+                                        style = FDType.Label.copy(
+                                            fontSize = 10.5.sp,
+                                            fontWeight = if (sel) FontWeight.Black else FontWeight.Medium
+                                        ),
+                                        color = if (sel) FDColors.Primary else FDColors.TextTertiary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (condicion == "Crédito") {
+                        OutlinedTextField(
+                            value = vencimiento,
+                            onValueChange = { vencimiento = it },
+                            label = { Text("VENCE (dd/mm/aaaa, opcional)", fontSize = 10.sp) },
+                            singleLine = true,
+                            isError = !fechaValida(vencimiento.trim()),
+                            supportingText = if (!fechaValida(vencimiento.trim())) ({
+                                Text("Usa formato dd/mm/aaaa", fontSize = 9.sp)
+                            }) else null,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    OutlinedTextField(
+                        value = emision,
+                        onValueChange = { emision = it },
+                        label = { Text("EMITIDO (dd/mm/aaaa, hoy si vacío)", fontSize = 10.sp) },
+                        singleLine = true,
+                        isError = !fechaValida(emision.trim()),
+                        supportingText = if (!fechaValida(emision.trim())) ({
+                            Text("Usa formato dd/mm/aaaa", fontSize = 9.sp)
+                        }) else null,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        mostrarDialogoAnexar = false
+                        onAnexarFactura(numeroLimpio, montoNum, condicion, vencimiento.trim(), emision.trim())
+                    },
+                    enabled = puedeConfirmar,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = FDColors.Primary,
+                        contentColor = FDColors.PrimaryText
+                    ),
+                    shape = RoundedCornerShape(s.radiusInput * 0.75f)
+                ) {
+                    if (anexandoFactura) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(s.iconSmall),
+                            color = FDColors.PrimaryText,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            "ANEXAR",
+                            style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Black)
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { mostrarDialogoAnexar = false },
+                    enabled = !anexandoFactura,
+                    shape = RoundedCornerShape(s.radiusInput * 0.75f)
+                ) {
+                    Text(
+                        "CANCELAR",
+                        style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+        )
+    }
 }
 
 private fun estadoLegiblePedido(estado: String): String = when (estado) {
@@ -439,11 +534,52 @@ private fun estadoLegiblePedido(estado: String): String = when (estado) {
     else -> "ENVIADO"
 }
 
+/** Pestaña subrayada con contador sutil: la seleccionada lleva la línea inferior. */
+@Composable
+private fun PestanaDetalle(
+    texto: String,
+    conteo: Int,
+    seleccionado: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onClick() }
+            .padding(vertical = 6.dp)
+    ) {
+        Text(
+            text = "$texto [ $conteo ]",
+            style = FDType.Label.copy(
+                fontSize = 10.5.sp,
+                fontWeight = if (seleccionado) FontWeight.Black else FontWeight.Medium,
+                letterSpacing = 0.5.sp
+            ),
+            color = if (seleccionado) FDColors.Primary else FDColors.TextTertiary,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .height(2.dp)
+                .background(
+                    if (seleccionado) FDColors.Primary else Color.Transparent,
+                    RoundedCornerShape(1.dp)
+                )
+        )
+    }
+}
+
 @Composable
 private fun FilaItemConsultaPedido(
     item: ItemPedidoCompra,
     simboloMoneda: String,
-    s: MedidaAdaptativa
+    s: MedidaAdaptativa,
+    mostrarNoLlegara: Boolean = false,
+    onNoLlegara: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -476,6 +612,22 @@ private fun FilaItemConsultaPedido(
                     color = if (item.saldoPendiente > 0) FDColors.Warning else FDColors.Success
                 )
             }
+            // Link sutil por línea: entierra solo el faltante de ESTE producto.
+            if (mostrarNoLlegara) {
+                Text(
+                    text = "No llegará el faltante (${item.saldoPendiente})",
+                    style = FDType.Label.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        textDecoration = TextDecoration.Underline
+                    ),
+                    color = FDColors.Error,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onNoLlegara() }
+                        .padding(horizontal = 2.dp, vertical = 2.dp)
+                )
+            }
         }
         Text(
             text = "$simboloMoneda ${String.format(Locale.US, "%.2f", item.subtotal)}",
@@ -487,86 +639,7 @@ private fun FilaItemConsultaPedido(
             textAlign = TextAlign.End
         )
     }
-    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.35f))
-}
-
-@Composable
-private fun FilaItemEdicionPedido(
-    item: ItemPedidoCompra,
-    simboloMoneda: String,
-    s: MedidaAdaptativa,
-    onCambiarCantidad: (Int) -> Unit,
-    onQuitar: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(
-                text = item.productoNombre,
-                style = FDType.Body.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.5.sp
-                ),
-                color = FDColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "$simboloMoneda ${String.format(Locale.US, "%.2f", item.precioCompra)} c/u",
-                style = FDType.BodySmall.copy(fontSize = 11.sp),
-                color = FDColors.TextTertiary
-            )
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
-        ) {
-            BotonMasMenos(
-                icono = Icons.Default.Remove,
-                habilitado = item.cantidad > item.cantidadRecibida,
-                onClick = { onCambiarCantidad(-1) },
-                s = s
-            )
-            Surface(
-                color = FDColors.SurfaceElevated,
-                shape = RoundedCornerShape(s.radiusInput * 0.55f),
-                border = BorderStroke(s.borderWidth, FDColors.Border),
-                modifier = Modifier.width(44.dp).height(s.btnMediumH)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "${item.cantidad}",
-                        style = FDType.Label.copy(fontWeight = FontWeight.Black, fontSize = s.textInput.value.sp),
-                        color = FDColors.TextPrimary
-                    )
-                }
-            }
-            BotonMasMenos(
-                icono = Icons.Default.Add,
-                habilitado = true,
-                onClick = { onCambiarCantidad(1) },
-                s = s
-            )
-            IconButton(
-                onClick = onQuitar,
-                modifier = Modifier
-                    .size(s.btnMediumH)
-                    .border(s.borderWidth, FDColors.Error.copy(alpha = 0.35f), RoundedCornerShape(s.radiusButton))
-            ) {
-                Icon(
-                    Icons.Default.DeleteOutline,
-                    contentDescription = "Quitar producto",
-                    tint = FDColors.Error,
-                    modifier = Modifier.size(s.iconSmall * 0.9f)
-                )
-            }
-        }
-    }
-    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.35f))
+    HorizontalDivider(color = FDColors.Border.copy(alpha = 0.8f), thickness = 1.dp)
 }
 
 @Composable
@@ -592,31 +665,66 @@ private fun SeccionBitacora(
             color = FDColors.TextTertiary
         )
     } else {
-        bitacora.sortedByDescending { it.fechaMs }.forEach { entrada ->
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(1.dp)
+        // Línea de tiempo: punto de color por evento unidos por un hilo vertical.
+        // Mismo contenido de siempre, ahora se lee como historia.
+        val ordenada = bitacora.sortedByDescending { it.fechaMs }
+        ordenada.forEachIndexed { index, entrada ->
+            val tituloTipo = when (entrada.tipo) {
+                "CREACION" -> "CREACIÓN"
+                "CANCELACION" -> "CANCELACIÓN"
+                else -> "EDICIÓN"
+            }
+            val colorTipo = when (entrada.tipo) {
+                "CREACION" -> FDColors.Primary
+                "CANCELACION" -> FDColors.Error
+                else -> FDColors.Warning
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(top = 3.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .background(colorTipo, CircleShape)
+                    )
+                    if (index < ordenada.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .fillMaxHeight()
+                                .background(FDColors.Border.copy(alpha = 0.6f))
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(bottom = if (index < ordenada.lastIndex) 12.dp else 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     Text(
-                        text = (if (entrada.tipo == "CREACION") "CREACIÓN" else "EDICIÓN") + " · ${entrada.fecha}",
+                        text = "$tituloTipo · ${entrada.fecha}",
                         style = FDType.Label.copy(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.5.sp
                         ),
-                        color = if (entrada.tipo == "CREACION") FDColors.Primary else FDColors.Warning
+                        color = colorTipo
+                    )
+                    Text(
+                        text = entrada.detalle.ifBlank { "Sin detalle" } +
+                            (if (entrada.usuario.isNotBlank()) " — Por ${entrada.usuario}" else ""),
+                        style = FDType.BodySmall.copy(fontSize = 10.5.sp),
+                        color = FDColors.TextSecondary
                     )
                 }
-                Text(
-                    text = entrada.detalle.ifBlank { "Sin detalle" },
-                    style = FDType.BodySmall.copy(fontSize = 10.5.sp),
-                    color = FDColors.TextSecondary
-                )
             }
         }
     }

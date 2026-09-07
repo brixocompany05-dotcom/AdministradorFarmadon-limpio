@@ -113,27 +113,30 @@ class ProveedorRepository(
         if (listOf("SIN PROVEEDOR", "DROGUERIA GENERAL", "SIN ASIGNAR", "N/A").any { nomLimpio.equals(it, ignoreCase = true) }) {
             return Result.failure(Exception("Ingresa el nombre comercial o razón social real de la droguería/proveedor."))
         }
-        if (rucLimpio.isNotBlank() && (!rucLimpio.all { it.isDigit() } || rucLimpio.length != 11)) {
-            return Result.failure(Exception("El RUC del proveedor debe tener exactamente 11 dígitos numéricos."))
+        if (rucLimpio.isBlank()) {
+            return Result.failure(Exception("El RUC o DNI del proveedor es obligatorio."))
+        }
+        if (!rucLimpio.all { it.isDigit() } || (rucLimpio.length != 11 && rucLimpio.length != 8)) {
+            return Result.failure(Exception("El documento fiscal del proveedor debe tener 11 dígitos (RUC) u 8 dígitos (DNI)."))
         }
 
         return try {
             val colRef = FarmadonPaths.proveedores(db, clienteId, SessionManager.sucursalIdEfectiva)
-            // Un RUC = una ficha: antes de crear, buscar si ya existe otra ficha con el mismo RUC.
+            // Un documento fiscal = una ficha: antes de crear o actualizar, buscar si ya existe otra ficha con el mismo RUC/DNI.
             // Sin esto la misma factura entra una vez por cada ficha y la deuda se duplica.
-            if (proveedor.id.isBlank() && rucLimpio.length == 11) {
-                val dupRuc = colRef.whereEqualTo("idFiscal", rucLimpio).limit(1).get().await()
-                val dupDoc = dupRuc.documents.firstOrNull()
+            if (rucLimpio.isNotBlank()) {
+                val dupRuc = colRef.whereEqualTo("idFiscal", rucLimpio).limit(2).get().await()
+                val dupDoc = dupRuc.documents.firstOrNull { it.id != proveedor.id }
                 if (dupDoc != null) {
                     val dupNombre = dupDoc.getString("nombre") ?: "registrado"
                     return Result.failure(
-                        Exception("Ya existe el proveedor '$dupNombre' con el RUC $rucLimpio. Úsalo de la lista en vez de crear otro.")
+                        Exception("Ya existe el proveedor '$dupNombre' con el documento fiscal $rucLimpio. No se puede duplicar.")
                     )
                 }
             }
             val cleanKey = cleanKey(nomLimpio)
             val provId = proveedor.id.ifBlank {
-                if (rucLimpio.length == 11) "prov_$rucLimpio"
+                if (rucLimpio.isNotBlank()) "prov_$rucLimpio"
                 else if (cleanKey.isNotBlank()) "prov_$cleanKey"
                 else UUID.randomUUID().toString()
             }

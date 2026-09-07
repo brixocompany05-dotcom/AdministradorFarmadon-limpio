@@ -1,6 +1,7 @@
 package com.app.administradorfarmadon.analitica_reportes.logica
 
 
+import com.app.administradorfarmadon.compartido.logica.HoraServidor
 import com.app.administradorfarmadon.facturacion.envio.datos.FacturacionPayloadBuilder
 import com.app.administradorfarmadon.inventario.compartido.modelo.FacturaCompra
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
@@ -781,10 +782,11 @@ object AnaliticaCalculadora {
 
         // Control físico de caja:
         var esperado = sesionesCerradas.sumOf { it.efectivoEsperado }
-        var contado = sesionesCerradas.sumOf { it.efectivoContado }
+        val contado = sesionesCerradas.sumOf { it.efectivoContado }
         if (esPeriodoHoy && estadoCajaActual.estado == CajaSesion.ESTADO_ABIERTA) {
+            // Turno abierto: solo suma al ESPERADO. El conteo físico ocurre en el arqueo formal;
+            // copiar el esperado como "contado" falsearía la lectura real de gaveta (R3/R12).
             esperado += estadoCajaActual.efectivoEsperado
-            contado += estadoCajaActual.efectivoEsperado // En turno abierto no hay arqueo final aún
         }
 
         val diferenciaTotal = redondear2(sesionesCerradas.sumOf { it.diferenciaEfectivo })
@@ -792,7 +794,7 @@ object AnaliticaCalculadora {
         val cantFaltantes = sesionesCerradas.count { it.diferenciaEfectivo < -0.01 }
         val cantSobrantes = sesionesCerradas.count { it.diferenciaEfectivo > 0.01 }
 
-        val esAnteriorAbierta = estadoCajaActual.esDeJornadaAnterior()
+        val esAnteriorAbierta = estadoCajaActual.esDeJornadaAnterior(HoraServidor.ahoraMs())
 
         return DineroYCajaAnalytics(
             aperturasTotal = redondear2(aperturas),
@@ -820,8 +822,8 @@ object AnaliticaCalculadora {
     ): List<AlertaVerdadNegocio> {
         val alertas = mutableListOf<AlertaVerdadNegocio>()
 
-        // 1. Alerta de caja de jornada anterior abierta
-        if (estadoCajaActual.esDeJornadaAnterior()) {
+        // 1. Alerta de caja de jornada anterior abierta (hora corregida por servidor, no reloj local)
+        if (estadoCajaActual.esDeJornadaAnterior(HoraServidor.ahoraMs())) {
             alertas.add(
                 AlertaVerdadNegocio(
                     clave = "CAJA_ANTERIOR_ABIERTA",
@@ -976,6 +978,40 @@ object AnaliticaCalculadora {
             }
         }
         return acc
+    }
+
+    /**
+     * Combina los punteros de turno VIGENTES (uno por cajero) en un único EstadoCaja agregado
+     * de la sede (R1/R3/R13). Sin turnos abiertos devuelve caja cerrada vacía (R12: cero inventos).
+     */
+    fun combinarEstadosCaja(estados: Collection<EstadoCaja>): EstadoCaja {
+        val abiertas = estados.filter { it.estado == CajaSesion.ESTADO_ABIERTA && it.aperturaMs > 0L }
+        if (abiertas.isEmpty()) return EstadoCaja()
+
+        val metodos = mutableMapOf<String, Double>()
+        for (e in abiertas) {
+            for ((k, v) in e.ventasPorMetodo) {
+                metodos[k] = redondear2((metodos[k] ?: 0.0) + v)
+            }
+        }
+        val nombres = abiertas.map { it.abiertoPorNombre.trim() }.filter { it.isNotBlank() }.distinct()
+
+        return EstadoCaja(
+            estado = CajaSesion.ESTADO_ABIERTA,
+            sesionId = abiertas.firstOrNull { it.sesionId.isNotBlank() }?.sesionId ?: "",
+            fondoInicial = redondear2(abiertas.sumOf { it.fondoInicial }),
+            aperturaMs = abiertas.minOf { it.aperturaMs },
+            abiertoPorNombre = when (nombres.size) {
+                1 -> nombres.first()
+                else -> if (nombres.isEmpty()) "" else "${nombres.size} cajeros con turno abierto"
+            },
+            ventasPorMetodo = metodos,
+            ingresos = redondear2(abiertas.sumOf { it.ingresos }),
+            retiros = redondear2(abiertas.sumOf { it.retiros }),
+            devolucionesEfectivo = redondear2(abiertas.sumOf { it.devolucionesEfectivo }),
+            cantidadVentas = abiertas.sumOf { it.cantidadVentas },
+            cantidadDevoluciones = abiertas.sumOf { it.cantidadDevoluciones }
+        )
     }
 
     // ── 15. MULTISEDE: misma fórmula central por sede, total cadena == Σ sedes exacto ──

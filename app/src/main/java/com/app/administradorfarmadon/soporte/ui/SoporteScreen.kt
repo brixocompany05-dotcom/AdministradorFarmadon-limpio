@@ -6,11 +6,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
@@ -37,6 +43,7 @@ import com.app.administradorfarmadon.soporte.logica.SoporteViewModel
 import com.app.administradorfarmadon.soporte.modelo.MensajeSoporte
 import com.app.administradorfarmadon.soporte.modelo.SoporteTicket
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -45,7 +52,7 @@ import java.util.Locale
  * Soporte al Cliente — CHAT REAL 100% PRODUCCIÓN (Estilo WhatsApp 2026)
  * - Mismo chat thread para mensajes continuos de la misma conversación.
  * - ID único por mensaje, ordenamiento cronológico estricto sin brincos ni incoherencias.
- * - Checks de lectura reales estilo WhatsApp (✓ / ✓✓ / ✓✓ Azul cuando es leído).
+ * - Estados de lectura honestos en palabras (Enviando… / Enviado / Leído).
  * - Identificación real de Sede y Usuario sin mentiras ni decoraciones falsas.
  * - Bloqueo de escritura en consultas resueltas (Modo Historial inmutable).
  * - Reintento de mensaje en caso de falla de red (Cero pérdida de trabajo).
@@ -59,6 +66,7 @@ fun SoporteScreen(
     val context = LocalContext.current
 
     var textoMensajeInput by remember { mutableStateOf("") }
+    var mostrarDialogoReporte by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.mensajeExito, uiState.error) {
         if (uiState.mensajeExito != null || uiState.error != null) {
@@ -98,96 +106,85 @@ fun SoporteScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(FDSpacing.lg)
                     ) {
-                        // Avatar con indicador verde "En Línea"
-                        Box(contentAlignment = Alignment.BottomEnd) {
-                            Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(CircleShape)
-                                    .background(FDColors.PrimarySubtle),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(text = "🎧", fontSize = 24.sp)
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(13.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF22C55E))
-                                    .border(2.dp, FDColors.Surface, CircleShape)
+                        // Avatar sobrio con inicial (sin presencia inventada).
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(FDColors.TextPrimary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "S",
+                                style = FDType.Heading2.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = FDColors.Background
+                                )
                             )
                         }
 
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs)
-                            ) {
-                                Text(
-                                    text = "Soporte BRIXO Central",
-                                    style = FDType.Heading2.copy(
-                                        fontFamily = InterPremium,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 17.sp
-                                    )
-                                )
-                                Text(
-                                    text = "🟢 En línea",
-                                    style = FDType.Caption.copy(
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF22C55E)
-                                    )
-                                )
-                            }
-                            val sedeInfo = SessionManager.sucursalNombre.ifBlank { "Sede Operativa" }
-                            val userInfo = SessionManager.nombreUsuario.ifBlank { "Operador" }
                             Text(
-                                text = "Sede: $sedeInfo · Usuario: $userInfo",
+                                text = "Soporte BRIXO Central",
+                                style = FDType.Heading2.copy(
+                                    fontFamily = InterPremium,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 17.sp
+                                )
+                            )
+                            val sedeInfo = SessionManager.sucursalNombre.ifBlank { SessionManager.sucursalIdEfectiva.ifBlank { "Sin sede" } }
+                            val userInfo = SessionManager.nombreUsuario.ifBlank { "Usuario" }
+                            val abiertos = uiState.tickets.count { it.puedeEscribir }
+                            Text(
+                                text = if (uiState.cargando) {
+                                    "Sede: $sedeInfo · Usuario: $userInfo"
+                                } else if (abiertos > 0) {
+                                    "Sede: $sedeInfo · $abiertos caso(s) abierto(s)"
+                                } else {
+                                    "Sede: $sedeInfo · Sin casos abiertos"
+                                },
                                 style = FDType.BodySmall.copy(color = FDColors.TextSecondary, fontFamily = InterPremium)
                             )
                         }
                     }
 
-                    // Botones de acción directa
+                    // Canales reales publicados por la central (si no hay, no se muestran).
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(FDSpacing.sm)
                     ) {
-                        Surface(
-                            onClick = { viewModel.contactarWhatsApp(context) },
-                            color = Color(0xFF25D366),
-                            shape = FDShapes.Full
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = FDSpacing.lg, vertical = FDSpacing.sm),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs)
+                        if (uiState.canalesOficiales.tieneWhatsapp) {
+                            Surface(
+                                onClick = { viewModel.contactarWhatsApp(context) },
+                                color = FDColors.SurfaceHover,
+                                shape = FDShapes.Full,
+                                border = BorderStroke(1.dp, FDColors.Border)
                             ) {
-                                Text("💬", fontSize = 14.sp)
                                 Text(
-                                    text = "WhatsApp Directo",
-                                    style = FDType.Label.copy(color = Color.White, fontWeight = FontWeight.Bold)
+                                    text = "WhatsApp",
+                                    style = FDType.Label.copy(color = FDColors.TextSecondary, fontWeight = FontWeight.Bold),
+                                    modifier = Modifier.padding(horizontal = FDSpacing.lg, vertical = FDSpacing.sm)
                                 )
                             }
                         }
-
-                        Surface(
-                            onClick = { viewModel.contactarEmail(context) },
-                            color = FDColors.SurfaceHover,
-                            shape = FDShapes.Full,
-                            border = BorderStroke(1.dp, FDColors.Border)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = FDSpacing.sm),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs)
+                        if (uiState.canalesOficiales.tieneEmail) {
+                            Surface(
+                                onClick = { viewModel.contactarEmail(context) },
+                                color = FDColors.SurfaceHover,
+                                shape = FDShapes.Full,
+                                border = BorderStroke(1.dp, FDColors.Border)
                             ) {
-                                Icon(Icons.Default.Email, contentDescription = null, tint = FDColors.TextSecondary, modifier = Modifier.size(15.dp))
-                                Text(
-                                    text = "Correo Oficial",
-                                    style = FDType.Label.copy(color = FDColors.TextSecondary)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = FDSpacing.sm),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs)
+                                ) {
+                                    Icon(Icons.Default.Email, contentDescription = null, tint = FDColors.TextSecondary, modifier = Modifier.size(15.dp))
+                                    Text(
+                                        text = "Correo",
+                                        style = FDType.Label.copy(color = FDColors.TextSecondary)
+                                    )
+                                }
                             }
                         }
                     }
@@ -212,7 +209,6 @@ fun SoporteScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(FDSpacing.sm)
                         ) {
-                            Text("✔️", fontSize = 16.sp)
                             Text(msg, style = FDType.Body.copy(fontSize = 12.5.sp, color = FDColors.Success))
                         }
                     }
@@ -236,7 +232,6 @@ fun SoporteScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(FDSpacing.sm)
                         ) {
-                            Text("⚠️", fontSize = 16.sp)
                             Text(err, style = FDType.Body.copy(fontSize = 12.5.sp, color = FDColors.Error))
                         }
                     }
@@ -251,14 +246,16 @@ fun SoporteScreen(
                         .weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(FDSpacing.lg)
                 ) {
-                    // Columna 1: Conversaciones / Consultas
+                    // Columna 1: Mis solicitudes
                     Box(modifier = Modifier.weight(0.38f).fillMaxHeight()) {
                         PanelConversaciones(
                             tickets = uiState.tickets,
                             seleccionado = uiState.ticketSeleccionado,
                             cargando = uiState.cargando,
                             onSeleccionar = { viewModel.seleccionarTicket(it) },
-                            onNuevaConsulta = { viewModel.prepararNuevaConsultaDirecta() }
+                            onNuevaConsulta = { viewModel.abrirModalNuevoTicket() },
+                            errorCarga = if (uiState.tickets.isEmpty()) uiState.error else null,
+                            onReintentarCarga = { viewModel.reintentarCarga() }
                         )
                     }
 
@@ -266,10 +263,13 @@ fun SoporteScreen(
                     Box(modifier = Modifier.weight(0.62f).fillMaxHeight()) {
                         PanelVistaChat(
                             ticket = uiState.ticketSeleccionado,
+                            mensajes = uiState.mensajesCombinados,
                             textoInput = textoMensajeInput,
                             cargandoEnvio = uiState.creandoTicket,
                             onTextoInputChange = { textoMensajeInput = it },
-                            onNuevaConsulta = { viewModel.prepararNuevaConsultaDirecta() },
+                            onNuevaConsulta = { viewModel.abrirModalNuevoTicket() },
+                            onNuevaRelacionada = { viewModel.prepararNuevaConsultaDesde(it) },
+                            onAbrirReporte = { mostrarDialogoReporte = true },
                             onEnviarMensajeDirecto = {
                                 if (textoMensajeInput.trim().isNotBlank()) {
                                     val msg = textoMensajeInput.trim()
@@ -277,9 +277,17 @@ fun SoporteScreen(
                                     viewModel.enviarMensajeEnChat(msg)
                                 }
                             },
-                            onReintentarMensaje = { ticketId, msgTexto ->
-                                viewModel.reintentarEnvioMensaje(ticketId, msgTexto)
+                            onReintentarMensaje = { ticketId, clientMessageId ->
+                                viewModel.reintentarEnvioMensaje(ticketId, clientMessageId)
                             },
+                            onRecargarChat = { viewModel.recargarChatAbierto() },
+                            casoNoDisponible = uiState.casoNoDisponible,
+                            onVolverSolicitudes = { viewModel.seleccionarTicket(null) },
+                            cargandoLista = uiState.cargando,
+                            onMarcarLeido = { viewModel.marcarLeidoAhora() },
+                            mostrarVolver = !isWide,
+                            onVolver = { viewModel.seleccionarTicket(null) },
+                            mensajesListos = uiState.mensajesListos,
                             onContactarWhatsApp = { viewModel.contactarWhatsApp(context, it) }
                         )
                     }
@@ -292,13 +300,16 @@ fun SoporteScreen(
                         .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(FDSpacing.md)
                 ) {
-                    if (uiState.ticketSeleccionado != null) {
+                    if (uiState.ticketSeleccionado != null || uiState.casoNoDisponible) {
                         PanelVistaChat(
                             ticket = uiState.ticketSeleccionado,
+                            mensajes = uiState.mensajesCombinados,
                             textoInput = textoMensajeInput,
                             cargandoEnvio = uiState.creandoTicket,
                             onTextoInputChange = { textoMensajeInput = it },
-                            onNuevaConsulta = { viewModel.prepararNuevaConsultaDirecta() },
+                            onNuevaConsulta = { viewModel.abrirModalNuevoTicket() },
+                            onNuevaRelacionada = { viewModel.prepararNuevaConsultaDesde(it) },
+                            onAbrirReporte = { mostrarDialogoReporte = true },
                             onEnviarMensajeDirecto = {
                                 if (textoMensajeInput.trim().isNotBlank()) {
                                     val msg = textoMensajeInput.trim()
@@ -306,9 +317,17 @@ fun SoporteScreen(
                                     viewModel.enviarMensajeEnChat(msg)
                                 }
                             },
-                            onReintentarMensaje = { ticketId, msgTexto ->
-                                viewModel.reintentarEnvioMensaje(ticketId, msgTexto)
+                            onReintentarMensaje = { ticketId, clientMessageId ->
+                                viewModel.reintentarEnvioMensaje(ticketId, clientMessageId)
                             },
+                            onRecargarChat = { viewModel.recargarChatAbierto() },
+                            casoNoDisponible = uiState.casoNoDisponible,
+                            onVolverSolicitudes = { viewModel.seleccionarTicket(null) },
+                            cargandoLista = uiState.cargando,
+                            onMarcarLeido = { viewModel.marcarLeidoAhora() },
+                            mostrarVolver = !isWide,
+                            onVolver = { viewModel.seleccionarTicket(null) },
+                            mensajesListos = uiState.mensajesListos,
                             onContactarWhatsApp = { viewModel.contactarWhatsApp(context, it) }
                         )
                     } else {
@@ -317,20 +336,46 @@ fun SoporteScreen(
                             seleccionado = uiState.ticketSeleccionado,
                             cargando = uiState.cargando,
                             onSeleccionar = { viewModel.seleccionarTicket(it) },
-                            onNuevaConsulta = { viewModel.prepararNuevaConsultaDirecta() }
+                            onNuevaConsulta = { viewModel.abrirModalNuevoTicket() },
+                            errorCarga = if (uiState.tickets.isEmpty()) uiState.error else null,
+                            onReintentarCarga = { viewModel.reintentarCarga() }
                         )
                     }
                 }
             }
         }
 
-        // Modal Opcional de Nueva Consulta
+        // Nueva solicitud con cero fricción.
         if (uiState.mostrarModalNuevoTicket) {
             DialogoNuevaConsultaChat(
                 cargando = uiState.creandoTicket,
                 onDismiss = { viewModel.cerrarModalNuevoTicket() },
-                onConfirmar = { asunto, cat, prio, desc ->
-                    viewModel.crearTicket(asunto, cat, prio, desc)
+                onConfirmar = { cat, desc ->
+                    viewModel.crearSolicitudSimple(cat, desc)
+                }
+            )
+        }
+
+
+
+        // Reportar un error real con lenguaje simple (§8).
+        // El diálogo solo se cierra cuando el reporte sí llegó (si falla,
+        // el texto sigue ahí para reintentar).
+        LaunchedEffect(uiState.ultimoReporteOkMs) {
+            if (uiState.ultimoReporteOkMs > 0 && mostrarDialogoReporte) {
+                mostrarDialogoReporte = false
+            }
+        }
+        if (mostrarDialogoReporte) {
+            DialogoReportarProblema(
+                cargando = uiState.creandoTicket,
+                onDismiss = { mostrarDialogoReporte = false },
+                onEnviar = { tipo, desc ->
+                    viewModel.reportarErrorConContexto(
+                        tipoReporte = tipo,
+                        descripcion = desc,
+                        pantalla = uiState.ticketSeleccionado?.asunto ?: "Soporte"
+                    )
                 }
             )
         }
@@ -345,7 +390,9 @@ private fun PanelConversaciones(
     seleccionado: SoporteTicket?,
     cargando: Boolean,
     onSeleccionar: (SoporteTicket) -> Unit,
-    onNuevaConsulta: () -> Unit
+    onNuevaConsulta: () -> Unit,
+    errorCarga: String? = null,
+    onReintentarCarga: () -> Unit = {}
 ) {
     Surface(
         color = FDColors.Surface,
@@ -359,7 +406,7 @@ private fun PanelConversaciones(
                 .padding(FDSpacing.lg),
             verticalArrangement = Arrangement.spacedBy(FDSpacing.md)
         ) {
-            // Título + Botón Nueva Consulta
+            // Título + botón Nueva solicitud
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -367,11 +414,11 @@ private fun PanelConversaciones(
             ) {
                 Column {
                     Text(
-                        text = "Conversaciones",
+                        text = "Mis solicitudes",
                         style = FDType.Heading3.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium)
                     )
                     Text(
-                        text = if (tickets.isEmpty()) "Sin mensajes" else "${tickets.size} consultas",
+                        text = if (tickets.isEmpty()) "Sin solicitudes" else "${tickets.size} solicitudes",
                         style = FDType.Caption,
                         color = FDColors.TextSecondary
                     )
@@ -387,9 +434,8 @@ private fun PanelConversaciones(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("➕", fontSize = 12.sp)
                         Text(
-                            text = "Nueva Consulta",
+                            text = "+ Nueva solicitud",
                             style = FDType.Caption.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = FDColors.PrimaryText,
@@ -417,16 +463,38 @@ private fun PanelConversaciones(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(FDSpacing.sm)
                     ) {
-                        Text("💬", fontSize = 36.sp)
-                        Text(
-                            text = "No tienes mensajes pendientes",
-                            style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.TextPrimary)
-                        )
-                        Text(
-                            text = "Toca 'Nueva Consulta' arriba para iniciar una conversación directa con el equipo técnico.",
-                            style = FDType.Caption.copy(color = FDColors.TextSecondary),
-                            modifier = Modifier.padding(horizontal = FDSpacing.md)
-                        )
+                        if (errorCarga != null) {
+                            Text(
+                                text = "No pudimos cargar tus solicitudes",
+                                style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.TextPrimary)
+                            )
+                            Text(
+                                text = "Revisa tu conexión. Nada se perdió.",
+                                style = FDType.Caption.copy(color = FDColors.TextSecondary)
+                            )
+                            Spacer(Modifier.height(FDSpacing.xs))
+                            Surface(
+                                onClick = onReintentarCarga,
+                                color = FDColors.Primary,
+                                shape = FDShapes.Full
+                            ) {
+                                Text(
+                                    text = "↻ Reintentar",
+                                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.PrimaryText),
+                                    modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.sm)
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "No tienes solicitudes",
+                                style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.TextPrimary)
+                            )
+                            Text(
+                                text = "Toca 'Nueva solicitud' arriba para contarle tu problema al equipo de soporte.",
+                                style = FDType.Caption.copy(color = FDColors.TextSecondary),
+                                modifier = Modifier.padding(horizontal = FDSpacing.md)
+                            )
+                        }
                     }
                 }
             } else {
@@ -452,29 +520,41 @@ private fun PanelConversaciones(
 private fun ItemConversacionChat(
     ticket: SoporteTicket,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    esAbierto: Boolean = isSelected
 ) {
     val fondoColor = if (isSelected) FDColors.PrimarySubtle else FDColors.SurfaceHover.copy(alpha = 0.4f)
     val bordeColor = if (isSelected) FDColors.Primary.copy(alpha = 0.5f) else FDColors.Border.copy(alpha = 0.4f)
 
-    val emojiCat = when (ticket.categoria.uppercase()) {
-        "FACTURACION_SUNAT" -> "📄"
-        "CAJA_VENTAS" -> "🎛️"
-        "INVENTARIO_STOCK" -> "📦"
-        "HARDWARE_IMPRESORA" -> "🖨️"
-        else -> "💬"
-    }
+    // Inicial sobria del asunto (sin iconos decorativos).
+    val inicialCat = ticket.asunto.trim().take(1).uppercase().ifBlank { "S" }
 
     val timestampReferencia = maxOf(ticket.actualizadoMs, ticket.fechaMs)
-    val fechaFormateada = remember(timestampReferencia) {
-        if (timestampReferencia > 0) {
-            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestampReferencia))
-        } else ""
+    // Fecha humana: hoy con hora, ayer, o día/mes. Nada técnico.
+    val fechaHumana = remember(timestampReferencia) {
+        if (timestampReferencia <= 0) ""
+        else {
+            val cal = java.util.Calendar.getInstance()
+            val hoy = cal.get(java.util.Calendar.DAY_OF_YEAR)
+            val anioHoy = cal.get(java.util.Calendar.YEAR)
+            cal.timeInMillis = timestampReferencia
+            val dia = cal.get(java.util.Calendar.DAY_OF_YEAR)
+            val anio = cal.get(java.util.Calendar.YEAR)
+            val hora = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestampReferencia))
+            when {
+                anio == anioHoy && dia == hoy -> "Hoy $hora"
+                anio == anioHoy && dia == hoy - 1 -> "Ayer $hora"
+                else -> SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(timestampReferencia))
+            }
+        }
     }
 
     val ultimoMensajeTexto = remember(ticket) {
-        val msgs = ticket.obtenerTodosLosMensajes()
-        msgs.lastOrNull()?.texto ?: ticket.descripcion
+        // Lo último real: el resumen del servidor, si no el historial local.
+        ticket.ultimoMensaje.ifBlank {
+            val msgs = ticket.obtenerTodosLosMensajes()
+            msgs.lastOrNull()?.texto ?: ticket.descripcion
+        }.take(90)
     }
 
     Surface(
@@ -489,15 +569,21 @@ private fun ItemConversacionChat(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(FDSpacing.md)
         ) {
-            // Icono de Categoría
+            // Inicial sobria
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (isSelected) FDColors.Primary.copy(alpha = 0.15f) else FDColors.Border.copy(alpha = 0.3f)),
+                    .background(if (isSelected) FDColors.TextPrimary else FDColors.SurfaceHover),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = emojiCat, fontSize = 18.sp)
+                Text(
+                    text = inicialCat,
+                    style = FDType.Body.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) FDColors.Background else FDColors.TextSecondary
+                    )
+                )
             }
 
             // Asunto y Vista previa
@@ -518,14 +604,36 @@ private fun ItemConversacionChat(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
-                    Text(
-                        text = fechaFormateada,
-                        style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.TextTertiary)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Chat abierto = lo estás leyendo: no se marca nada nuevo.
+                        if (ticket.mensajesSinLeerFarmacia > 0 && !esAbierto) {
+                            Surface(
+                                color = FDColors.Primary,
+                                shape = FDShapes.Full
+                            ) {
+                                Text(
+                                    text = if (ticket.mensajesSinLeerFarmacia > 9) "9+ nuevos" else "${ticket.mensajesSinLeerFarmacia} nuevos",
+                                    style = FDType.Caption.copy(
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FDColors.PrimaryText
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = fechaHumana,
+                            style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.TextTertiary)
+                        )
+                    }
                 }
 
                 Text(
-                    text = ultimoMensajeTexto,
+                    text = ultimoMensajeTexto.ifBlank { ticket.descripcion.take(90) }.ifBlank { "(sin mensajes)" },
                     style = FDType.BodySmall.copy(
                         fontSize = 11.5.sp,
                         color = FDColors.TextSecondary,
@@ -535,7 +643,7 @@ private fun ItemConversacionChat(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Status Tag Sutil
+                // Estado + quién atiende (jamás nombra un agente que aún no la tomó).
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs),
                     verticalAlignment = Alignment.CenterVertically
@@ -544,6 +652,17 @@ private fun ItemConversacionChat(
                     Text(
                         text = ticket.numeroTicket,
                         style = FDType.Caption.copy(fontSize = 9.5.sp, color = FDColors.TextTertiary)
+                    )
+                    Text("•", style = FDType.Caption.copy(fontSize = 9.5.sp, color = FDColors.TextTertiary))
+                    Text(
+                        text = ticket.textoAtencion,
+                        style = FDType.Caption.copy(
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FDColors.TextPrimary
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -556,12 +675,24 @@ private fun ItemConversacionChat(
 @Composable
 private fun PanelVistaChat(
     ticket: SoporteTicket?,
+    mensajes: List<MensajeSoporte> = ticket?.obtenerTodosLosMensajes().orEmpty(),
     textoInput: String,
     cargandoEnvio: Boolean,
     onTextoInputChange: (String) -> Unit,
     onNuevaConsulta: () -> Unit,
+    onNuevaRelacionada: (String) -> Unit = { _ -> onNuevaConsulta() },
+    onAbrirReporte: () -> Unit = {},
     onEnviarMensajeDirecto: () -> Unit,
-    onReintentarMensaje: (ticketId: String, texto: String) -> Unit,
+    onReintentarMensaje: (ticketId: String, clientMessageId: String) -> Unit,
+    onRecargarChat: () -> Unit = {},
+    casoNoDisponible: Boolean = false,
+    onVolverSolicitudes: () -> Unit = onNuevaConsulta,
+    cargandoLista: Boolean = false,
+    onMarcarLeido: () -> Unit = {},
+    mostrarVolver: Boolean = false,
+    onVolver: () -> Unit = {},
+    tieneWhatsapp: Boolean = false,
+    mensajesListos: Boolean = true,
     onContactarWhatsApp: (String) -> Unit
 ) {
     Surface(
@@ -579,119 +710,332 @@ private fun PanelVistaChat(
                     border = BorderStroke(1.dp, FDColors.Border),
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.md),
+                        modifier = Modifier.padding(horizontal = FDSpacing.lg, vertical = FDSpacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(FDSpacing.sm)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(FDSpacing.md)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(FDColors.PrimarySubtle),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(text = "🎧", fontSize = 20.sp)
-                            }
-
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = ticket.asunto,
-                                    style = FDType.Heading3.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                        if (mostrarVolver) {
+                            IconButton(onClick = onVolver) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowBack,
+                                    contentDescription = "Volver a mis solicitudes",
+                                    tint = FDColors.TextSecondary
                                 )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs)
-                                ) {
-                                    val sedeNombreReal = ticket.sucursalNombre.ifBlank { SessionManager.sucursalNombre }
-                                    Text(
-                                        text = "${ticket.numeroTicket} · $sedeNombreReal",
-                                        style = FDType.Caption.copy(color = FDColors.TextSecondary)
+                            }
+                        }
+                        // Un solo avatar: inicial del caso.
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(FDColors.TextPrimary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = ticket.asunto.trim().take(1).uppercase().ifBlank { "S" },
+                                style = FDType.Body.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = FDColors.Background
+                                )
+                            )
+                        }
+
+                        // Título + id. Nada más: limpio y legible.
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = ticket.asunto.ifBlank { "Solicitud" },
+                                style = FDType.Heading3.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = ticket.numeroTicket,
+                                style = FDType.Caption.copy(color = FDColors.TextSecondary),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        // Selector de acciones: reportar y WhatsApp viven aquí.
+                        var menuAbierto by remember(ticket.id) { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { menuAbierto = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Acciones de la solicitud",
+                                    tint = FDColors.TextSecondary
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuAbierto,
+                                onDismissRequest = { menuAbierto = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Reportar problema") },
+                                    onClick = { menuAbierto = false; onAbrirReporte() }
+                                )
+                                if (tieneWhatsapp) {
+                                    DropdownMenuItem(
+                                        text = { Text("WhatsApp") },
+                                        onClick = {
+                                            menuAbierto = false
+                                            onContactarWhatsApp("Consulta sobre ${ticket.numeroTicket}: ${ticket.asunto}")
+                                        }
                                     )
-                                    Text("•", style = FDType.Caption.copy(color = FDColors.TextTertiary))
-                                    BadgeEstadoChat(ticket.estado)
                                 }
                             }
                         }
+                    }
+                    // Una línea honesta solo si aún espera agente.
+                    if (!ticket.tieneAgenteAsignado && !ticket.estaResuelto) {
+                        Text(
+                            text = "En cola · te avisaremos aquí cuando un agente la tome.",
+                            style = FDType.Caption.copy(fontSize = 11.sp, color = FDColors.TextSecondary),
+                            modifier = Modifier.padding(
+                                start = FDSpacing.lg, end = FDSpacing.lg, bottom = FDSpacing.sm
+                            )
+                        )
+                    }
+                    }
+                }
 
-                        // WhatsApp Directo sobre este ticket
-                        Surface(
-                            onClick = { onContactarWhatsApp("Consulta sobre ${ticket.numeroTicket}: ${ticket.asunto}") },
-                            color = Color(0xFF25D366).copy(alpha = 0.12f),
-                            shape = FDShapes.Full,
-                            border = BorderStroke(1.dp, Color(0xFF25D366).copy(alpha = 0.3f))
+                // 2. CHAT estilo WhatsApp: si lees arriba y llega algo nuevo,
+                // NO te jalonea; aparece el pill flotante y se borra SOLO al
+                // llegar al final. Lo que tú envías siempre baja al instante.
+                val listState = rememberLazyListState()
+                val todosLosMensajes = remember(mensajes) { mensajes }
+                var nuevosSinVer by remember(ticket.id) { mutableStateOf(0) }
+                val alcanceChat = rememberCoroutineScope()
+
+                LaunchedEffect(todosLosMensajes.size) {
+                    if (todosLosMensajes.isEmpty()) return@LaunchedEffect
+                    val ultimo = todosLosMensajes.last()
+                    if (ultimo.esDeFarmacia) {
+                        // Mi mensaje: bajo a verlo y limpio el pill.
+                        nuevosSinVer = 0
+                        listState.animateScrollToItem(todosLosMensajes.size - 1)
+                        return@LaunchedEffect
+                    }
+                    val info = listState.layoutInfo
+                    val ultimoVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                    val alFinal = ultimoVisible == -1 || ultimoVisible >= todosLosMensajes.size - 2
+                    if (alFinal) {
+                        nuevosSinVer = 0
+                        listState.animateScrollToItem(todosLosMensajes.size - 1)
+                    } else {
+                        val vistos = ultimoVisible + 1
+                        nuevosSinVer = (todosLosMensajes.size - vistos).coerceAtLeast(1)
+                    }
+                }
+
+                // Al llegar al final por tu cuenta, el aviso desaparece solo y
+                // recién ahí se marca leído: abierto pero arriba = no leído.
+                // (Se lee layoutInfo, que sí es estado observable.)
+                val alFinalLista by remember {
+                    derivedStateOf {
+                        val info = listState.layoutInfo
+                        val total = info.totalItemsCount
+                        if (total == 0) true
+                        else {
+                            val ultimoVisible =
+                                info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                            ultimoVisible >= total - 1
+                        }
+                    }
+                }
+                LaunchedEffect(alFinalLista) {
+                    if (alFinalLista && nuevosSinVer != 0) nuevosSinVer = 0
+                }
+                val noLeidosServidor = ticket.mensajesSinLeerFarmacia
+                LaunchedEffect(alFinalLista, noLeidosServidor) {
+                    if (alFinalLista && noLeidosServidor > 0) onMarcarLeido()
+                }
+
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    // Tres verdades: cargando con salida, vacío real con guía,
+                    // o el historial completo. Hasta la primera foto del
+                    // servidor no se declara nada (ni vacío ni parcial).
+                    val contenidoEsperado =
+                        ticket.descripcion.isNotBlank() || ticket.ultimoMensaje.isNotBlank()
+                    if (!mensajesListos || (todosLosMensajes.isEmpty() && contenidoEsperado)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(FDSpacing.xl),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = FDSpacing.xs),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            CircularProgressIndicator(color = FDColors.Primary, strokeWidth = 2.dp)
+                            Spacer(Modifier.height(FDSpacing.sm))
+                            Text(
+                                text = "Cargando conversación…",
+                                style = FDType.Body.copy(color = FDColors.TextSecondary)
+                            )
+                            Spacer(Modifier.height(FDSpacing.xs))
+                            Text(
+                                text = "Si tarda, tu conexión puede estar lenta. Nada se perdió.",
+                                style = FDType.Caption.copy(color = FDColors.TextTertiary)
+                            )
+                            Spacer(Modifier.height(FDSpacing.sm))
+                            Surface(
+                                onClick = onRecargarChat,
+                                color = FDColors.SurfaceHover,
+                                shape = FDShapes.Full,
+                                border = BorderStroke(1.dp, FDColors.Border)
                             ) {
-                                Text("💬", fontSize = 12.sp)
                                 Text(
-                                    text = "Abrir en WhatsApp",
-                                    style = FDType.Caption.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF15803D),
-                                        fontFamily = InterPremium
-                                    )
+                                    text = "Reintentar",
+                                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.TextSecondary),
+                                    modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.sm)
                                 )
+                            }
+                        }
+                    } else if (todosLosMensajes.isEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(FDSpacing.xl),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "Aún no hay mensajes",
+                                style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.TextPrimary)
+                            )
+                            Spacer(Modifier.height(FDSpacing.xs))
+                            Text(
+                                text = "Escribe el primero abajo y te responderemos aquí.",
+                                style = FDType.Caption.copy(color = FDColors.TextSecondary)
+                            )
+                        }
+                    } else {
+                    val diaFmt = remember(ticket.id) { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(FDColors.Background.copy(alpha = 0.4f))
+                            .padding(horizontal = FDSpacing.xl, vertical = FDSpacing.lg),
+                        verticalArrangement = Arrangement.spacedBy(FDSpacing.md)
+                    ) {
+                        itemsIndexed(
+                            todosLosMensajes,
+                            key = { _, it -> it.clientMessageId.ifBlank { it.id } },
+                            contentType = { _, it -> if (it.esSistema) "sys" else if (it.esDeFarmacia) "yo" else "soporte" }
+                        ) { idx, msg ->
+                        val horaStr = remember(msg.fechaMs) {
+                            if (msg.fechaMs > 0) SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(msg.fechaMs)) else ""
+                        }
+                        val dia = if (msg.fechaMs > 0) diaFmt.format(Date(msg.fechaMs)) else ""
+                        val diaAnt = todosLosMensajes.getOrNull(idx - 1)?.let { a ->
+                            if (a.fechaMs > 0) diaFmt.format(Date(a.fechaMs)) else ""
+                        } ?: ""
+                        if (dia.isNotBlank() && dia != diaAnt) {
+                            Text(
+                                text = dia.uppercase(),
+                                style = FDType.Caption.copy(
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = FDColors.TextTertiary
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                            )
+                        }
+
+                        if (msg.esSistema) {
+                            BurbujaEventoSistema(texto = msg.texto, fechaStr = horaStr)
+                        } else if (msg.esDeFarmacia) {
+                            BurbujaMensajeFarmacia(
+                                mensaje = if (msg.tipo == "ERROR_REPORT" && msg.errorCodigo.isNotBlank()) {
+                                    "Código ${msg.errorCodigo}\n${msg.texto}"
+                                } else if ((msg.tipo == "FILE" || msg.tipo == "IMAGE") && msg.archivoNombre.isNotBlank()) {
+                                    "Archivo: ${msg.archivoNombre}\n${msg.texto}"
+                                } else msg.texto,
+                                fechaStr = horaStr,
+                                estadoLectura = msg.estadoLectura,
+                                tieneError = msg.tieneError,
+                                onReintentar = { onReintentarMensaje(ticket.id, msg.clientMessageId.ifBlank { msg.id }) }
+                            )
+                        } else {
+                            BurbujaRespuestaBrixo(
+                                respondidoPor = "${msg.autorNombre.ifBlank { "Soporte Brixo" }} · Soporte Brixo",
+                                respuesta = if ((msg.tipo == "FILE" || msg.tipo == "IMAGE") && msg.archivoNombre.isNotBlank()) {
+                                    "Archivo: ${msg.archivoNombre}\n${msg.texto}"
+                                } else msg.texto,
+                                fechaStr = horaStr
+                            )
+                        }
+                        }
+                    }
+                    // Flecha WhatsApp: solo arriba. Con contador si hay nuevos.
+                    // Al llegar abajo desaparece sola (la maneja alFinalLista).
+                    if (!alFinalLista) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = FDSpacing.lg, bottom = FDSpacing.md),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                onClick = {
+                                    nuevosSinVer = 0
+                                    alcanceChat.launch {
+                                        if (todosLosMensajes.isNotEmpty()) {
+                                            listState.animateScrollToItem(todosLosMensajes.size - 1)
+                                        }
+                                    }
+                                },
+                                color = FDColors.TextPrimary,
+                                shape = CircleShape,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Bajar a los mensajes nuevos",
+                                        tint = FDColors.Background,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            if (nuevosSinVer > 0) {
+                                Surface(
+                                    color = FDColors.Background,
+                                    shape = CircleShape,
+                                    border = BorderStroke(1.dp, FDColors.TextPrimary),
+                                    modifier = Modifier.align(Alignment.TopEnd)
+                                ) {
+                                    Text(
+                                        text = if (nuevosSinVer > 99) "99+" else "$nuevosSinVer",
+                                        style = FDType.Caption.copy(
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = FDColors.TextPrimary
+                                        ),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
-
-                // 2. CUERPO SCROLLABLE DEL CHAT (BURBUJAS MÚLTIPLES SINCRO REAL SIN BRINCOS)
-                val listState = rememberLazyListState()
-                val todosLosMensajes = remember(ticket) { ticket.obtenerTodosLosMensajes() }
-
-                // Scroll suave e instantáneo al último mensaje al actualizar la lista
-                LaunchedEffect(todosLosMensajes.size) {
-                    if (todosLosMensajes.isNotEmpty()) {
-                        listState.animateScrollToItem(todosLosMensajes.size - 1)
-                    }
                 }
 
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(FDColors.Background.copy(alpha = 0.4f))
-                        .padding(horizontal = FDSpacing.xl, vertical = FDSpacing.lg),
-                    verticalArrangement = Arrangement.spacedBy(FDSpacing.md)
-                ) {
-                    items(todosLosMensajes, key = { it.id }) { msg ->
-                        val horaStr = remember(msg.fechaMs) {
-                            if (msg.fechaMs > 0) SimpleDateFormat("HH:mm a", Locale.getDefault()).format(Date(msg.fechaMs)) else ""
-                        }
-
-                        if (msg.esDeFarmacia) {
-                            BurbujaMensajeFarmacia(
-                                usuario = msg.autorNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Farmacia" } },
-                                mensaje = msg.texto,
-                                fechaStr = horaStr,
-                                estadoLectura = msg.estadoLectura,
-                                tieneError = msg.tieneError,
-                                onReintentar = { onReintentarMensaje(ticket.id, msg.texto) }
-                            )
-                        } else {
-                            BurbujaRespuestaBrixo(
-                                respondidoPor = msg.autorNombre.ifBlank { "BRIXO Soporte Técnico" },
-                                respuesta = msg.texto,
-                                fechaStr = horaStr
-                            )
-                        }
-                    }
-                }
-
-                // 3. BARRA INFERIOR DE ENTRADA DE TEXTO O BANNER DE HISTORIAL SI ESTÁ RESUELTO
+                // 3. BARRA INFERIOR DE ENTRADA DE TEXTO O BANNER DE HISTORIAL SI ESTÁ RESUELTO/CERRADO
                 if (ticket.estaResuelto) {
+                    val tituloCierre = if (ticket.estaCerradoDefinitivo) {
+                        "Solicitud cerrada"
+                    } else {
+                        "Solicitud resuelta (historial)"
+                    }
+                    val tituloColor = FDColors.TextPrimary
                     Surface(
                         color = FDColors.InputBackground.copy(alpha = 0.6f),
                         border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.5f)),
@@ -704,19 +1048,22 @@ private fun PanelVistaChat(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(FDSpacing.md)
                         ) {
-                            Text("🔒", fontSize = 18.sp)
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    text = "Consulta Resuelta (Modo Historial Inmutable)",
-                                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = Color(0xFF22C55E))
+                                    text = tituloCierre,
+                                    style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = tituloColor)
                                 )
                                 Text(
-                                    text = "Esta conversación ha sido finalizada y queda guardada como historial. Para una nueva inquietud, inicia una nueva consulta.",
+                                    text = if (ticket.estaCerradoDefinitivo) {
+                                        "Esta conversación ya no admite nuevos mensajes. Si tienes un problema nuevo, puedes crear una nueva solicitud."
+                                    } else {
+                                        "Esta conversación quedó guardada como historial. Si tienes un problema nuevo, crea una nueva solicitud."
+                                    },
                                     style = FDType.BodySmall.copy(fontSize = 11.5.sp, color = FDColors.TextSecondary)
                                 )
                             }
                             Surface(
-                                onClick = onNuevaConsulta,
+                                onClick = { onNuevaRelacionada(ticket.id) },
                                 color = FDColors.Primary,
                                 shape = FDShapes.Full
                             ) {
@@ -725,9 +1072,8 @@ private fun PanelVistaChat(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Text("➕", fontSize = 11.sp)
                                     Text(
-                                        text = "Nueva Consulta",
+                                        text = "+ Nueva solicitud",
                                         style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.PrimaryText)
                                     )
                                 }
@@ -735,6 +1081,17 @@ private fun PanelVistaChat(
                         }
                     }
                 } else {
+                    // El siguiente paso siempre visible: si te necesitan, te lo dice aquí.
+                    if (ticket.estadoNormalizado == "WAITING_CUSTOMER") {
+                        Text(
+                            text = "Necesitamos una respuesta tuya para continuar. Cuando respondas, el agente seguirá atendiéndote.",
+                            style = FDType.Caption.copy(fontWeight = FontWeight.Bold, color = FDColors.TextPrimary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(FDColors.SurfaceHover)
+                                .padding(horizontal = FDSpacing.lg, vertical = FDSpacing.sm)
+                        )
+                    }
                     BarraChatInput(
                         textoInput = textoInput,
                         cargandoEnvio = cargandoEnvio,
@@ -744,103 +1101,76 @@ private fun PanelVistaChat(
                     )
                 }
             }
-        } else {
-            // VISTA CHAT DE NUEVA CONSULTA INMEDIATA
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Header Nueva Consulta
+        } else if (casoNoDisponible) {
+            // El caso abierto ya no existe: se dice con salida, no se esconde.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(FDSpacing.xxl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Esta solicitud ya no está disponible",
+                    style = FDType.Heading2.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium)
+                )
+                Spacer(Modifier.height(FDSpacing.xs))
+                Text(
+                    text = "Pudo ser eliminada o movida. Tus demás solicitudes están intactas.",
+                    style = FDType.Body.copy(color = FDColors.TextSecondary)
+                )
+                Spacer(Modifier.height(FDSpacing.lg))
                 Surface(
-                    color = FDColors.SurfaceHover.copy(alpha = 0.5f),
-                    border = BorderStroke(1.dp, FDColors.Border),
-                    modifier = Modifier.fillMaxWidth()
+                    onClick = onVolverSolicitudes,
+                    color = FDColors.TextPrimary,
+                    shape = FDShapes.Full
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(FDSpacing.md)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(FDColors.PrimarySubtle),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = "💬", fontSize = 20.sp)
-                        }
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "Nueva Consulta Directa a BRIXO Soporte",
-                                style = FDType.Heading3.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium)
-                            )
-                            Text(
-                                text = "🟢 En línea · Asistencia inmediata por chat",
-                                style = FDType.Caption.copy(color = Color(0xFF22C55E), fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
+                    Text(
+                        text = "Volver a mis solicitudes",
+                        style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.Background),
+                        modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.md)
+                    )
                 }
-
-                // Cuerpo Iniciar Chat
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(FDColors.Background.copy(alpha = 0.4f))
-                        .padding(horizontal = FDSpacing.xxl, vertical = FDSpacing.xl),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("🎧", fontSize = 48.sp)
-                    Spacer(Modifier.height(FDSpacing.xs))
+            }
+        } else {
+            // Sin caso abierto: un solo camino (el diálogo), sin chats paralelos.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(FDSpacing.xxl),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (cargandoLista) {
+                    CircularProgressIndicator(color = FDColors.TextPrimary, strokeWidth = 2.dp)
+                    Spacer(Modifier.height(FDSpacing.sm))
+                    Text(
+                        text = "Cargando tus solicitudes…",
+                        style = FDType.Body.copy(color = FDColors.TextSecondary)
+                    )
+                } else {
                     Text(
                         text = "¿En qué podemos ayudarte hoy?",
                         style = FDType.Heading2.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium)
                     )
-                    Text(
-                        text = "Escribe tu consulta abajo. BRIXO Soporte identificará el tema y creará la conversación automáticamente.",
-                        style = FDType.Body.copy(color = FDColors.TextSecondary),
-                        modifier = Modifier.padding(horizontal = FDSpacing.xl)
-                    )
-
-                    Spacer(Modifier.height(FDSpacing.xl))
-
-                    // Chips sugeridos para autorellenar con 1 toque
-                    Text(
-                        text = "Temas Frecuentes (toca para escribir):",
-                        style = FDType.Caption.copy(color = FDColors.TextTertiary, fontWeight = FontWeight.Bold)
-                    )
                     Spacer(Modifier.height(FDSpacing.xs))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(FDSpacing.sm),
-                        verticalAlignment = Alignment.CenterVertically
+                    Text(
+                        text = "Cuenta tu problema y un agente te atenderá aquí mismo.",
+                        style = FDType.Body.copy(color = FDColors.TextSecondary)
+                    )
+                    Spacer(Modifier.height(FDSpacing.lg))
+                    Surface(
+                        onClick = onNuevaConsulta,
+                        color = FDColors.TextPrimary,
+                        shape = FDShapes.Full
                     ) {
-                        ChipSugerencia(
-                            label = "📄 Facturación / SUNAT",
-                            onClick = { onTextoInputChange("Consulta sobre Facturación SUNAT: ") }
-                        )
-                        ChipSugerencia(
-                            label = "🎛️ POS y Caja",
-                            onClick = { onTextoInputChange("Consulta sobre Punto de Venta y Caja: ") }
-                        )
-                        ChipSugerencia(
-                            label = "🖨️ Impresora de Tickets",
-                            onClick = { onTextoInputChange("Consulta sobre Impresora de tickets: ") }
-                        )
-                        ChipSugerencia(
-                            label = "📦 Inventario y Lotes",
-                            onClick = { onTextoInputChange("Consulta sobre Inventario y Lotes: ") }
+                        Text(
+                            text = "+ Nueva solicitud",
+                            style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.Background),
+                            modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.md)
                         )
                     }
                 }
-
-                // Barra Chat Input Nueva Consulta
-                BarraChatInput(
-                    textoInput = textoInput,
-                    cargandoEnvio = cargandoEnvio,
-                    placeholderText = "Escribe tu mensaje o consulta directa para BRIXO...",
-                    onTextoInputChange = onTextoInputChange,
-                    onEnviar = onEnviarMensajeDirecto
-                )
             }
         }
     }
@@ -857,7 +1187,10 @@ private fun BarraChatInput(
     Surface(
         color = FDColors.Surface,
         border = BorderStroke(1.dp, FDColors.Border),
-        modifier = Modifier.fillMaxWidth()
+        // El teclado jamás tapa el campo donde se escribe.
+        modifier = Modifier
+            .fillMaxWidth()
+            .imePadding()
     ) {
         Row(
             modifier = Modifier
@@ -876,6 +1209,8 @@ private fun BarraChatInput(
                     )
                 },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onEnviar() }),
                 shape = FDShapes.Full,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = FDColors.Primary,
@@ -888,14 +1223,15 @@ private fun BarraChatInput(
 
             Surface(
                 onClick = { if (!cargandoEnvio) onEnviar() },
-                color = if (textoInput.trim().isNotBlank() && !cargandoEnvio) FDColors.Primary else FDColors.Border,
+                // Sólido serio a juego con tus burbujas. Sin progreso trabado en el chat.
+                color = if (textoInput.trim().isNotBlank() && !cargandoEnvio) FDColors.TextPrimary else FDColors.Border,
                 shape = CircleShape,
                 modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (cargandoEnvio) {
                         CircularProgressIndicator(
-                            color = FDColors.PrimaryText,
+                            color = FDColors.Background,
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(18.dp)
                         )
@@ -903,7 +1239,7 @@ private fun BarraChatInput(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Enviar",
-                            tint = if (textoInput.trim().isNotBlank()) FDColors.PrimaryText else FDColors.TextDisabled,
+                            tint = if (textoInput.trim().isNotBlank()) FDColors.Background else FDColors.TextDisabled,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -913,42 +1249,26 @@ private fun BarraChatInput(
     }
 }
 
-@Composable
-private fun ChipSugerencia(label: String, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        color = FDColors.InputBackground,
-        shape = FDShapes.Full,
-        border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.5f))
-    ) {
-        Text(
-            text = label,
-            style = FDType.Caption.copy(fontSize = 11.sp, color = FDColors.TextSecondary),
-            modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = 6.dp)
-        )
-    }
-}
-
 // ───────────────────────────── BURBUJAS DE CHAT CON CHECKS DE LECTURA REALES Y REINTENTO ─────────────────────────────
 
 @Composable
-private fun CheckLecturaWhatsApp(estadoLectura: String) {
-    val (ticks, color) = when (estadoLectura.uppercase()) {
-        "LEIDO" -> "✓✓" to Color(0xFF34B7F1) // Doble check azul estilo WhatsApp
-        "ENTREGADO" -> "✓✓" to FDColors.TextTertiary // Doble check gris
-        else -> "✓" to FDColors.TextTertiary // Un check gris
-    }
+private fun EstadoEnvioTexto(estadoLectura: String, claro: Boolean) {
+    // Palabras honestas, sin colores semáforo: qué pasó con mi mensaje.
+    val texto = when (estadoLectura.uppercase()) {
+        "ENVIANDO" -> "Enviando…"
+        "LEIDO" -> "Leído"
+        "ERROR" -> null
+        else -> "Enviado"
+    } ?: return
     Text(
-        text = ticks,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Black,
-        color = color
+        text = texto,
+        fontSize = 10.sp,
+        color = if (claro) FDColors.Background.copy(alpha = 0.75f) else FDColors.TextTertiary
     )
 }
 
 @Composable
 private fun BurbujaMensajeFarmacia(
-    usuario: String,
     mensaje: String,
     fechaStr: String,
     estadoLectura: String = "LEIDO",
@@ -960,69 +1280,70 @@ private fun BurbujaMensajeFarmacia(
         horizontalArrangement = Arrangement.End
     ) {
         Surface(
-            color = if (tieneError) FDColors.Error.copy(alpha = 0.12f) else FDColors.PrimarySubtle,
+            // Sólido serio: burbuja oscura en claro, clara en oscuro. Sin verde/azul.
+            color = FDColors.TextPrimary,
             shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp),
-            border = BorderStroke(1.dp, if (tieneError) FDColors.Error.copy(alpha = 0.4f) else FDColors.Primary.copy(alpha = 0.25f)),
             modifier = Modifier.widthIn(max = 480.dp)
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = FDSpacing.lg, vertical = FDSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = usuario,
-                        style = FDType.Caption.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = if (tieneError) FDColors.Error else FDColors.Primary,
-                            fontFamily = InterPremium
-                        )
+                Text(
+                    text = "TÚ",
+                    style = FDType.Caption.copy(
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = FDColors.Background.copy(alpha = 0.7f),
+                        fontFamily = InterPremium
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = fechaStr,
-                            style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.TextTertiary)
-                        )
-                        if (!tieneError) {
-                            CheckLecturaWhatsApp(estadoLectura)
-                        }
-                    }
-                }
+                )
                 Text(
                     text = mensaje,
                     style = FDType.Body.copy(
                         fontSize = 13.5.sp,
-                        color = FDColors.TextPrimary,
+                        color = FDColors.Background,
                         fontFamily = InterPremium
                     )
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = fechaStr,
+                        style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.Background.copy(alpha = 0.7f))
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    EstadoEnvioTexto(estadoLectura, claro = true)
+                }
 
                 if (tieneError && onReintentar != null) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.End,
+                            .padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Surface(
-                            onClick = onReintentar,
-                            color = FDColors.Error,
-                            shape = FDShapes.Full
-                        ) {
-                            Text(
-                                text = "🔄 Reintentar envío",
-                                style = FDType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
+                        Text(
+                            text = "No se pudo enviar",
+                            style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.Background.copy(alpha = 0.85f))
+                        )
+                        Text(
+                            text = "Reintentar",
+                            style = FDType.Caption.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FDColors.Background
+                            ),
+                            modifier = Modifier
+                                .clip(FDShapes.Full)
+                                .clickable { onReintentar() }
+                                .border(1.dp, FDColors.Background.copy(alpha = 0.6f), FDShapes.Full)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }
@@ -1050,16 +1371,6 @@ private fun BurbujaRespuestaBrixo(
                 modifier = Modifier.padding(horizontal = FDSpacing.lg, vertical = FDSpacing.md),
                 horizontalArrangement = Arrangement.spacedBy(FDSpacing.md)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(FDColors.Primary.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("🎧", fontSize = 16.sp)
-                }
-
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -1099,29 +1410,148 @@ private fun BurbujaRespuestaBrixo(
 }
 
 @Composable
-private fun BadgeEstadoChat(estado: String) {
-    val (color, label, emoji) = when (estado.uppercase()) {
-        "RESUELTO" -> Triple(Color(0xFF22C55E), "Resuelto", "✔️")
-        "EN_PROCESO" -> Triple(Color(0xFFEAB308), "En atención", "⏳")
-        else -> Triple(FDColors.Primary, "Enviado", "🟢")
-    }
-    Surface(
-        color = color.copy(alpha = 0.10f),
-        shape = FDShapes.Full,
-        border = BorderStroke(1.dp, color.copy(alpha = 0.25f))
+private fun BurbujaEventoSistema(texto: String, fechaStr: String) {
+    // Evento del sistema: texto centrado sobrio, claramente distinto del chat.
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(emoji, fontSize = 9.sp)
+        Text(
+            text = texto,
+            style = FDType.Caption.copy(fontSize = 11.5.sp, color = FDColors.TextSecondary),
+        )
+        if (fechaStr.isNotBlank()) {
             Text(
-                text = label,
-                style = FDType.Caption.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = color)
+                text = fechaStr,
+                style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.TextTertiary)
             )
         }
     }
+}
+
+@Composable
+private fun DialogoReportarProblema(
+    cargando: Boolean,
+    onDismiss: () -> Unit,
+    onEnviar: (tipo: String, descripcion: String) -> Unit
+) {
+    var tipo by remember { mutableStateOf("Algo no funciona") }
+    var descripcion by remember { mutableStateOf("") }
+    var errorLocal by remember { mutableStateOf<String?>(null) }
+    val opciones = listOf(
+        "Algo no funciona",
+        "Apareció un error",
+        "El sistema está lento",
+        "Los datos parecen incorrectos",
+        "No puedo realizar una operación"
+    )
+    Dialog(onDismissRequest = { if (!cargando) onDismiss() }) {
+        Surface(
+            color = FDColors.Surface,
+            shape = FDShapes.XLarge,
+            border = BorderStroke(1.dp, FDColors.Border),
+            // El teclado jamás tapa los campos: se desplaza y respeta el teclado.
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .fillMaxWidth()
+                .imePadding()
+        ) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(FDSpacing.xxl),
+                verticalArrangement = Arrangement.spacedBy(FDSpacing.md)
+            ) {
+                Text(
+                    text = "Reportar problema",
+                    style = FDType.Heading2.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium)
+                )
+                Text(
+                    text = "Cuéntalo en simple. Soporte recibe el contexto técnico automáticamente.",
+                    style = FDType.Caption, color = FDColors.TextSecondary
+                )
+                HorizontalDivider(color = FDColors.Border)
+                Text("¿Qué problema encontraste?", style = FDType.Caption.copy(fontWeight = FontWeight.Bold))
+                opciones.forEach { op ->
+                    val sel = tipo == op
+                    Surface(
+                        onClick = { tipo = op },
+                        color = if (sel) FDColors.PrimarySubtle else FDColors.InputBackground,
+                        shape = FDShapes.Medium,
+                        border = BorderStroke(1.dp, if (sel) FDColors.Primary else FDColors.Border.copy(alpha = 0.3f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = FDSpacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(op, style = FDType.Body.copy(fontSize = 12.5.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium))
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = descripcion,
+                    onValueChange = { descripcion = it },
+                    label = { Text("Describe lo ocurrido") },
+                    placeholder = { Text("Ej: Al cerrar caja dice que sigue abierta...") },
+                    minLines = 3, maxLines = 5,
+                    shape = FDShapes.Medium,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                errorLocal?.let { Text(it, style = FDType.Caption.copy(color = FDColors.Error)) }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss, enabled = !cargando) {
+                        Text("Cancelar", style = FDType.Body.copy(color = FDColors.TextSecondary))
+                    }
+                    Spacer(Modifier.width(FDSpacing.sm))
+                    Surface(
+                        onClick = {
+                            if (descripcion.trim().length < 8) {
+                                errorLocal = "Describe lo ocurrido con al menos 8 caracteres."
+                            } else {
+                                errorLocal = null
+                                onEnviar(tipo, descripcion.trim())
+                            }
+                        },
+                        color = FDColors.Primary, shape = FDShapes.Full
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.md),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (cargando) {
+                                CircularProgressIndicator(color = FDColors.PrimaryText, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                            } else {
+                                Text("Enviar reporte", style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.PrimaryText))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BadgeEstadoChat(estado: String) {
+    // Lenguaje humano en texto sobrio: sin píldoras de colores ni iconos.
+    val label = when (estado.uppercase()) {
+        "CLOSED" -> "Cerrada"
+        "RESUELTO", "RESOLVED" -> "Resuelta"
+        "IN_PROGRESS", "EN_PROCESO" -> "En atención"
+        "WAITING_CUSTOMER" -> "Te necesitamos"
+        "WAITING_BRIXO" -> "En atención"
+        else -> "En cola"
+    }
+    Text(
+        text = label,
+        style = FDType.Caption.copy(
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = FDColors.TextSecondary
+        )
+    )
 }
 
 // ───────────────────────────── DIÁLOGO NUEVA CONSULTA ESTILO CHAT DELICADO ─────────────────────────────
@@ -1130,19 +1560,22 @@ private fun BadgeEstadoChat(estado: String) {
 private fun DialogoNuevaConsultaChat(
     cargando: Boolean,
     onDismiss: () -> Unit,
-    onConfirmar: (asunto: String, categoria: String, prioridad: String, descripcion: String) -> Unit
+    onConfirmar: (categoria: String, descripcion: String) -> Unit
 ) {
-    var asunto by remember { mutableStateOf("") }
-    var categoria by remember { mutableStateOf("CONSULTA_GENERAL") }
+    var categoria by remember { mutableStateOf<String?>(null) }
     var descripcion by remember { mutableStateOf("") }
     var errorLocal by remember { mutableStateOf<String?>(null) }
 
-    val opcionesCategorias = listOf(
-        Triple("FACTURACION_SUNAT", "📄 Facturación y SUNAT", "Series, comprobantes y APISUNAT"),
-        Triple("CAJA_VENTAS", "🎛️ Punto de Venta y Caja", "Ventas, arqueos y cobros"),
-        Triple("INVENTARIO_STOCK", "📦 Inventario y Lotes", "Stock, FEFO y productos"),
-        Triple("HARDWARE_IMPRESORA", "🖨️ Impresoras y Escáner", "Impresión de tickets y dispositivos"),
-        Triple("CONSULTA_GENERAL", "💬 Consulta General", "Dudas generales y cuenta")
+    // 8 opciones grandes y claras. Nada técnico que rellenar.
+    val opciones = listOf(
+        "FACTURACION_ELECTRONICA" to "Facturación",
+        "CAJA" to "Caja",
+        "INVENTARIO" to "Inventario",
+        "VENTAS" to "Ventas",
+        "USUARIOS" to "Usuarios",
+        "CONFIGURACION" to "Configuración",
+        "ERROR_TECNICO" to "Reportar un error",
+        "OTRO" to "Otro problema"
     )
 
     Dialog(onDismissRequest = { if (!cargando) onDismiss() }) {
@@ -1153,9 +1586,12 @@ private fun DialogoNuevaConsultaChat(
             modifier = Modifier
                 .widthIn(max = 520.dp)
                 .fillMaxWidth()
+                .imePadding()
         ) {
             Column(
-                modifier = Modifier.padding(FDSpacing.xxl),
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(FDSpacing.xxl),
                 verticalArrangement = Arrangement.spacedBy(FDSpacing.lg)
             ) {
                 // Header
@@ -1168,14 +1604,13 @@ private fun DialogoNuevaConsultaChat(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(FDSpacing.md)
                     ) {
-                        Text("💬", fontSize = 24.sp)
                         Column {
                             Text(
-                                text = "Nueva Consulta a BRIXO",
+                                text = "¿En qué podemos ayudarte?",
                                 style = FDType.Heading2.copy(fontWeight = FontWeight.Bold, fontFamily = InterPremium)
                             )
                             Text(
-                                text = "Escribe tu consulta y un especialista te responderá.",
+                                text = "Elige un tema y cuéntanos. Un agente te atenderá.",
                                 style = FDType.Caption,
                                 color = FDColors.TextSecondary
                             )
@@ -1185,99 +1620,91 @@ private fun DialogoNuevaConsultaChat(
 
                 HorizontalDivider(color = FDColors.Border)
 
-                // Asunto corto
-                OutlinedTextField(
-                    value = asunto,
-                    onValueChange = { asunto = it },
-                    label = { Text("Tema o asunto de tu consulta") },
-                    placeholder = { Text("Ej: Consulta sobre impresión de ticket") },
-                    singleLine = true,
-                    shape = FDShapes.Medium,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Selector de Categoría
-                Text("Categoría:", style = FDType.Caption.copy(fontWeight = FontWeight.Bold))
+                // 1. ¿En qué podemos ayudarte? (una sola elección, grande y clara)
+                Text("¿En qué podemos ayudarte?", style = FDType.Body.copy(fontWeight = FontWeight.Bold))
                 Column(verticalArrangement = Arrangement.spacedBy(FDSpacing.xs)) {
-                    opcionesCategorias.forEach { (catKey, catLabel, catSub) ->
-                        val esSel = categoria == catKey
-                        Surface(
-                            onClick = { categoria = catKey },
-                            color = if (esSel) FDColors.PrimarySubtle else FDColors.InputBackground,
-                            shape = FDShapes.Medium,
-                            border = BorderStroke(1.dp, if (esSel) FDColors.Primary else FDColors.Border.copy(alpha = 0.3f)),
-                            modifier = Modifier.fillMaxWidth()
+                    opciones.chunked(2).forEach { fila ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = FDSpacing.md, vertical = FDSpacing.sm),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column {
-                                    Text(catLabel, style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 12.5.sp))
-                                    Text(catSub, style = FDType.Caption.copy(fontSize = 10.5.sp, color = FDColors.TextSecondary))
-                                }
-                                if (esSel) {
-                                    Text("✔️", fontSize = 12.sp)
+                            fila.forEach { (catKey, catLabel) ->
+                                val esSel = categoria == catKey
+                                Surface(
+                                    onClick = { categoria = catKey },
+                                    color = if (esSel) FDColors.PrimarySubtle else FDColors.InputBackground,
+                                    shape = FDShapes.Medium,
+                                    border = BorderStroke(1.dp, if (esSel) FDColors.Primary else FDColors.Border.copy(alpha = 0.3f)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = FDSpacing.sm, vertical = FDSpacing.md),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            catLabel,
+                                            style = FDType.Body.copy(
+                                                fontWeight = if (esSel) FontWeight.Bold else FontWeight.Medium,
+                                                fontSize = 13.sp
+                                            )
+                                        )
+                                    }
                                 }
                             }
+                            if (fila.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
 
-                // Detalle del mensaje
+                // 2. Cuéntanos qué ocurre (un solo campo grande).
+                Text("Cuéntanos qué ocurre", style = FDType.Body.copy(fontWeight = FontWeight.Bold))
                 OutlinedTextField(
                     value = descripcion,
                     onValueChange = { descripcion = it },
-                    label = { Text("Mensaje o detalle") },
-                    placeholder = { Text("Explica brevemente tu consulta o lo que necesitas...") },
-                    minLines = 3,
-                    maxLines = 5,
+                    placeholder = { Text("Escribe aquí qué problema estás teniendo...") },
+                    minLines = 4,
+                    maxLines = 6,
                     shape = FDShapes.Medium,
                     modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "Lo técnico (sede, usuario, equipo) lo juntamos nosotros. Tú solo cuéntalo con tus palabras.",
+                    style = FDType.Caption.copy(color = FDColors.TextSecondary)
                 )
 
                 errorLocal?.let {
                     Text(it, style = FDType.Caption.copy(color = FDColors.Error))
                 }
 
-                // Acciones
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = onDismiss, enabled = !cargando) {
-                        Text("Cancelar", style = FDType.Body.copy(color = FDColors.TextSecondary))
-                    }
-                    Spacer(Modifier.width(FDSpacing.sm))
-                    Surface(
-                        onClick = {
-                            if (asunto.trim().length < 4) {
-                                errorLocal = "Ingresa un tema o asunto breve."
-                            } else if (descripcion.trim().length < 8) {
-                                errorLocal = "Escribe un mensaje de al menos 8 caracteres."
-                            } else {
+                // 3. Una sola acción principal.
+                Surface(
+                    onClick = {
+                        when {
+                            categoria == null -> errorLocal = "Elige primero en qué podemos ayudarte."
+                            descripcion.trim().length < 8 -> errorLocal = "Cuéntanos con al menos 8 caracteres qué está pasando."
+                            else -> {
                                 errorLocal = null
-                                onConfirmar(asunto, categoria, "NORMAL", descripcion)
-                            }
-                        },
-                        color = FDColors.Primary,
-                        shape = FDShapes.Full
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = FDSpacing.xl, vertical = FDSpacing.md),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(FDSpacing.xs)
-                        ) {
-                            if (cargando) {
-                                CircularProgressIndicator(color = FDColors.PrimaryText, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                            } else {
-                                Text("📩", fontSize = 14.sp)
-                                Text("Enviar Consulta", style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = FDColors.PrimaryText))
+                                onConfirmar(categoria!!, descripcion.trim())
                             }
                         }
+                    },
+                    color = if (categoria != null && descripcion.trim().length >= 8) FDColors.Primary else FDColors.Border,
+                    shape = FDShapes.Full,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier.padding(vertical = FDSpacing.md),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (cargando) {
+                            CircularProgressIndicator(color = FDColors.PrimaryText, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                        } else {
+                            Text("Enviar solicitud", style = FDType.Body.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        }
                     }
+                }
+                TextButton(onClick = onDismiss, enabled = !cargando, modifier = Modifier.fillMaxWidth()) {
+                    Text("Ahora no", style = FDType.Body.copy(color = FDColors.TextSecondary))
                 }
             }
         }

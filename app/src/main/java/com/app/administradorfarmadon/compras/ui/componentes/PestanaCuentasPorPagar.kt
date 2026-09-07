@@ -17,10 +17,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -127,23 +126,27 @@ private fun calcularVencimientoHumano(factura: FacturaCompra): InfoVencimientoHu
         )
     }
     if (factura.esContado) {
-        val fechaEmision = factura.fechaRegistro.ifBlank { "Reciente" }
+        // Emitida = fecha del PAPEL, no del registro en sistema (un papel tardío
+        // nació días atrás aunque se anotara hoy).
+        val fechaEmision = factura.fechaEmision.ifBlank { factura.fechaRegistro.ifBlank { "Reciente" } }
         if (factura.esTotalmentePagada) {
             return InfoVencimientoHumano(
                 esContado = true,
                 textoTarjeta = "Emitida: $fechaEmision · Contado",
-                textoDetalle = "Liquidado al recibir mercadería · Cero deuda pendiente",
+                textoDetalle = "Cancelado al contado al recibir mercadería",
                 esVencido = false,
                 esAlertaPronta = false
             )
         }
+        // Ley del negocio: el contado se paga al recibir. Si se debe, ya venció
+        // (papel anexado tarde o saldo pendiente): grita en rojo y cae en VENCIDAS.
         val simbolo = SessionManager.monedaSimbolo.ifBlank { "S/" }
         val saldo = factura.saldoPendienteReal
         return InfoVencimientoHumano(
             esContado = true,
-            textoTarjeta = "Contado · Falta pagar $simbolo " + String.format(Locale.US, "%.2f", saldo),
-            textoDetalle = "Factura al contado con saldo pendiente: $simbolo " + String.format(Locale.US, "%.2f", saldo),
-            esVencido = false,
+            textoTarjeta = "Contado vencido · Falta $simbolo " + String.format(Locale.US, "%.2f", saldo),
+            textoDetalle = "Contado sin pagar (debió cancelarse al recibir): $simbolo " + String.format(Locale.US, "%.2f", saldo),
+            esVencido = true,
             esAlertaPronta = false
         )
     }
@@ -452,26 +455,13 @@ fun PestanaCuentasPorPagar(
                     .fillMaxHeight()
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // ── BUSCADOR ──
-                    OutlinedTextField(
-                        value = busquedaComprobante,
-                        onValueChange = { busquedaComprobante = it },
-                        placeholder = { Text("Buscar factura o droguería...", fontSize = 12.sp, color = FDColors.InputPlaceholder) },
-                        leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall)) },
-                        singleLine = true,
-                        shape = FDShapes.Small,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = FDColors.InputBackground,
-                            unfocusedContainerColor = FDColors.InputBackground,
-                            focusedBorderColor = FDColors.BorderFocus,
-                            unfocusedBorderColor = FDColors.InputBorder,
-                            focusedTextColor = FDColors.InputText,
-                            unfocusedTextColor = FDColors.InputText
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(s.padCard * 0.75f)
-                            .height(s.inputMinH)
+                    // ── BUSCADOR CÓMODO Y ESPACIOSO ──
+                    CampoBuscadorModerno(
+                        busqueda = busquedaComprobante,
+                        onBusquedaChange = { busquedaComprobante = it },
+                        placeholder = "Buscar factura o droguería...",
+                        modifier = Modifier.padding(s.padCard * 0.75f),
+                        altura = s.inputMinH
                     )
 
                     HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = 0.5.dp)
@@ -625,22 +615,29 @@ private fun DetalleFacturaLiquidacion(
     val esContado = factura.esContado
     val esPagada = factura.esTotalmentePagada
     val saldoRestante = factura.saldoPendienteReal
+    // Carriles del documento: información, productos e historial (pagos y movimientos).
+    var tabFactura by remember(factura.id) { mutableIntStateOf(0) } // 0 info · 1 productos · 2 historial
+    // Verdad de pago: contado NO significa pagado (un papel anexado tarde nace
+    // Contado + PENDIENTE). Solo el saldo manda.
     val etiquetaEstado = when {
         factura.esAnulada -> "ANULADA"
-        esPagada -> if (esContado) "CONTADO · PAGADO" else "PAGADA"
+        esPagada -> if (esContado) "PAGADO AL CONTADO" else "TOTALMENTE PAGADA"
+        esContado -> "CONTADO VENCIDO"
         factura.totalAbonadoReal > 0.01 -> "ABONO PARCIAL"
         else -> "PENDIENTE"
     }
     val colorEstado = when {
         factura.esAnulada -> FDColors.Error
         esPagada -> FDColors.Success
+        esContado -> FDColors.Error
         factura.totalAbonadoReal > 0.01 -> FDColors.Primary
         else -> FDColors.Warning
     }
     val fechaPagoTexto = when {
         factura.esAnulada -> "Anulada"
+        esContado && esPagada -> "Cancelado al contado"
         factura.fechaVencimientoPago.isNotBlank() -> factura.fechaVencimientoPago
-        esPagada -> "Al contado (pagado)"
+        esPagada -> "Totalmente pagada"
         else -> "Sin fecha · pago pendiente"
     }
 
@@ -697,21 +694,111 @@ private fun DetalleFacturaLiquidacion(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
-                // Acciones Rápidas (Prorrogar Vencimiento) — bloqueadas mientras se guarda un pago
-                if (!factura.esAnulada && !esContado && !esPagada) {
-                    FDBotonSecundario(
-                        texto = "PRORROGAR",
-                        onClick = { onAbrirDialogoProrroga(factura) },
-                        habilitado = !procesandoPago,
-                        modifier = Modifier.height(s.btnSmallH)
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(s.xs)
+                ) {
+                    val context = LocalContext.current
+                    IconButton(
+                        onClick = {
+                            val texto = buildString {
+                                appendLine("*ESTADO DE CUENTA DE FACTURA*")
+                                appendLine("🏪 *Farmacia:* ${SessionManager.sucursalNombre.ifBlank { "Sede Farmadon" }}")
+                                appendLine("📦 *Proveedor:* ${factura.proveedorNombre}")
+                                appendLine("📄 *Factura N°:* ${factura.numeroFactura}")
+                                if (factura.fechaEmision.isNotBlank()) appendLine("📅 *Emisión:* ${factura.fechaEmision}")
+                                appendLine("📅 *Recepción:* ${factura.fechaRegistro}")
+                                appendLine("⏰ *Vencimiento:* $fechaPagoTexto")
+                                appendLine("📋 *Estado:* $etiquetaEstado")
+                                appendLine("----------------------------------------")
+                                appendLine("💵 *Total Documento:* $simboloMoneda ${String.format(Locale.US, "%.2f", factura.totalPapel)}")
+                                if (factura.totalAjustes > 0.01) {
+                                    appendLine("🔖 *Notas de Crédito:* - $simboloMoneda ${String.format(Locale.US, "%.2f", factura.totalAjustes)}")
+                                    appendLine("💰 *Total Efectivo:* $simboloMoneda ${String.format(Locale.US, "%.2f", factura.totalEfectivo)}")
+                                }
+                                appendLine("✅ *Total Abonado:* $simboloMoneda ${String.format(Locale.US, "%.2f", factura.totalAbonadoReal)}")
+                                if (factura.esAnulada) {
+                                    appendLine("❌ *Estado:* ANULADA (Sin deuda)")
+                                } else if (saldoRestante <= 0.01 || esPagada) {
+                                    appendLine(if (esContado) "✅ *Estado de Pago:* TOTALMENTE PAGADO AL CONTADO" else "✅ *Estado de Pago:* TOTALMENTE PAGADA")
+                                } else {
+                                    appendLine("⚠️ *Saldo Pendiente:* $simboloMoneda ${String.format(Locale.US, "%.2f", saldoRestante)}")
+                                }
+                                appendLine("----------------------------------------")
+                                appendLine("_Generado desde Sistema Farmadon_")
+                            }
+
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Factura ${factura.numeroFactura}", texto))
+
+                            val uriStr = "https://api.whatsapp.com/send?text=${android.net.Uri.encode(texto)}"
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(uriStr))
+                                context.startActivity(intent)
+                                android.widget.Toast.makeText(context, "📋 Resumen copiado y abriendo WhatsApp...", android.widget.Toast.LENGTH_SHORT).show()
+                            } catch (_: Exception) {
+                                android.widget.Toast.makeText(context, "📋 Resumen copiado al portapapeles", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier
+                            .size(s.btnSmallH)
+                            .border(s.borderWidth, FDColors.Primary.copy(alpha = 0.4f), CircleShape)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = "Compartir estado de cuenta",
+                            tint = FDColors.Primary,
+                            modifier = Modifier.size(s.iconSmall * 0.85f)
+                        )
+                    }
+
+                    // Acciones Rápidas (Prorrogar Vencimiento) — bloqueadas mientras se guarda un pago
+                    if (!factura.esAnulada && !esContado && !esPagada) {
+                        FDBotonSecundario(
+                            texto = "PRORROGAR",
+                            onClick = { onAbrirDialogoProrroga(factura) },
+                            habilitado = !procesandoPago,
+                            modifier = Modifier.height(s.btnSmallH)
+                        )
+                    }
                 }
             }
         }
 
         HorizontalDivider(color = FDColors.Border, thickness = s.separatorH)
 
-        // ── 2. CUERPO SCROLLABLE: HISTORIAL DE PAGOS Y NOTAS DE CRÉDITO ──
+        // ── 2. PESTAÑAS DEL DOCUMENTO ──
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = s.padCard, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            PestanaFactura(
+                texto = "INFORMACIÓN",
+                conteo = -1,
+                seleccionado = tabFactura == 0,
+                onClick = { tabFactura = 0 },
+                modifier = Modifier.weight(1f)
+            )
+            PestanaFactura(
+                texto = "PRODUCTOS",
+                conteo = factura.items.size,
+                seleccionado = tabFactura == 1,
+                onClick = { tabFactura = 1 },
+                modifier = Modifier.weight(1f)
+            )
+            PestanaFactura(
+                texto = "HISTORIAL",
+                conteo = factura.abonos.size + factura.ajustesFactura.size,
+                seleccionado = tabFactura == 2,
+                onClick = { tabFactura = 2 },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
+
+        // ── 3. CUERPO SCROLLABLE POR CARRIL ──
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -720,7 +807,79 @@ private fun DetalleFacturaLiquidacion(
                 .padding(s.padCard),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
+            // CARRIL 0: INFORMACIÓN — el documento como factura real informativa.
+            if (tabFactura == 0) {
+                Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
+                    Text(
+                        "DOCUMENTO",
+                        style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = FDColors.TextSecondary
+                    )
+                    Surface(
+                        color = FDColors.Surface,
+                        shape = FDShapes.Small,
+                        border = BorderStroke(s.borderWidth * 0.7f, FDColors.Border),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            FilaContable("Factura N°", factura.numeroFactura.ifBlank { "—" }, s, bold = true)
+                            FilaContable("Tipo", "${factura.tipoDoc.ifBlank { "FACTURA" }}${if (factura.serie.isNotBlank()) " · Serie ${factura.serie}" else ""}", s)
+                            FilaContable("Proveedor", factura.proveedorNombre.ifBlank { "—" }, s)
+                            if (factura.rucProveedor.isNotBlank()) {
+                                FilaContable("RUC", factura.rucProveedor, s)
+                            }
+                            FilaContable("Emitida", factura.fechaEmision.ifBlank { factura.fechaRegistro.ifBlank { "—" } }, s)
+                            FilaContable("Recepción", factura.fechaRegistro.ifBlank { "—" }, s)
+                            FilaContable("Condición", factura.condicionPago.ifBlank { "—" }, s)
+                            if (!factura.esContado) {
+                                FilaContable("Vence", factura.fechaVencimientoPago.ifBlank { "Sin fecha" }, s)
+                            }
+                            if (factura.pedidoNumeroOrden.isNotBlank()) {
+                                FilaContable("Orden", factura.pedidoNumeroOrden, s)
+                            }
+                        }
+                    }
+                    Text(
+                        "MONTOS",
+                        style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = FDColors.TextSecondary
+                    )
+                    Surface(
+                        color = FDColors.Surface,
+                        shape = FDShapes.Small,
+                        border = BorderStroke(s.borderWidth * 0.7f, FDColors.Border),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            if (factura.totalAjustes > 0.01) {
+                                FilaContable("Total en papel", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel), s)
+                                FilaContable("Notas de crédito", "- $simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAjustes), s, color = FDColors.Warning)
+                                FilaContable("Total efectivo", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalEfectivo), s, bold = true)
+                            } else {
+                                FilaContable("Total", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel), s, bold = true)
+                            }
+                            FilaContable("Abonado", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAbonadoReal), s, color = FDColors.Success)
+                            FilaContable(
+                                "Saldo",
+                                "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoRestante),
+                                s,
+                                color = if (saldoRestante > 0.01) FDColors.Warning else FDColors.Success,
+                                bold = true,
+                                grande = true
+                            )
+                        }
+                    }
+                }
+            }
+
             // BLOQUE A: PRODUCTOS FACTURADOS
+            if (tabFactura == 1) {
             if (factura.items.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
                     Row(
@@ -841,9 +1000,20 @@ private fun DetalleFacturaLiquidacion(
                         }
                     }
                 }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Sin productos en el documento.", style = FDType.BodySmall, color = FDColors.TextTertiary)
+                }
+            }
             }
 
             // BLOQUE B: HISTORIAL DE ABONOS REALIZADOS
+            if (tabFactura == 2) {
             Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -898,8 +1068,10 @@ private fun DetalleFacturaLiquidacion(
                     }
                 }
             }
+            }
 
             // NOTAS DE CRÉDITO: cada ajuste del papel con su documento (append-only)
+            if (tabFactura == 2) {
             if (factura.ajustesFactura.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(s.gapSmall)) {
                     Text("NOTAS DE CRÉDITO", style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold), color = FDColors.TextSecondary)
@@ -945,74 +1117,98 @@ private fun DetalleFacturaLiquidacion(
                         }
                     }
                 }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Sin notas de crédito.", style = FDType.BodySmall, color = FDColors.TextTertiary)
+                }
+            }
             }
         }
 
-        // ── 3. PIE FIJO: RESUMEN CONTABLE DE LA FACTURA ──
+        // ── 4. PIE FIJO: SOLO ACCIONES (el resumen vive en INFORMACIÓN) ──
         Surface(
             color = FDColors.SurfaceElevated,
             border = BorderStroke(s.borderWidth, FDColors.Border)
         ) {
-            Column(modifier = Modifier.padding(s.padCard), verticalArrangement = Arrangement.spacedBy(s.gapMedium)) {
-                Text(
-                    "RESUMEN CONTABLE DE LA FACTURA",
-                    style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp),
-                    color = FDColors.TextTertiary
-                )
-
-                FilaContable("Emitida", factura.fechaRegistro.ifBlank { "—" }, s)
-                FilaContable("Fecha de pago", fechaPagoTexto, s)
-                if (factura.totalAjustes > 0.01) {
-                    FilaContable("Total en papel", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel), s)
-                    FilaContable("Notas de crédito (descuento)", "- $simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAjustes), s, color = FDColors.Warning)
-                    FilaContable("Total efectivo a liquidar", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalEfectivo), s, bold = true)
-                } else {
-                    FilaContable("Total de factura", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalPapel), s, bold = true)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(s.padCard),
+                horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 1.2f)
+            ) {
+                if (!factura.esAnulada) {
+                    // También en contado: si llegó incompleta, la NC genera el saldo a favor.
+                    // El servidor valida el máximo ajustable; aquí no se esconde el camino.
+                    FDBotonSecundario(
+                        texto = "NOTA DE CRÉDITO",
+                        onClick = { onAbrirDialogoNotaCredito(factura) },
+                        habilitado = !procesandoPago,
+                        modifier = Modifier.weight(1f)
+                    )
+                    FDBotonSecundario(
+                        texto = "ANULAR FACTURA",
+                        onClick = { onAbrirDialogoAnular(factura) },
+                        habilitado = !procesandoPago,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-                FilaContable("Abonado", "$simboloMoneda " + String.format(Locale.US, "%.2f", factura.totalAbonadoReal), s, color = FDColors.Success)
-                HorizontalDivider(color = FDColors.Border.copy(alpha = 0.6f), thickness = s.separatorH)
-                FilaContable(
-                    "Pendiente por pagar",
-                    "$simboloMoneda " + String.format(Locale.US, "%.2f", saldoRestante),
-                    s,
-                    color = if (saldoRestante > 0.01) FDColors.Warning else FDColors.Success,
-                    bold = true,
-                    grande = true
-                )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 1.2f)
-                ) {
-                    if (!factura.esAnulada) {
-                        // También en contado: si llegó incompleta, la NC genera el saldo a favor.
-                        // El servidor valida el máximo ajustable; aquí no se esconde el camino.
-                        FDBotonSecundario(
-                            texto = "NOTA DE CRÉDITO",
-                            onClick = { onAbrirDialogoNotaCredito(factura) },
-                            habilitado = !procesandoPago,
-                            modifier = Modifier.weight(1f)
-                        )
-                        FDBotonSecundario(
-                            texto = "ANULAR FACTURA",
-                            onClick = { onAbrirDialogoAnular(factura) },
-                            habilitado = !procesandoPago,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    if (!esPagada && !factura.esAnulada) {
-                        FDBotonPrimario(
-                            texto = if (factura.totalAbonadoReal > 0) "REGISTRAR OTRO ABONO" else "REGISTRAR PAGO / ABONO",
-                            onClick = { onAbrirDialogoAbono(factura) },
-                            icono = Icons.Default.AddCard,
-                            habilitado = !procesandoPago,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                // Pagar/abonar: toda deuda viva lo ofrece, incluso contado pendiente
+                // (papel anexado tarde). Sin este botón esa deuda era impagable.
+                if (!esPagada && !factura.esAnulada) {
+                    FDBotonPrimario(
+                        texto = if (factura.totalAbonadoReal > 0) "REGISTRAR OTRO ABONO" else "REGISTRAR PAGO / ABONO",
+                        onClick = { onAbrirDialogoAbono(factura) },
+                        icono = Icons.Default.AddCard,
+                        habilitado = !procesandoPago,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PestanaFactura(
+    texto: String,
+    conteo: Int,
+    seleccionado: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { onClick() }
+            .padding(vertical = 6.dp)
+    ) {
+        Text(
+            text = if (conteo < 0) texto else "$texto [ $conteo ]",
+            style = FDType.Label.copy(
+                fontSize = 10.5.sp,
+                fontWeight = if (seleccionado) FontWeight.Black else FontWeight.Medium,
+                letterSpacing = 0.5.sp
+            ),
+            color = if (seleccionado) FDColors.Primary else FDColors.TextTertiary,
+            maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .height(2.dp)
+                .background(
+                    if (seleccionado) FDColors.Primary else Color.Transparent,
+                    RoundedCornerShape(1.dp)
+                )
+        )
     }
 }
 

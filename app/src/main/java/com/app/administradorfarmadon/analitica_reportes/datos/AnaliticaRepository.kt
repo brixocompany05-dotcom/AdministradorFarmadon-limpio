@@ -3,6 +3,7 @@ package com.app.administradorfarmadon.analitica_reportes.datos
 import android.util.Log
 import com.app.administradorfarmadon.compartido.datos.FarmadonFirestore
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
+import com.app.administradorfarmadon.analitica_reportes.logica.AnaliticaCalculadora
 import com.app.administradorfarmadon.analitica_reportes.modelo.SucursalInfo
 import com.app.administradorfarmadon.facturacion.documentos.datos.FacturacionDocumentosRepository
 import com.app.administradorfarmadon.ventas.compartido.datos.CajaRepository
@@ -19,6 +20,7 @@ import com.app.administradorfarmadon.ventas.compartido.modelo.MovimientoCaja
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
 import com.app.administradorfarmadon.configuracion.metodospago.modelo.InstanciaPago
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.channels.awaitClose
@@ -230,41 +232,65 @@ class AnaliticaRepository(
     }
 
     /**
-     * Escucha en vivo del puntero atómico de caja (doc 'actual' en caja_sesiones).
+     * Escucha en vivo de TODOS los punteros de turno vigentes de la sede (R1/R8/R13).
+     *
+     * Puntería corregida: el POS escribe el puntero del turno por cajero (`actual_<cajeroId>`,
+     * o `actual` si el cajero no tiene ID). Leer el documento genérico `actual` dejaba a
+     * Analítica ciega ante los turnos abiertos reales. Se escucha el rango de documentos
+     * [actual .. actual\uFFFF] dentro de caja_sesiones (misma sede, R1) y se devuelven solo
+     * los punteros ABIERTOS; el ViewModel los combina en un único estado de la sede.
      */
-    fun observarEstadoCaja(farmaciaId: String, sucursalId: String): Flow<EstadoCaja> = callbackFlow {
+    fun observarEstadoCaja(farmaciaId: String, sucursalId: String): Flow<List<EstadoCaja>> = callbackFlow {
         if (farmaciaId.isBlank() || sucursalId.isBlank()) {
-            trySend(EstadoCaja())
+            trySend(emptyList())
             awaitClose {}
             return@callbackFlow
         }
 
-        val ref = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+        val ref = FarmadonPaths.cajaSesiones(db, farmaciaId, sucursalId)
+            .whereGreaterThanOrEqualTo(FieldPath.documentId(), "actual")
+            .whereLessThanOrEqualTo(FieldPath.documentId(), "actual\uffff")
+
         val listener = ref.addSnapshotListener { snapshot, error ->
             if (error != null) {
-                Log.e(TAG, "Error escuchando estadoCaja: ${error.message}", error)
+                Log.e(TAG, "Error escuchando punteros de caja: ${error.message}", error)
                 close(error)
                 return@addSnapshotListener
             }
 
-            val estado = cajaRepo.parseEstadoCaja(snapshot?.data)
-            trySend(estado)
+            val punteros = snapshot?.documents
+                ?.filter { it.id.startsWith("actual") }
+                ?.mapNotNull { cajaRepo.parseEstadoCaja(it.data) }
+                ?.filter { it.estado == CajaSesion.ESTADO_ABIERTA }
+                ?: emptyList()
+
+            trySend(punteros)
         }
 
         awaitClose { listener.remove() }
     }
 
     /**
-     * Consulta puntual del estado actual de caja para verificar si hay jornadas pendientes.
+     * Consulta puntual de los punteros de turno vigentes de la sede, combinados en un único
+     * EstadoCaja agregado (R1/R13). Lanza la excepción real para que el ViewModel la declare
+     * como fuente fallida (R3/R9: nunca devolver "caja cerrada" fingiendo que fue leído).
      */
     suspend fun obtenerEstadoCajaPuntual(farmaciaId: String, sucursalId: String): EstadoCaja {
         if (farmaciaId.isBlank() || sucursalId.isBlank()) return EstadoCaja()
         return try {
-            val snap = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId).get().await()
-            cajaRepo.parseEstadoCaja(snap.data)
+            val snap = FarmadonPaths.cajaSesiones(db, farmaciaId, sucursalId)
+                .whereGreaterThanOrEqualTo(FieldPath.documentId(), "actual")
+                .whereLessThanOrEqualTo(FieldPath.documentId(), "actual\uffff")
+                .get()
+                .await()
+            val punteros = snap.documents
+                .filter { it.id.startsWith("actual") }
+                .mapNotNull { cajaRepo.parseEstadoCaja(it.data) }
+                .filter { it.estado == CajaSesion.ESTADO_ABIERTA }
+            AnaliticaCalculadora.combinarEstadosCaja(punteros)
         } catch (e: Exception) {
             Log.e(TAG, "Error obteniendo estado de caja puntual: ${e.message}", e)
-            EstadoCaja()
+            throw e
         }
     }
 
@@ -343,7 +369,10 @@ class AnaliticaRepository(
                 .limit((limite + 1).toLong())
                 .get().await()
             snap.documents.mapNotNull { doc ->
-                if (doc.id == "actual") null else cajaRepo.parseSesion(doc.id, doc.data)
+                // Excluir TODOS los punteros (doc 'actual' legacy y 'actual_<cajeroId>'):
+                // el turno abierto entra una sola vez por su documento de sesión real;
+                // el estado vivo del puntero se lee por la vía exclusiva de observarEstadoCaja (R13: cero doble conteo).
+                if (doc.id.startsWith("actual")) null else cajaRepo.parseSesion(doc.id, doc.data)
             }.take(limite)
         } catch (e: Exception) {
             Log.e(TAG, "Error obteniendo historial de sesiones de caja: ${e.message}", e)
@@ -375,7 +404,10 @@ class AnaliticaRepository(
                 agotarConsultaPaginada(coleccion)
             }
             docs.mapNotNull { doc ->
-                if (doc.id == "actual") null else cajaRepo.parseSesion(doc.id, doc.data)
+                // Excluir TODOS los punteros ('actual' y 'actual_<cajeroId>'): si entraran, el turno
+                // abierto se contaría DOS veces (documento de sesión + puntero) en el historial y en
+                // el puntero de conciliación. El estado vivo se lee solo por observarEstadoCaja (R13).
+                if (doc.id.startsWith("actual")) null else cajaRepo.parseSesion(doc.id, doc.data)
             }.filter { s ->
                 val tiempoCorte = if (s.cierreMs > 0L) s.cierreMs else s.aperturaMs
                 tiempoCorte in inicioMs..finMs

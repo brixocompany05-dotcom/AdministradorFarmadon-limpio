@@ -214,6 +214,13 @@ fun AnaliticaVentasSection(
             )
         }
 
+        // ── 2B. CONTROL DEL EQUIPO: DESCUENTOS, RECETAS Y DEVOLUCIONES CON RESPONSABLE ──
+        PanelControlEquipo(
+            ventas = ventas,
+            devoluciones = devoluciones,
+            periodo = periodo
+        )
+
         // ── 3. AUDITORÍA DE COMPROBANTES: EL LIBRO DIARIO DE VENTAS ──
         Surface(
             color = FDColors.Surface,
@@ -359,7 +366,7 @@ fun AnaliticaVentasSection(
                         )
                     }
                 } else {
-                    val formatoHora = remember { SimpleDateFormat("dd/MM HH:mm", Locale.US) }
+                    val formatoHora = remember { SimpleDateFormat("dd/MM HH:mm", Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("America/Lima") } }
 
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -367,7 +374,7 @@ fun AnaliticaVentasSection(
                     ) {
                         ventasPaginadas.forEachIndexed { idx, v ->
                             val fechaStr = if (v.fechaHoraMs > 0) formatoHora.format(Date(v.fechaHoraMs)) else v.diaClave
-                            val primerMetodo = v.pagos.firstOrNull()?.nombreMetodo?.ifBlank { v.pagos.firstOrNull()?.tipoId } ?: "Efectivo"
+                            val primerMetodo = v.pagos.firstOrNull()?.nombreMetodo?.ifBlank { v.pagos.firstOrNull()?.tipoId } ?: "Sin registro"
                             val metodoResumen = if (v.pagos.size > 1) "$primerMetodo (+${v.pagos.size - 1})" else primerMetodo
 
                             Surface(
@@ -395,7 +402,7 @@ fun AnaliticaVentasSection(
                                     // 2. Comprobante
                                     Column(modifier = Modifier.weight(1.5f)) {
                                         Text(
-                                            text = v.numeroCompleto.ifBlank { v.id.take(8) },
+                                            text = v.numeroCompleto.ifBlank { "S/N" },
                                             style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
                                             color = FDColors.TextPrimary
                                         )
@@ -952,6 +959,228 @@ private fun PanelVentasPorVendedor(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PanelControlEquipo(
+    ventas: List<Venta>,
+    devoluciones: List<DevolucionVenta>,
+    periodo: String
+) {
+    val ventasVigentes = remember(ventas) { ventas.filter { it.estado != Venta.ESTADO_ANULADA } }
+
+    val conDescuento = remember(ventasVigentes) {
+        ventasVigentes.filter { it.descuento > 0.0 }.sortedByDescending { it.descuento }
+    }
+    val totalDescuentos = remember(conDescuento) {
+        kotlin.math.round(conDescuento.sumOf { it.descuento } * 100.0) / 100.0
+    }
+
+    val conReceta = remember(ventasVigentes) {
+        ventasVigentes.filter { v ->
+            v.recetaVerificada || v.items.any { it.requiereReceta }
+        }.sortedByDescending { it.fechaHoraMs }
+    }
+
+    val devsOrdenadas = remember(devoluciones) { devoluciones.sortedByDescending { it.fechaMs } }
+    val totalReembolsos = remember(devsOrdenadas) {
+        kotlin.math.round(devsOrdenadas.sumOf { it.montoReembolso } * 100.0) / 100.0
+    }
+
+    if (conDescuento.isEmpty() && conReceta.isEmpty() && devsOrdenadas.isEmpty()) return
+
+    val fmtHora = remember {
+        SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).apply {
+            timeZone = TimeZone.getTimeZone("America/Lima")
+        }
+    }
+
+    Surface(
+        color = FDColors.Surface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, FDColors.Border),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "CONTROL DEL EQUIPO · QUIÉN HIZO QUÉ",
+                    style = FDType.Heading2.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold),
+                    color = FDColors.TextPrimary
+                )
+                Text(
+                    text = "Descuentos, recetas y devoluciones del período con responsable ($periodo)",
+                    style = FDType.Caption.copy(fontSize = 10.5.sp),
+                    color = FDColors.TextSecondary
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Columna 1: Descuentos con responsable
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "DESCUENTOS · S/ ${"%.2f".format(Locale.US, totalDescuentos)} (${conDescuento.size})",
+                        style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                        color = FDColors.TextSecondary
+                    )
+                    if (conDescuento.isEmpty()) {
+                        Text("Sin descuentos.", style = FDType.Caption.copy(fontSize = 11.sp), color = FDColors.TextTertiary)
+                    } else {
+                        conDescuento.take(5).forEach { v ->
+                            val pct = if (v.subtotal > 0.0) (v.descuento / v.subtotal) * 100.0 else 0.0
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        v.numeroCompleto.ifBlank { v.id },
+                                        style = FDType.Body.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
+                                        color = FDColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        v.cajeroNombre.ifBlank { "Sin cajero" },
+                                        style = FDType.Caption.copy(fontSize = 10.sp),
+                                        color = FDColors.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text(
+                                    "-S/ ${"%.2f".format(Locale.US, v.descuento)} (${"%.0f".format(Locale.US, pct)}%)",
+                                    style = FDType.Numeric.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
+                                    color = FDColors.Warning
+                                )
+                            }
+                        }
+                        if (conDescuento.size > 5) {
+                            Text("+${conDescuento.size - 5} más en el libro diario.", style = FDType.Caption.copy(fontSize = 10.sp), color = FDColors.TextTertiary)
+                        }
+                    }
+                }
+
+                // Columna 2: Recetas verificadas con responsable
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "RECETAS · ${conReceta.size} comprobante${if (conReceta.size == 1) "" else "s"}",
+                        style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                        color = FDColors.TextSecondary
+                    )
+                    if (conReceta.isEmpty()) {
+                        Text("Sin recetas en el período.", style = FDType.Caption.copy(fontSize = 11.sp), color = FDColors.TextTertiary)
+                    } else {
+                        conReceta.take(5).forEach { v ->
+                            val itemsReceta = v.items.count { it.requiereReceta }
+                            val verificador = v.recetaVerificadaPor.ifBlank { v.cajeroNombre.ifBlank { "Sin registro" } }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        v.numeroCompleto.ifBlank { v.id },
+                                        style = FDType.Body.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
+                                        color = FDColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        if (v.recetaVerificada) "Verificó: $verificador" else "Sin rastro (venta antigua)",
+                                        style = FDType.Caption.copy(fontSize = 10.sp),
+                                        color = if (v.recetaVerificada) FDColors.Success else FDColors.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text(
+                                    "$itemsReceta ítem${if (itemsReceta == 1) "" else "s"}",
+                                    style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                                    color = FDColors.TextSecondary
+                                )
+                            }
+                        }
+                        if (conReceta.size > 5) {
+                            Text("+${conReceta.size - 5} más en el libro diario.", style = FDType.Caption.copy(fontSize = 10.sp), color = FDColors.TextTertiary)
+                        }
+                    }
+                }
+
+                // Columna 3: Devoluciones con motivo y origen
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "DEVOLUCIONES · S/ ${"%.2f".format(Locale.US, totalReembolsos)} (${devsOrdenadas.size})",
+                        style = FDType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Bold),
+                        color = FDColors.TextSecondary
+                    )
+                    if (devsOrdenadas.isEmpty()) {
+                        Text("Sin devoluciones.", style = FDType.Caption.copy(fontSize = 11.sp), color = FDColors.TextTertiary)
+                    } else {
+                        devsOrdenadas.take(5).forEach { d ->
+                            val otroTurno = d.ventaCajeroId.isNotBlank() && d.usuarioId.isNotBlank() && d.ventaCajeroId != d.usuarioId
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        d.numeroCompleto.ifBlank { d.id },
+                                        style = FDType.Body.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
+                                        color = FDColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        "→ ${d.numeroVenta.ifBlank { "venta" }} · ${d.usuarioNombre.ifBlank { "Sin cajero" }}${if (otroTurno) " · OTRO TURNO (${d.ventaCajeroNombre.ifBlank { "origen" }})" else ""}",
+                                        style = FDType.Caption.copy(fontSize = 10.sp),
+                                        color = if (otroTurno) FDColors.Warning else FDColors.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (d.motivo.isNotBlank()) {
+                                        Text(
+                                            d.motivo,
+                                            style = FDType.Caption.copy(fontSize = 10.sp),
+                                            color = FDColors.TextTertiary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "-S/ ${"%.2f".format(Locale.US, d.montoReembolso)}",
+                                    style = FDType.Numeric.copy(fontSize = 11.5.sp, fontWeight = FontWeight.Bold),
+                                    color = FDColors.Error
+                                )
+                            }
+                        }
+                        if (devsOrdenadas.size > 5) {
+                            Text("+${devsOrdenadas.size - 5} más en el libro diario.", style = FDType.Caption.copy(fontSize = 10.sp), color = FDColors.TextTertiary)
+                        }
+                    }
+                }
+            }
+
+            if (conReceta.any { !it.recetaVerificada }) {
+                Text(
+                    "“Sin rastro” = ventas con receta de antes de activar la huella. Desde hoy toda receta queda con quién y cuándo.",
+                    style = FDType.Caption.copy(fontSize = 10.sp),
+                    color = FDColors.TextTertiary
+                )
             }
         }
     }

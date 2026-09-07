@@ -513,8 +513,10 @@ private fun TabPagosYAbonosFactura(factura: FacturaCompra) {
                             color = FDColors.Success
                         )
                         val fechaPago = factura.fechaEmision.ifBlank { factura.fechaRegistro }
-                        val metodo = factura.abonos.firstOrNull()?.metodoPago?.ifBlank { "Efectivo / Transferencia" } ?: "Contado en recepción"
-                        val regPor = factura.abonos.firstOrNull()?.usuarioNombre?.ifBlank { factura.usuarioRegistroEmail.ifBlank { "Administración" } } ?: "Administración"
+                        val abonoContado = factura.abonos.firstOrNull()
+                        val metodo = abonoContado?.metodoPago?.trim()?.ifBlank { null } ?: "Sin registro del método de pago"
+                        val regPor = abonoContado?.usuarioNombre?.trim()?.ifBlank { null }
+                            ?: factura.usuarioRegistroEmail.ifBlank { "Sin registro" }
                         Text(
                             text = "Registrado el $fechaPago · Método: $metodo · Asentado por: $regPor",
                             style = FDType.BodySmall.copy(fontSize = 11.sp),

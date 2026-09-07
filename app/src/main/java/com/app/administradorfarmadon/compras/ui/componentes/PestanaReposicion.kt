@@ -29,7 +29,7 @@ import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logi
 /**
  * Pestaña Reposición — raíz delgada.
  * Decide entre dos vistas:
- *  - Directorio de proveedores + panel de pedidos (dos columnas).
+ *  - Directorio de proveedores + panel de pedidos en camino (dos columnas).
  *  - Detalle del proveedor elegido (workspace con catálogo y carrito).
  * "REALIZAR PEDIDO" envía directo: sin pantallas intermedias; el resultado
  * (éxito o error real) llega desde el ViewModel.
@@ -41,25 +41,22 @@ fun PestanaReposicion(
     pedidosGuardados: List<PedidoCompra> = emptyList(),
     proveedores: List<Proveedor> = emptyList(),
     pedidosPorProveedor: Map<String, Map<String, Int>>,
+    contribuidoresCarrito: Map<String, Map<String, Map<String, Int>>> = emptyMap(),
     enviandoPedido: Boolean = false,
     onModificarCantidadProducto: (PharmProduct, Int) -> Unit,
     onReponerSugeridosProveedor: (String) -> Unit = {},
     onRealizarPedido: (PedidoProveedor) -> Unit = {},
-    onEditarPedidoRealizado: (String, List<com.app.administradorfarmadon.compras.logica.ItemPedidoCompra>) -> Unit = { _, _ -> },
-    onEliminarPedidoRealizado: (String) -> Unit = {},
-    procesandoEdicionPedido: Boolean = false,
-    procesandoEliminacionPedido: Boolean = false,
     onLimpiarPedidoProveedor: (String) -> Unit,
-    onCancelarPedidoEnviado: (String) -> Unit = {},
-    onRecibirMercaderia: (PedidoCompra) -> Unit = {},
-    onCerrarOrdenConAjuste: (PedidoCompra) -> Unit = {},
-    onDescartarProductoDePedido: (String, String) -> Unit = { _, _ -> },
     enCaminoPorProducto: Map<String, com.app.administradorfarmadon.compras.logica.ProductoEnCamino> = emptyMap(),
     productoPendienteConfirmar: PharmProduct? = null,
     cantidadExtraPropuesta: Int = 0,
     onConfirmarAdicionExtra: () -> Unit = {},
     onDescartarAdicionExtra: () -> Unit = {},
     onVincularProducto: (PharmProduct, Proveedor) -> Unit = { _, _ -> },
+    onRecibirMercaderia: (PedidoCompra) -> Unit = {},
+    onCerrarConAjuste: (PedidoCompra) -> Unit = {},
+    onDescartarProducto: (String, String) -> Unit = { _, _ -> },
+    onCancelarPedido: (String) -> Unit = {},
     listaState: LazyListState = LazyListState(),
     cargando: Boolean = false,
     errorEscucha: String? = null,
@@ -70,9 +67,9 @@ fun PestanaReposicion(
     val s = recordarMedidaAdaptativa()
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
 
-    // Navegación local de la pestaña: qué proveedor está abierto y qué filtro/búsqueda se usa.
+    // Navegación local de la pestaña: qué proveedor está abierto y qué búsqueda se usa.
+    // Sin filtros por pestaña: una sola lista de proveedores (incluye SIN PROVEEDOR como fila).
     var proveedorAbierto by rememberSaveable { mutableStateOf<String?>(null) }
-    var filtroRapido by rememberSaveable { mutableStateOf("TODOS") }
     var busquedaProducto by rememberSaveable { mutableStateOf("") }
 
     val focusManagerRepo = LocalFocusManager.current
@@ -92,12 +89,6 @@ fun PestanaReposicion(
             else -> {}
         }
     }
-
-    val totalCriticosGlobal = remember(productosAgrupadosPorProveedor) {
-        productosAgrupadosPorProveedor.values.flatten()
-            .count { (it.minStock > 0 && it.stock <= it.minStock) || it.stock <= 0 }
-    }
-    val montoEnBorrador = remember(pedidosActivos) { pedidosActivos.sumOf { it.totalInversion } }
 
     // Escudo anti doble pedido
     productoPendienteConfirmar?.let { prod ->
@@ -135,39 +126,18 @@ fun PestanaReposicion(
                 val espacioEntreColumnas = if (isPantallaGrande) 16.dp else 12.dp
                 val paddingTarjeta = if (isPantallaGrande) 18.dp else 14.dp
 
-                // Filtros del directorio: una sola fuente de verdad para listas y conteos
-                val gruposFiltrados = remember(productosAgrupadosPorProveedor, filtroRapido, busquedaProducto) {
-                    val filtradosPorBusqueda = productosAgrupadosPorProveedor.mapValues { (_, prods) ->
+                // Directorio: una sola lista (búsqueda por texto). Sin pestañas de filtro.
+                // Incluye a los sin afiliar como una fila más; nada se esconde.
+                val gruposFiltrados = remember(productosAgrupadosPorProveedor, busquedaProducto) {
+                    productosAgrupadosPorProveedor.mapValues { (_, prods) ->
                         prods.filter { p ->
                             busquedaProducto.isBlank() ||
                                     p.name.contains(busquedaProducto, ignoreCase = true) ||
                                     p.category.contains(busquedaProducto, ignoreCase = true) ||
                                     p.laboratory.contains(busquedaProducto, ignoreCase = true)
                         }
-                    }
-                    when (filtroRapido) {
-                        "CRITICOS" -> filtradosPorBusqueda.mapValues { (_, prods) ->
-                            prods.filter { (it.minStock > 0 && it.stock <= it.minStock) || it.stock <= 0 }
-                        }.filter { it.value.isNotEmpty() }
-                        "SIN_PROVEEDOR" -> {
-                            val sinProv = filtradosPorBusqueda.entries
-                                .filter { esProveedorPlaceholder(it.key) }
-                                .flatMap { it.value }
-                            if (sinProv.isEmpty()) emptyMap() else mapOf("SIN_PROVEEDOR" to sinProv)
-                        }
-                        // TODOS es todos: incluye sin afiliar (la pestaña lo dice). El filtro
-                        // SIN_PROVEEDOR sigue como atajo enfocado; aquí nada se esconde.
-                        else -> filtradosPorBusqueda
-                            .filter { it.value.isNotEmpty() }
-                    }
+                    }.filter { it.value.isNotEmpty() }
                 }
-
-                val totalProdsGlobal = productosAgrupadosPorProveedor.values.sumOf { it.size }
-                val totalCriticosTabs = productosAgrupadosPorProveedor.values.flatten()
-                    .count { it.stock <= it.minStock }
-                val totalSinProveedor = productosAgrupadosPorProveedor.entries
-                    .filter { esProveedorPlaceholder(it.key) }
-                    .sumOf { it.value.size }
 
                 Row(
                     modifier = Modifier
@@ -177,8 +147,7 @@ fun PestanaReposicion(
                 ) {
                     if (proveedorAbierto != null) {
                         val nombreAbierto = proveedorAbierto ?: return@Row
-                        val esSinProveedorAbierto =
-                            filtroRapido == "SIN_PROVEEDOR" || esProveedorPlaceholder(nombreAbierto)
+                        val esSinProveedorAbierto = esProveedorPlaceholder(nombreAbierto)
                         val carroAbierto = if (esSinProveedorAbierto) {
                             val agregado = mutableMapOf<String, Int>()
                             pedidosPorProveedor.forEach { (prov, carro) ->
@@ -213,6 +182,12 @@ fun PestanaReposicion(
                                 },
                                 enviandoPedido = enviandoPedido,
                                 s = s,
+                                ordenEnCamino = pedidosGuardados.firstOrNull {
+                                    it.proveedorNombre.equals(nombreAbierto, ignoreCase = true) &&
+                                    it.estado == "ENVIADO" &&
+                                    it.recepciones.isEmpty()
+                                },
+                                contribuidoresProv = contribuidoresCarrito[nombreAbierto].orEmpty(),
                                 onVolver = { proveedorAbierto = null },
                                 onModificarCantidad = { prod, delta ->
                                     onModificarCantidadProducto(prod, delta)
@@ -233,96 +208,95 @@ fun PestanaReposicion(
                             )
                         }
                     } else {
-                        Surface(
-                            color = FDColors.Surface,
-                            shape = RoundedCornerShape(s.radiusCard),
-                            border = BorderStroke(s.borderWidth, FDColors.Border),
+                        // Columna izquierda: Directorio de proveedores y productos para armar pedidos (~58%)
+                        Box(
                             modifier = Modifier
                                 .weight(1.35f)
                                 .fillMaxHeight()
                         ) {
-                            // Verdad del catálogo: cargando / error / vacío real / lista.
-                            // "Vacío" solo se declara cuando la carga terminó SIN error;
-                            // jamás se confunde con "aún no llega la data".
-                            if (productosAgrupadosPorProveedor.isEmpty()) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize().padding(s.padCardLarge),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    when {
-                                        cargando -> Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
-                                        ) {
-                                            CircularProgressIndicator(color = FDColors.Primary, modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
-                                            Text(
-                                                text = "Cargando catálogo de productos…",
-                                                style = FDType.Body.copy(fontSize = 13.5.sp),
-                                                color = FDColors.TextSecondary,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                        errorEscucha != null -> Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
-                                        ) {
-                                            Text(
-                                                text = "No se pudo cargar el catálogo",
-                                                style = FDType.Heading2.copy(fontSize = 17.sp),
-                                                color = FDColors.TextPrimary,
-                                                textAlign = TextAlign.Center
-                                            )
-                                            Text(
-                                                text = "Motivo real: $errorEscucha. Usa el botón REINTENTAR de arriba.",
-                                                style = FDType.Body.copy(fontSize = 13.sp),
-                                                color = FDColors.TextSecondary,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                        else -> Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(s.gapMedium)
-                                        ) {
-                                            Text(
-                                                text = "Catálogo de Productos Vacío",
-                                                style = FDType.Heading2.copy(fontSize = 17.sp),
-                                                color = FDColors.TextPrimary
-                                            )
-                                            Text(
-                                                text = "No se encontraron productos registrados en el inventario. Al agregar productos y asignarles proveedor o laboratorio, se organizarán aquí.",
-                                                style = FDType.Body.copy(fontSize = 13.sp),
-                                                color = FDColors.TextSecondary,
-                                                textAlign = TextAlign.Center
-                                            )
+                            Surface(
+                                color = FDColors.Surface,
+                                shape = RoundedCornerShape(s.radiusCard),
+                                border = BorderStroke(s.borderWidth, FDColors.Border),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                // Verdad del catálogo: cargando / error / vacío real / lista.
+                                // "Vacío" solo se declara cuando la carga terminó SIN error;
+                                // jamás se confunde con "aún no llega la data".
+                                if (productosAgrupadosPorProveedor.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().padding(s.padCardLarge),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        when {
+                                            cargando -> Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                                            ) {
+                                                CircularProgressIndicator(color = FDColors.Primary, modifier = Modifier.size(28.dp), strokeWidth = 2.5.dp)
+                                                Text(
+                                                    text = "Cargando catálogo de productos…",
+                                                    style = FDType.Body.copy(fontSize = 13.5.sp),
+                                                    color = FDColors.TextSecondary,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                            errorEscucha != null -> Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                                            ) {
+                                                Text(
+                                                    text = "No se pudo cargar el catálogo",
+                                                    style = FDType.Heading2.copy(fontSize = 17.sp),
+                                                    color = FDColors.TextPrimary,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                                Text(
+                                                    text = "Motivo real: $errorEscucha. Usa el botón REINTENTAR de arriba.",
+                                                    style = FDType.Body.copy(fontSize = 13.sp),
+                                                    color = FDColors.TextSecondary,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                            else -> Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(s.gapMedium)
+                                            ) {
+                                                Text(
+                                                    text = "Catálogo de Productos Vacío",
+                                                    style = FDType.Heading2.copy(fontSize = 17.sp),
+                                                    color = FDColors.TextPrimary
+                                                )
+                                                Text(
+                                                    text = "No se encontraron productos registrados en el inventario. Al agregar productos y asignarles proveedor o laboratorio, se organizarán aquí.",
+                                                    style = FDType.Body.copy(fontSize = 13.sp),
+                                                    color = FDColors.TextSecondary,
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
                                         }
                                     }
+                                } else {
+                                    ReposicionDirectorio(
+                                        gruposFiltrados = gruposFiltrados,
+                                        pedidosPorProveedor = pedidosPorProveedor,
+                                        enCaminoPorProducto = enCaminoPorProducto,
+                                        simboloMoneda = simboloMoneda,
+                                        busquedaProducto = busquedaProducto,
+                                        s = s,
+                                        listaState = listaState,
+                                        onCambiarBusqueda = { busquedaProducto = it },
+                                        onAbrirProveedor = { proveedorAbierto = it },
+                                        onReponerSugeridosProveedor = onReponerSugeridosProveedor
+                                    )
                                 }
-                            } else {
-                                ReposicionDirectorio(
-                                    gruposFiltrados = gruposFiltrados,
-                                    pedidosPorProveedor = pedidosPorProveedor,
-                                    enCaminoPorProducto = enCaminoPorProducto,
-                                    simboloMoneda = simboloMoneda,
-                                    totalCriticosGlobal = totalCriticosGlobal,
-                                    montoEnBorrador = montoEnBorrador,
-                                    totalProdsGlobal = totalProdsGlobal,
-                                    totalCriticosTabs = totalCriticosTabs,
-                                    totalSinProveedor = totalSinProveedor,
-                                    filtroRapido = filtroRapido,
-                                    busquedaProducto = busquedaProducto,
-                                    s = s,
-                                    listaState = listaState,
-                                    onCambiarFiltro = { filtroRapido = it },
-                                    onCambiarBusqueda = { busquedaProducto = it },
-                                    onAbrirProveedor = { proveedorAbierto = it },
-                                    onReponerSugeridosProveedor = onReponerSugeridosProveedor
-                                )
                             }
                         }
 
+                        // Columna derecha: Pedidos en camino por recibir (con botón Recibir Mercadería) (~42%)
                         Box(
                             modifier = Modifier
-                                .weight(0.65f)
+                                .weight(0.95f)
                                 .fillMaxHeight()
                         ) {
                             ReposicionPanelPedidos(
@@ -330,14 +304,10 @@ fun PestanaReposicion(
                                 simboloMoneda = simboloMoneda,
                                 s = s,
                                 paddingTarjeta = paddingTarjeta,
-                                onEditarPedido = { pedido, items -> onEditarPedidoRealizado(pedido.id, items) },
-                                onEliminarPedido = { pedido -> onEliminarPedidoRealizado(pedido.id) },
-                                procesandoEdicion = procesandoEdicionPedido,
-                                procesandoEliminacion = procesandoEliminacionPedido,
                                 onRecibirMercaderia = onRecibirMercaderia,
-                                onCerrarConAjuste = onCerrarOrdenConAjuste,
-                                onDescartarProducto = onDescartarProductoDePedido,
-                                onCancelarPedido = onCancelarPedidoEnviado
+                                onCerrarConAjuste = onCerrarConAjuste,
+                                onDescartarProducto = onDescartarProducto,
+                                onCancelarPedido = onCancelarPedido
                             )
                         }
                     }

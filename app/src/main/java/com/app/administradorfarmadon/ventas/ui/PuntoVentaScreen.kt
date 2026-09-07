@@ -82,62 +82,150 @@ fun PuntoVentaScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = s.padScreenH, vertical = s.padScreenV),
-        verticalArrangement = Arrangement.spacedBy(s.gapLarge)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // ── SELECTOR FLOTANTE TIPO APPLE (SUBMÓDULOS) ──
+        // ── CABECERA ENTERPRISE: PESTAÑAS CONTINUAS (UNDERLINE TABS) ──
         Surface(
-            color = FDColors.SurfaceElevated,
-            shape = CircleShape,
-            shadowElevation = 8.dp,
-            border = BorderStroke(1.dp, FDColors.Border.copy(alpha = 0.5f)),
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(bottom = s.gapSmall)
+            color = FDColors.Surface,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier.padding(s.gapTiny),
-                horizontalArrangement = Arrangement.spacedBy(s.gapTiny),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val opciones = listOf(
-                    "NUEVA VENTA" to Icons.Default.AddShoppingCart,
-                    "VENTAS DEL DÍA" to Icons.Default.History,
-                    "CIERRE DE CAJA" to Icons.Default.AccountBalanceWallet,
-                    "DEVOLUCIONES" to Icons.AutoMirrored.Filled.AssignmentReturn
-                )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Pestañas operativas
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val opciones = listOf(
+                            "NUEVA VENTA" to Icons.Default.AddShoppingCart,
+                            "VENTAS DEL DÍA" to Icons.Default.History,
+                            "CIERRE DE CAJA" to Icons.Default.AccountBalanceWallet,
+                            "DEVOLUCIONES" to Icons.AutoMirrored.Filled.AssignmentReturn
+                        )
 
-                opciones.forEach { (titulo, icono) ->
-                    val isSel = submoduloActivo == titulo
+                        opciones.forEach { (titulo, icono) ->
+                            val isSel = submoduloActivo == titulo
+                            Column(
+                                modifier = Modifier
+                                    .clickable { submoduloActivo = titulo }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = icono,
+                                        contentDescription = null,
+                                        tint = if (isSel) FDColors.Primary else FDColors.TextSecondary,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Text(
+                                        text = titulo,
+                                        style = FDType.Label.copy(
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSel) FontWeight.Black else FontWeight.SemiBold,
+                                            letterSpacing = 0.4.sp
+                                        ),
+                                        color = if (isSel) FDColors.Primary else FDColors.TextSecondary
+                                    )
+                                    // Contador de carrito o indicador de estado de caja
+                                    if (titulo == "NUEVA VENTA" && uiStateVenta.totalItems > 0) {
+                                        Surface(
+                                            color = if (isSel) FDColors.Primary else FDColors.InputBackground,
+                                            shape = CircleShape
+                                        ) {
+                                            Text(
+                                                text = "${uiStateVenta.totalItems}",
+                                                style = FDType.Caption.copy(
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = if (isSel) FDColors.PrimaryText else FDColors.TextPrimary
+                                                ),
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    } else if (titulo == "CIERRE DE CAJA") {
+                                        val esTurnoVencido = uiStateVenta.estadoCaja.esTurnoVencido
+                                        val cajaAbierta = uiStateVenta.cajaAbierta
+                                        if (esTurnoVencido) {
+                                            Surface(
+                                                color = FDColors.Warning,
+                                                shape = CircleShape
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.PriorityHigh,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(11.dp)
+                                                    )
+                                                    Text(
+                                                        text = "CIERRE PENDIENTE",
+                                                        style = FDType.Caption.copy(
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Black,
+                                                            color = Color.White
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(if (cajaAbierta) FDColors.Success else FDColors.Warning)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Indicador underline moderno
+                                Box(
+                                    modifier = Modifier
+                                        .height(3.dp)
+                                        .width(if (isSel) 48.dp else 0.dp)
+                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                                        .background(if (isSel) FDColors.Primary else Color.Transparent)
+                                )
+                            }
+                        }
+                    }
+
+                    // Sede activa
                     Surface(
-                        onClick = { submoduloActivo = titulo },
-                        color = if (isSel) FDColors.Primary else Color.Transparent,
-                        shape = CircleShape,
-                        modifier = Modifier.height(44.dp)
+                        color = FDColors.InputBackground.copy(alpha = 0.5f),
+                        shape = FDShapes.Small
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 18.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                imageVector = icono,
-                                contentDescription = null,
-                                tint = if (isSel) FDColors.PrimaryText else FDColors.TextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(Icons.Default.Store, null, modifier = Modifier.size(15.dp), tint = FDColors.Primary)
                             Text(
-                                text = titulo,
-                                style = FDType.Label.copy(
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSel) FontWeight.Black else FontWeight.Bold,
-                                    letterSpacing = 0.5.sp
-                                ),
-                                color = if (isSel) FDColors.PrimaryText else FDColors.TextSecondary
+                                SessionManager.sucursalNombre.ifBlank { "Sede Mostrador" },
+                                style = FDType.Caption.copy(fontWeight = FontWeight.Bold, fontSize = 11.5.sp),
+                                color = FDColors.TextPrimary
                             )
                         }
                     }
                 }
+                HorizontalDivider(color = FDColors.Border.copy(alpha = 0.4f), thickness = 1.dp)
             }
         }
 

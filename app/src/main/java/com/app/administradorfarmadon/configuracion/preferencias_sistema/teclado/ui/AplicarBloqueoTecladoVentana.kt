@@ -10,7 +10,6 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
@@ -44,34 +43,32 @@ fun AplicarBloqueoTecladoVentana() {
     val view = LocalView.current
     val context = LocalContext.current
 
-    SideEffect {
-        val ventana = view.obtenerVentana() ?: (context as? Activity)?.window
-        if (ventana == null) {
-            android.util.Log.w(TAG, "No se encontró la ventana (bloquear=$bloquear)")
-            return@SideEffect
-        }
-        if (bloquear) {
-            ventana.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
-            ventana.setSoftInputMode(
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-            )
-            android.util.Log.d(
-                TAG,
-                "Bloqueo aplicado a ventana: flag=${(ventana.attributes.flags and WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM) != 0}"
-            )
-            ocultarTeclado(ventana, view, context)
-        } else {
-            ventana.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
-            ventana.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            android.util.Log.d(TAG, "Bloqueo retirado de ventana")
-        }
-    }
-
     // Vigías a nivel de vista del sistema: funcionan sin depender de si Compose
-    // se entera del teclado. Si el sistema lo muestra, se oculta de inmediato.
+    // se entera del teclado. Se ejecuta al adjuntar la vista y SOLO cuando 'bloquear' cambia,
+    // NUNCA en cada recomposición (evita bucle de relayout de la ventana al escribir).
     DisposableEffect(bloquear, view) {
         val ventana = view.obtenerVentana() ?: (context as? Activity)?.window
+        if (ventana != null) {
+            if (bloquear) {
+                ventana.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+                ventana.setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                )
+                android.util.Log.d(
+                    TAG,
+                    "Bloqueo aplicado a ventana: flag=${(ventana.attributes.flags and WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM) != 0}"
+                )
+                ocultarTeclado(ventana, view, context)
+            } else {
+                ventana.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+                ventana.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                android.util.Log.d(TAG, "Bloqueo retirado de ventana")
+            }
+        } else {
+            android.util.Log.w(TAG, "No se encontró la ventana (bloquear=$bloquear)")
+        }
+
         val decor = ventana?.decorView
         if (decor == null) {
             return@DisposableEffect onDispose {}

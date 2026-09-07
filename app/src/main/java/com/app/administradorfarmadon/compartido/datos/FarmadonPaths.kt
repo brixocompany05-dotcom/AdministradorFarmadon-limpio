@@ -90,18 +90,22 @@ object FarmadonPaths {
     fun ventasSuspendidas(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
         sucursal(db, farmaciaId, sucursalId).collection("ventas_suspendidas")
 
-    /** Turnos de caja (aperturas/cierres). Un solo turno ABIERTO por sucursal,
-     *  garantizado por el puntero atómico [estadoCaja]. */
+    /** Turnos de caja (aperturas/cierres). Cada cajero abre, opera y cierra su propio turno. */
     fun cajaSesiones(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
         sucursal(db, farmaciaId, sucursalId).collection("caja_sesiones")
 
     /**
-     * Puntero atómico del turno de caja vigente (doc único `actual` en `caja_sesiones`).
+     * Puntero atómico del turno de caja vigente por cajero.
+     * Regla de Producto: La caja y el turno son INDIVIDUALES POR CAJERO (R1).
+     * Documento: `actual_${cajeroId}` (o `actual` si cajeroId es vacío).
      * Toda venta/devolución/movimiento lo lee DENTRO de su transacción:
-     * solo hay una caja abierta por sede y el dinero esperado siempre cuadra.
+     * cajero A + caja A + turno A opera únicamente sobre su propio turno.
      */
-    fun estadoCaja(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): DocumentReference =
-        sucursal(db, farmaciaId, sucursalId).collection("caja_sesiones").document("actual")
+    fun estadoCaja(db: FirebaseFirestore, farmaciaId: String, sucursalId: String, cajeroId: String = ""): DocumentReference {
+        val idLimpio = cajeroId.trim()
+        val docName = if (idLimpio.isNotBlank()) "actual_$idLimpio" else "actual"
+        return sucursal(db, farmaciaId, sucursalId).collection("caja_sesiones").document(docName)
+    }
 
     /** Entradas/salidas de dinero de la caja (ventas, devoluciones, ingresos, retiros). */
     fun cajaMovimientos(db: FirebaseFirestore, farmaciaId: String, sucursalId: String): CollectionReference =
@@ -142,4 +146,18 @@ object FarmadonPaths {
     /** Tickets de soporte e incidencias de la farmacia dirigidos a BRIXO Central (R1). */
     fun soporteTickets(db: FirebaseFirestore, farmaciaId: String): CollectionReference =
         farmacia(db, farmaciaId).collection("soporte_tickets")
+
+    /**
+     * Mensajes de una conversación de soporte como SUBCOLECCIÓN (contrato oficial).
+     * Nada de arrays: cada mensaje es un documento con ID = clientMessageId para
+     * idempotencia real (doble clic / reintento / offline no duplican).
+     * Los tickets antiguos con campo `mensajes` (array) se siguen leyendo por
+     * compatibilidad, pero todo lo nuevo se escribe aquí.
+     */
+    fun soporteMensajes(db: FirebaseFirestore, farmaciaId: String, ticketId: String): CollectionReference =
+        soporteTickets(db, farmaciaId).document(ticketId).collection("mensajes")
+
+    /** Auditoría append-only de acciones sobre el caso (quién cambió qué, cuándo, por qué). */
+    fun soporteAuditoria(db: FirebaseFirestore, farmaciaId: String, ticketId: String): CollectionReference =
+        soporteTickets(db, farmaciaId).document(ticketId).collection("auditoria")
 }

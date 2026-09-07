@@ -138,26 +138,18 @@ object UnidadVentaHelper {
             presentacion.unidadMedida,
             unidadProducto
         )
-
-        // 1. Validar que no se fraccione un producto sellado
-        if (!esFraccionCoherente(cantidadEnUnidadProducto, factor, producto.permiteFraccionar)) {
-            return Result.failure(
-                Exception("Producto sellado: solo se vende en unidades completas.")
-            )
-        }
-
         val fisicoTotal = stockFisicoParaVender(cantidadEnUnidadProducto, factor)
 
         // 2. Validar stock suficiente en lotes VIGENTES CON COSTO (R3/Sanitaria/Negocio: sin costo o no valorizado no se vende en POS)
         val vendibles = producto.lotes.values.filter { lote ->
             val dias = FechaVencimientoHelper.diasHastaVencer(lote.vencimiento)
-            val tieneCosto = (lote.costoCompraUnitario > 0.0 || lote.costoUltimoIngreso > 0.0) && !lote.noValorizado
+            val tieneCosto = (lote.costoCompraUnitario > 0.0 || lote.costoUltimoIngreso > 0.0 || producto.precioCompra > 0.0) && !lote.noValorizado
             lote.cantidad > 0.0 && (dias == null || dias > 0) && tieneCosto
         }
         val stockDisponible = vendibles.sumOf { it.cantidad.coerceAtLeast(0.0) }
         val stockSinCosto = producto.lotes.values.filter { lote ->
             val dias = FechaVencimientoHelper.diasHastaVencer(lote.vencimiento)
-            val sinCosto = (lote.costoCompraUnitario <= 0.0 && lote.costoUltimoIngreso <= 0.0) || lote.noValorizado
+            val sinCosto = (lote.costoCompraUnitario <= 0.0 && lote.costoUltimoIngreso <= 0.0 && producto.precioCompra <= 0.0) || lote.noValorizado
             lote.cantidad > 0.0 && (dias == null || dias > 0) && sinCosto
         }.sumOf { it.cantidad }
         val stockVencido = producto.lotes.values.filter { lote ->

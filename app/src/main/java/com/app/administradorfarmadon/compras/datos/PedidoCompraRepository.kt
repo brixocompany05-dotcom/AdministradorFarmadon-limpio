@@ -6,6 +6,7 @@ import com.app.administradorfarmadon.autenticacion.login.datos.SessionManager
 import com.app.administradorfarmadon.compartido.datos.FarmadonPaths
 import com.app.administradorfarmadon.compartido.logica.HoraServidor
 import com.app.administradorfarmadon.compras.logica.ItemPedidoCompra
+import com.app.administradorfarmadon.compras.logica.MaquinaEstadosPedido
 import com.app.administradorfarmadon.inventario.compartido.datos.IngresoMercaderiaRepository
 import com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper
 import com.google.firebase.firestore.FieldValue
@@ -79,9 +80,9 @@ data class PedidoCompra(
     val estaCompletamenteRecibido: Boolean get() = items.isNotEmpty() && items.all { it.cantidadRecibida >= it.cantidad }
 }
 
-/** Entrada de la bitácora interna de un pedido: creación y cada edición (qué, quién, cuándo). */
+/** Entrada de la bitácora interna de un pedido: creación, edición y cancelación (qué, quién, cuándo). */
 data class EntradaBitacoraPedido(
-    val tipo: String = "",      // "CREACION" | "EDICION"
+    val tipo: String = "",      // "CREACION" | "EDICION" | "CANCELACION"
     val usuario: String = "",
     val fecha: String = "",
     val fechaMs: Long = 0L,
@@ -192,11 +193,11 @@ class PedidoCompraRepository(
      *
      * Cada producto vive en su propio casillero con { cantidad, contribuidores }.
      * La escritura se hace dentro de una transacción que LEE la verdad vigente y
-     * aplica solo la DIFERENCIA respecto a lo que la persona tocó. Dos usuarios que
+     * suma el delta del toque (+1/-1 o cualquier diferencia). Dos usuarios que
      * suman al mismo producto al mismo tiempo jamás se pisan: el total siempre suma
      * ambas decisiones y cada contribuidor registra cuánto puso.
      *
-     * cambios: productoId -> cantidad objetivo (0 quita el producto).
+     * cambios: productoId -> delta a sumar (siempre distinto de 0).
      */
     suspend fun guardarProductosCarrito(
         proveedorNombre: String,
@@ -204,8 +205,7 @@ class PedidoCompraRepository(
         farmaciaIdParam: String? = null,
         sucursalIdParam: String? = null,
         usuarioId: String = "",
-        usuarioNombre: String = "",
-        esDelta: Boolean = true
+        usuarioNombre: String = ""
     ): Result<Unit> {
         val ids = if (farmaciaIdParam != null && sucursalIdParam != null) Pair(farmaciaIdParam, sucursalIdParam) else obtenerFarmaciaYSucursal()
             ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para guardar el carrito."))
@@ -213,14 +213,17 @@ class PedidoCompraRepository(
         if (proveedorNombre.isBlank() || cambios.isEmpty()) return Result.success(Unit)
         val docRef = FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId).document(claveCarritoDoc(proveedorNombre))
         var primeraFalla: Exception? = null
-        val usuarioKey = usuarioId.ifBlank { usuarioNombre.ifBlank { "Sistema" } }
+        // Clave visible: el NOMBRE de la persona (antes se firmaba con su código y
+        // la pantalla mostraba un número). Sin nombre se usa el código.
+        val nombreLimpio = usuarioNombre.trim().takeUnless { it.isBlank() || it.equals("Sistema", ignoreCase = true) }
+        val idLimpio = usuarioId.trim().takeUnless { it.isBlank() || it.equals("Sistema", ignoreCase = true) }
+        val usuarioKey = nombreLimpio ?: idLimpio ?: "Sistema"
         for ((productoId, valor) in cambios) {
             try {
-                // Transacción atómica por producto: lee la verdad actual y aplica la
-                // diferencia. Con esDelta=true el valor ES el incremento del clic (+1/-1),
-                // así dos usuarios que suman al mismo producto al mismo tiempo jamás se
-                // pisan: la transacción que pierde la carrera se reintenta y suma encima.
-                // Con esDelta=false el valor es un objetivo absoluto (rellenar/remover).
+                // Transacción atómica por producto: lee la verdad actual y suma el delta
+                // del toque. Dos usuarios que suman al mismo producto al mismo tiempo
+                // jamás se pisan: la transacción que pierde la carrera se reintenta y
+                // suma encima. Marcar rápido N veces suma exactamente N unidades.
                 firestore.runTransaction { tx ->
                     val snap = tx.get(docRef)
                     @Suppress("UNCHECKED_CAST")
@@ -232,12 +235,19 @@ class PedidoCompraRepository(
                         ?.mapValues { (_, v) -> (v as? Number)?.toInt() ?: 0 }
                         ?: emptyMap()
 
-                    val aporteActual = contribuidoresActuales[usuarioKey] ?: 0
-                    val delta = if (esDelta) valor else valor - cantidadVigente
+                    // Migración automática: si esta persona antes firmaba con su código,
+                    // ese aporte se muda a su nombre en esta misma escritura (una sola
+                    // vez por persona, sin perder ni duplicar unidades).
+                    val aporteLegacy = if (idLimpio != null && idLimpio != usuarioKey) {
+                        contribuidoresActuales[idLimpio] ?: 0
+                    } else 0
+                    val aporteActual = (contribuidoresActuales[usuarioKey] ?: 0) + aporteLegacy
+                    val delta = valor
                     val nuevaCantidad = (cantidadVigente + delta).coerceAtLeast(0)
                     val nuevoAporte = (aporteActual + delta).coerceAtLeast(0)
 
                     val nuevoContribuidores = contribuidoresActuales.toMutableMap()
+                    if (idLimpio != null && idLimpio != usuarioKey) nuevoContribuidores.remove(idLimpio)
                     if (nuevoAporte <= 0) {
                         nuevoContribuidores.remove(usuarioKey)
                     } else {
@@ -269,6 +279,144 @@ class PedidoCompraRepository(
             }
         }
         return if (primeraFalla != null) Result.failure(primeraFalla) else Result.success(Unit)
+    }
+
+    /**
+     * Lee la verdad fresca del carrito de un proveedor (una sola lectura directa).
+     * Se usa justo después de escribir: ya incluye lo recién confirmado, así la
+     * pantalla no baja y vuelve (tembleque) esperando la foto viva del listener.
+     * Solo cantidades > 0; ausente o vacío = mapa vacío.
+     */
+    suspend fun leerCarritoProveedor(
+        proveedorNombre: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Map<String, Int>> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para leer el carrito."))
+        }
+        val (farmaciaId, sucursalId) = ids
+        if (proveedorNombre.isBlank()) return Result.success(emptyMap())
+        return try {
+            val snap = FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId)
+                .document(claveCarritoDoc(proveedorNombre)).get().await()
+            if (!snap.exists()) return Result.success(emptyMap())
+            @Suppress("UNCHECKED_CAST")
+            val itemsRaw = (snap.get("items") as? Map<*, *>) ?: return Result.success(emptyMap())
+            val carro = mutableMapOf<String, Int>()
+            itemsRaw.forEach { (clave, valor) ->
+                val item = valor as? Map<*, *>
+                val cantidad = (item?.get("cantidad") as? Number)?.toInt()
+                    ?: (valor as? Number)?.toInt()
+                    ?: 0
+                if (cantidad > 0 && clave != null) carro[clave.toString()] = cantidad
+            }
+            Result.success(carro)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error leyendo carrito ($proveedorNombre): ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Saca un producto del carrito de un proveedor y lo deja en 0 (lo quita).
+     * Se usa al afiliarlo a OTRO proveedor para que no quede pidiendo en dos lados.
+     * Si el producto no está, es éxito directo: nada que quitar.
+     */
+    suspend fun quitarProductoDeCarrito(
+        proveedorNombre: String,
+        productoId: String,
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<Unit> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para actualizar el carrito."))
+        }
+        val (farmaciaId, sucursalId) = ids
+        if (proveedorNombre.isBlank() || productoId.isBlank()) return Result.success(Unit)
+        val docRef = FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId).document(claveCarritoDoc(proveedorNombre))
+        return try {
+            firestore.runTransaction { tx ->
+                val snap = tx.get(docRef)
+                @Suppress("UNCHECKED_CAST")
+                val itemsRaw = (snap.get("items") as? Map<String, Any>) ?: emptyMap()
+                if (!itemsRaw.containsKey(productoId)) return@runTransaction
+                val itemsNuevos = itemsRaw.toMutableMap()
+                itemsNuevos.remove(productoId)
+                tx.set(
+                    docRef,
+                    mapOf(
+                        "items" to itemsNuevos,
+                        "proveedorNombre" to proveedorNombre.trim()
+                    ),
+                    com.google.firebase.firestore.SetOptions.merge()
+                )
+            }.await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error quitando producto del carrito ($proveedorNombre / $productoId): ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Purga única de borradores huérfanos: documentos del carrito cuyo proveedor
+     * ya no existe en el catálogo (restos de cuando el laboratorio agrupaba).
+     * Lee el catálogo fresco del servidor para jamás borrar el carrito de un
+     * proveedor recién creado en otra terminal. Retorna los nombres purgados
+     * para limpiar también la memoria local. El grupo Sin Asignar se conserva.
+     */
+    suspend fun purgarCarritosHuerfanos(
+        farmaciaIdParam: String? = null,
+        sucursalIdParam: String? = null
+    ): Result<List<String>> {
+        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
+            Pair(farmaciaIdParam, sucursalIdParam)
+        } else {
+            obtenerFarmaciaYSucursal()
+                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para purgar el carrito."))
+        }
+        val (farmaciaId, sucursalId) = ids
+        return try {
+            val carritos = FarmadonPaths.carritoReposicion(firestore, farmaciaId, sucursalId).get().await()
+            if (carritos.isEmpty) return Result.success(emptyList())
+            val nombresReales = FarmadonPaths.proveedores(firestore, farmaciaId, sucursalId).get().await()
+                .documents.mapNotNull { it.getString("nombre")?.trim() }.filter { it.isNotBlank() }
+            val huerfanos = carritos.documents.filter { doc ->
+                val campo = doc.getString("proveedorNombre")?.trim().orEmpty()
+                val clave = campo.ifBlank { doc.id.replace("-", "/") }
+                val esReal = nombresReales.any { it.equals(clave, ignoreCase = true) }
+                !esReal && !esGrupoSinProveedor(clave) && !esGrupoSinProveedor(doc.id)
+            }
+            if (huerfanos.isEmpty()) return Result.success(emptyList())
+            val batch = firestore.batch()
+            huerfanos.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+            Result.success(huerfanos.map {
+                it.getString("proveedorNombre")?.trim().orEmpty().ifBlank { it.id }
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Error purgando carritos huérfanos: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /** Grupo huérfano: vacío honesto o nombre que nunca fue un proveedor real. */
+    private fun esGrupoSinProveedor(nombre: String): Boolean {
+        val t = nombre.trim()
+        if (t.isBlank()) return true
+        return listOf(
+            "Droguería General / Sin Asignar",
+            "Droguería General - Sin Asignar",
+            "SIN PROVEEDOR",
+            "N/A", "NA", "Genérico", "Sin asignar", "Sin Asignar"
+        ).any { it.equals(t, ignoreCase = true) }
     }
 
     suspend fun eliminarCarritoProveedor(proveedorNombre: String, farmaciaIdParam: String? = null, sucursalIdParam: String? = null): Result<Unit> {
@@ -373,8 +521,13 @@ class PedidoCompraRepository(
         farmaciaIdParam: String? = null,
         sucursalIdParam: String? = null
     ): Result<String> {
-        // Blindaje raíz: jamás crear una orden sin productos reales ni sin proveedor
-        if (pedido.proveedorNombre.isBlank() || pedido.proveedorNombre.equals("SIN PROVEEDOR", ignoreCase = true)) {
+        // Blindaje raíz: jamás crear una orden sin productos reales ni sin proveedor.
+        // El grupo huérfano ("Sin Asignar") tampoco es un proveedor: no se le pide.
+        val nombreProv = pedido.proveedorNombre.trim()
+        if (nombreProv.isBlank() ||
+            nombreProv.equals("SIN PROVEEDOR", ignoreCase = true) ||
+            nombreProv.equals("Droguería General / Sin Asignar", ignoreCase = true)
+        ) {
             return Result.failure(IllegalArgumentException("La orden debe tener un proveedor asignado."))
         }
         if (pedido.items.isEmpty()) {
@@ -484,50 +637,83 @@ class PedidoCompraRepository(
     }
 
     /**
-     * Edición de un pedido REALIZADO con bitácora interna. La transacción re-lee el
-     * pedido para no pisar cambios de otro usuario, valida que siga sin mercadería
-     * recibida y agrega la entrada de auditoría (qué cambió, quién, cuándo).
+     * Suma productos de manera atómica a una orden ya emitida que aún espera entrega (ENVIADO con 0 recepciones).
+     * Si un producto ya estaba en la orden, se incrementa su cantidad. Si es nuevo, se agrega a la lista de ítems.
+     * Recalcula totales de productos, unidades e inversión, y registra el movimiento en la bitácora interna.
      */
-    suspend fun actualizarPedidoRealizado(
+    suspend fun sumarProductosAOrdenEnviada(
         pedidoId: String,
-        items: List<ItemPedidoCompra>,
-        detalleCambio: String,
-        usuarioNombre: String,
+        nuevosItems: List<ItemPedidoCompra>,
+        usuarioNombre: String = "",
         farmaciaIdParam: String? = null,
         sucursalIdParam: String? = null
-    ): Result<Unit> {
+    ): Result<PedidoCompra> {
         val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
             Pair(farmaciaIdParam, sucursalIdParam)
         } else {
             obtenerFarmaciaYSucursal()
-                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para editar el pedido."))
+                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para actualizar el pedido."))
         }
         val (farmaciaId, sucursalId) = ids
         if (pedidoId.isBlank()) {
-            return Result.failure(IllegalArgumentException("El pedido no tiene identificador."))
+            return Result.failure(IllegalArgumentException("El identificador de la orden está vacío."))
         }
-        if (items.isEmpty() || items.all { it.cantidad <= 0 }) {
-            return Result.failure(IllegalArgumentException("El pedido debe tener al menos un producto con cantidad."))
+        if (nuevosItems.isEmpty()) {
+            return Result.failure(IllegalArgumentException("No hay productos para sumar a la orden."))
         }
 
         val docRef = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId).document(pedidoId)
         return try {
-            firestore.runTransaction { tx ->
+            val ordenConsolidada = firestore.runTransaction { tx ->
                 val snap = tx.get(docRef)
                 if (!snap.exists()) {
-                    throw IllegalStateException("El pedido ya no existe.")
+                    throw IllegalStateException("La orden en camino ya no existe en el servidor.")
                 }
-                val estado = snap.getString("estado") ?: "ENVIADO"
-                @Suppress("UNCHECKED_CAST")
-                val itemsRaw = (snap.get("items") as? List<Map<String, Any>>) ?: emptyList()
-                val recibido = itemsRaw.sumOf { (it["cantidadRecibida"] as? Number)?.toInt() ?: 0 }
-                @Suppress("UNCHECKED_CAST")
-                val recepciones = (snap.get("recepciones") as? List<*>) ?: emptyList<Any>()
-                if (estado != "ENVIADO" || recibido > 0 || recepciones.isNotEmpty()) {
-                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede editar aquí. Consúltalo en la pestaña RECIBIDOS.")
+                val ordenVigente = mapearPedido(snap)
+                    ?: throw IllegalStateException("No se pudo leer la información de la orden.")
+
+                // REGLA DE ORO: solo se modifica lo pendiente, jamás lo ya ocurrido.
+                // ENVIADO intacta → crece el solicitado. ENTREGA_PARCIAL → crece el solicitado
+                // manteniendo intacto lo ya recibido (cantidadRecibida no se toca por construcción).
+                // Terminales (RECIBIDO/COMPLETADA_AJUSTE/CANCELADO) → prohibido agregar.
+                if (ordenVigente.estado != "ENVIADO" && ordenVigente.estado != "ENTREGA_PARCIAL") {
+                    throw IllegalStateException("La orden ${ordenVigente.numeroOrden} está en estado '${ordenVigente.estado}' y ya no admite agregados.")
                 }
 
-                val itemsMap = items.map { item ->
+                // Consolidación por productoId EXACTO (misma variante/presentación, jamás por
+                // nombre parecido). Solo crece el solicitado; lo ya recibido queda intacto.
+                val itemsMap = ordenVigente.items.associateBy { it.productoId }.toMutableMap()
+                val lineasModificadas = mutableListOf<String>()
+                nuevosItems.forEach { nuevo ->
+                    val previo = itemsMap[nuevo.productoId]
+                    if (previo != null) {
+                        val antes = previo.cantidad
+                        itemsMap[nuevo.productoId] = previo.copy(
+                            cantidad = previo.cantidad + nuevo.cantidad,
+                            precioCompra = if (nuevo.precioCompra > 0.0) nuevo.precioCompra else previo.precioCompra
+                        )
+                        lineasModificadas.add("${previo.productoNombre.trim()}: $antes → ${antes + nuevo.cantidad} (+${nuevo.cantidad})")
+                    } else {
+                        itemsMap[nuevo.productoId] = nuevo
+                        lineasModificadas.add("${nuevo.productoNombre.trim()}: 0 → ${nuevo.cantidad} (+${nuevo.cantidad})")
+                    }
+                }
+                val itemsFinales = itemsMap.values.toList()
+
+                val ahoraMs = HoraServidor.ahoraMs()
+                val fechaLegible = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ahoraMs))
+                @Suppress("UNCHECKED_CAST")
+                val bitacoraActual = (snap.get("bitacora") as? List<Map<String, Any>>) ?: emptyList()
+                val totalUnidadesSumadas = nuevosItems.sumOf { it.cantidad }
+                val nuevaEntrada = mapOf(
+                    "tipo" to "EDICION",
+                    "usuario" to usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } },
+                    "fecha" to fechaLegible,
+                    "fechaMs" to ahoraMs,
+                    "detalle" to "Se sumaron $totalUnidadesSumadas unidades a la orden en camino: ${lineasModificadas.joinToString("; ")}."
+                )
+
+                val itemsParaFirestore = itemsFinales.map { item ->
                     mapOf(
                         "productoId" to item.productoId,
                         "productoNombre" to item.productoNombre,
@@ -540,76 +726,32 @@ class PedidoCompraRepository(
                     )
                 }
 
-                val ahoraMs = HoraServidor.ahoraMs()
-                val fechaLegible = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ahoraMs))
-                @Suppress("UNCHECKED_CAST")
-                val bitacoraActual = (snap.get("bitacora") as? List<Map<String, Any>>) ?: emptyList()
-                val nuevaEntrada = mapOf(
-                    "tipo" to "EDICION",
-                    "usuario" to usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } },
-                    "fecha" to fechaLegible,
-                    "fechaMs" to ahoraMs,
-                    "detalle" to detalleCambio
-                )
+                val totalInversion = Math.round(itemsFinales.sumOf { it.cantidad * it.precioCompra } * 100.0) / 100.0
 
                 tx.set(
                     docRef,
                     mapOf(
-                        "items" to itemsMap,
-                        "totalProductos" to items.size,
-                        "totalUnidades" to items.sumOf { it.cantidad },
-                        "totalInversion" to Math.round(items.sumOf { it.cantidad * it.precioCompra } * 100.0) / 100.0,
+                        "items" to itemsParaFirestore,
+                        "totalProductos" to itemsFinales.size,
+                        "totalUnidades" to itemsFinales.sumOf { it.cantidad },
+                        "totalInversion" to totalInversion,
                         "bitacora" to bitacoraActual + nuevaEntrada,
                         "actualizadoEl" to FieldValue.serverTimestamp()
                     ),
                     com.google.firebase.firestore.SetOptions.merge()
                 )
-            }.await()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error actualizando pedido realizado ($pedidoId): ${e.message}", e)
-            Result.failure(e)
-        }
-    }
 
-    /**
-     * Borra un pedido realizado COMPLETO, incluida su bitácora: el pedido está
-     * muerto y ya no se conserva ningún rastro de él.
-     */
-    suspend fun eliminarPedidoRealizado(
-        pedidoId: String,
-        farmaciaIdParam: String? = null,
-        sucursalIdParam: String? = null
-    ): Result<Unit> {
-        val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
-            Pair(farmaciaIdParam, sucursalIdParam)
-        } else {
-            obtenerFarmaciaYSucursal()
-                ?: return Result.failure(IllegalStateException("No hay una farmacia y sucursal activas para eliminar el pedido."))
-        }
-        val (farmaciaId, sucursalId) = ids
-        if (pedidoId.isBlank()) {
-            return Result.failure(IllegalArgumentException("El pedido no tiene identificador."))
-        }
-        return try {
-            val docRef = FarmadonPaths.pedidosCompra(firestore, farmaciaId, sucursalId).document(pedidoId)
-            firestore.runTransaction { tx ->
-                val snap = tx.get(docRef)
-                if (!snap.exists()) throw IllegalStateException("El pedido ya no existe.")
-                val estado = snap.getString("estado") ?: "ENVIADO"
-                @Suppress("UNCHECKED_CAST")
-                val itemsRaw = (snap.get("items") as? List<Map<String, Any>>) ?: emptyList()
-                val recibido = itemsRaw.sumOf { (it["cantidadRecibida"] as? Number)?.toInt() ?: 0 }
-                @Suppress("UNCHECKED_CAST")
-                val recepciones = (snap.get("recepciones") as? List<*>) ?: emptyList<Any>()
-                if (estado != "ENVIADO" || recibido > 0 || recepciones.isNotEmpty()) {
-                    throw IllegalStateException("Este pedido ya recibió mercadería o cambió de estado; no se puede eliminar. Consúltalo en la pestaña RECIBIDOS.")
-                }
-                tx.delete(docRef)
+                ordenVigente.copy(
+                    items = itemsFinales,
+                    totalProductos = itemsFinales.size,
+                    totalUnidades = itemsFinales.sumOf { it.cantidad },
+                    totalInversion = totalInversion
+                )
             }.await()
-            Result.success(Unit)
+
+            Result.success(ordenConsolidada)
         } catch (e: Exception) {
-            Log.e(TAG, "Error eliminando pedido realizado ($pedidoId): ${e.message}", e)
+            Log.e(TAG, "Error consolidando pedido ($pedidoId): ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -717,11 +859,11 @@ class PedidoCompraRepository(
                 val snap = tx.get(docRef)
                 if (!snap.exists()) throw IllegalStateException("La orden no existe.")
                 val pedido = mapearPedido(snap) ?: throw IllegalStateException("No se pudo leer el pedido.")
-                if (pedido.estado !in listOf("ENVIADO", "ENTREGA_PARCIAL")) {
-                    throw IllegalStateException("No se puede cerrar con ajuste una orden en estado ${pedido.estado}.")
+                if (!MaquinaEstadosPedido.puedeCerrarConAjuste(pedido.estado, pedido.recepciones.size)) {
+                    throw IllegalStateException("No se puede cerrar con ajuste una orden en estado ${pedido.estado}. Solo aplica a entregas parciales con faltantes.")
                 }
-                if (pedido.recepciones.isEmpty()) {
-                    throw IllegalStateException("Esta orden no ha recibido ninguna entrega de mercadería. Para cancelarla usa 'Cancelar Pedido'.")
+                if (!MaquinaEstadosPedido.puedeTransicionar(pedido.estado, "COMPLETADA_AJUSTE")) {
+                    throw IllegalStateException("Transición prohibida: de '${pedido.estado}' a 'COMPLETADA_AJUSTE'.")
                 }
                 val notasAnteriores = snap.getString("notas") ?: ""
                 val notasNuevas = if (notasAnteriores.isNotBlank()) "$notasAnteriores | Ajuste: $motivo" else motivo
@@ -773,6 +915,14 @@ class PedidoCompraRepository(
                 }
                 val pedido = mapearPedido(snap) ?: throw IllegalStateException("Pedido no encontrado.")
 
+                val lineaPrevia = pedido.items.firstOrNull { it.productoId == productoId }
+                    ?: throw IllegalStateException("El producto no pertenece a esta orden.")
+                // Segundo toque sobre lo ya enterrado: verdad, no "no pertenece".
+                if (lineaPrevia.cantidad == lineaPrevia.cantidadRecibida) {
+                    throw IllegalStateException("El faltante de '${lineaPrevia.productoNombre.trim()}' ya fue descartado antes.")
+                }
+                val faltanteDescartado = (lineaPrevia.cantidad - lineaPrevia.cantidadRecibida).coerceAtLeast(0)
+
                 val itemsActualizados = pedido.items.map { item ->
                     if (item.productoId == productoId) {
                         item.copy(cantidad = item.cantidadRecibida)
@@ -800,12 +950,24 @@ class PedidoCompraRepository(
                 }
 
                 val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                val ahoraMs = HoraServidor.ahoraMs()
                 val totalInval = Math.round(itemsActualizados.sumOf { it.cantidad * it.precioCompra } * 100.0) / 100.0
+                // El descarte también firma: qué línea murió, cuánto faltante se entierra y quién lo decidió.
+                @Suppress("UNCHECKED_CAST")
+                val bitacoraActual = (snap.get("bitacora") as? List<Map<String, Any>>) ?: emptyList()
+                val nuevaEntrada = mapOf(
+                    "tipo" to "EDICION",
+                    "usuario" to SessionManager.nombreUsuario.ifBlank { "Administración" },
+                    "fecha" to sdf.format(Date(ahoraMs)),
+                    "fechaMs" to ahoraMs,
+                    "detalle" to "Faltante descartado (no vendrá): ${lineaPrevia.productoNombre.trim()} — solicitado ${lineaPrevia.cantidad} → ${lineaPrevia.cantidadRecibida}, recibido ${lineaPrevia.cantidadRecibida} ($faltanteDescartado und. enterradas)."
+                )
                 val updates = mutableMapOf<String, Any>(
                     "items" to itemsMap,
                     "estado" to nuevoEstado,
                     "totalUnidades" to itemsActualizados.sumOf { it.cantidad },
                     "totalInversion" to totalInval,
+                    "bitacora" to bitacoraActual + nuevaEntrada,
                     "actualizadoEl" to FieldValue.serverTimestamp()
                 )
                 if (todasCompletas) {
@@ -866,7 +1028,8 @@ class PedidoCompraRepository(
     suspend fun cancelarPedido(
         pedidoId: String,
         farmaciaIdParam: String? = null,
-        sucursalIdParam: String? = null
+        sucursalIdParam: String? = null,
+        usuarioNombre: String = ""
     ): Result<Unit> {
         val ids = if (farmaciaIdParam != null && sucursalIdParam != null) {
             Pair(farmaciaIdParam, sucursalIdParam)
@@ -883,18 +1046,34 @@ class PedidoCompraRepository(
                 val snap = tx.get(docRef)
                 if (!snap.exists()) throw IllegalStateException("La orden no existe.")
                 val pedido = mapearPedido(snap) ?: throw IllegalStateException("No se pudo leer la orden.")
-                if (pedido.estado != "ENVIADO") {
-                    throw IllegalStateException("Solo se puede cancelar una orden en estado ENVIADO (estado actual: ${pedido.estado}).")
+                if (!MaquinaEstadosPedido.puedeCancelar(pedido.estado, pedido.recepciones.size)) {
+                    throw IllegalStateException("No se puede cancelar una orden en estado ${pedido.estado} o que ya tiene entregas parciales.")
                 }
-                if (pedido.recepciones.isNotEmpty()) {
-                    throw IllegalStateException("Esta orden ya tiene entregas parciales registradas. No se puede cancelar; recíbela o ciérrala con ajuste.")
+                if (!MaquinaEstadosPedido.puedeTransicionar(pedido.estado, "CANCELADO")) {
+                    throw IllegalStateException("Transición prohibida: de '${pedido.estado}' a 'CANCELADO'.")
                 }
-                tx.update(
+                // Firma de cancelación con hora de servidor (mismo patrón que creación/edición):
+                // HoraServidor lleva el offset medido contra Firestore, jamás reloj local puro.
+                // R10: dentro de la lista no va serverTimestamp, solo fechaMs + texto legible.
+                val ahoraMs = HoraServidor.ahoraMs()
+                val fechaLegible = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(ahoraMs))
+                @Suppress("UNCHECKED_CAST")
+                val bitacoraActual = (snap.get("bitacora") as? List<Map<String, Any>>) ?: emptyList()
+                val nuevaEntrada = mapOf(
+                    "tipo" to "CANCELACION",
+                    "usuario" to usuarioNombre.ifBlank { SessionManager.nombreUsuario.ifBlank { "Administración" } },
+                    "fecha" to fechaLegible,
+                    "fechaMs" to ahoraMs,
+                    "detalle" to "Orden cancelada. No ingresó mercadería."
+                )
+                tx.set(
                     docRef,
                     mapOf(
                         "estado" to "CANCELADO",
+                        "bitacora" to bitacoraActual + nuevaEntrada,
                         "actualizadoEl" to FieldValue.serverTimestamp()
-                    )
+                    ),
+                    com.google.firebase.firestore.SetOptions.merge()
                 )
             }.await()
 

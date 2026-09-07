@@ -87,8 +87,7 @@ data class ComprasUiState(
     val errorGuardadoProveedor: String? = null,
     val procesandoPago: Boolean = false,
     val enviandoPedido: Boolean = false,
-    val procesandoEdicionPedido: Boolean = false,
-    val procesandoEliminacionPedido: Boolean = false,
+    val anexandoFactura: Boolean = false,
     val mostrarDialogoProveedor: Boolean = false,
     val proveedorEditando: Proveedor? = null,
     val mostrarDialogoAbono: Boolean = false,
@@ -118,6 +117,12 @@ data class ComprasUiState(
 
     val totalProductosPorAgotarse: Int
         get() = todosLosProductos.count { (it.minStock > 0 && it.stock <= it.minStock) || it.stock <= 0 }
+
+    val pedidosEnCaminoCount: Int
+        get() = pedidosGuardados.count { it.estado == "ENVIADO" || it.estado == "ENTREGA_PARCIAL" }
+
+    val pedidosHistorialCount: Int
+        get() = pedidosGuardados.count { MaquinaEstadosPedido.perteneceAHistorial(it.estado) }
 
     fun calcularCantidadSugerida(p: PharmProduct): Int {
         val base = if (p.minStock > 0) {
@@ -151,12 +156,15 @@ data class ComprasUiState(
         }
 
     fun resolverProveedorProducto(p: PharmProduct): String {
+        // Regla: el grupo SIEMPRE es un proveedor registrado. El laboratorio jamás
+        // es proveedor y el texto libre sin registro jamás crea un grupo: todo lo
+        // que no ate a un proveedor real cae a Sin Asignar para vincularse.
         // 1. Vinculación oficial por ID en Firestore (tiempo real)
         if (p.proveedorId.isNotBlank()) {
             val matchId = proveedores.find { it.id == p.proveedorId }
             if (matchId != null) return matchId.nombre
         }
-        // 2. Vinculación por nombre o RUC guardado en el producto
+        // 2. Vinculación por nombre o RUC guardado en el producto (solo si existe)
         val prov = p.proveedor.trim().takeUnless { esPlaceholderProveedor(it) }
         if (!prov.isNullOrBlank()) {
             val match = proveedores.find {
@@ -165,12 +173,7 @@ data class ComprasUiState(
                 it.id == prov
             }
             if (match != null) return match.nombre
-            return prov
         }
-        // 3. Fallback por laboratorio SOLO si coincide con un proveedor existente en catálogo
-        val matchLab = proveedores.find { it.nombre.equals(p.laboratory, ignoreCase = true) }
-        if (matchLab != null) return matchLab.nombre
-        if (p.laboratory.isNotBlank() && !esPlaceholderProveedor(p.laboratory)) return p.laboratory
         return "Droguería General / Sin Asignar"
     }
 

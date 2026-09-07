@@ -92,6 +92,29 @@ fun ModuloPreciosYFraccionamiento(
         )
     }
 
+    // Línea base guardada en base de datos (Firestore) para este producto
+    var presentacionesGuardadas by remember(product.indice) {
+        mutableStateOf<List<PresentacionProducto>>(product.presentaciones)
+    }
+
+    LaunchedEffect(product.presentaciones) {
+        if (product.presentaciones.isNotEmpty()) {
+            presentacionesGuardadas = product.presentaciones
+        }
+    }
+
+    var revisionFormulario by remember { mutableIntStateOf(0) }
+
+    val hayCambios = remember(presentacionesState, presentacionesGuardadas) {
+        if (presentacionesGuardadas.isNotEmpty()) {
+            !sonListasPresentacionesIdenticas(presentacionesState, presentacionesGuardadas)
+        } else {
+            // Producto nuevo sin política guardada previamente en base de datos:
+            // Hay cambios accionables cuando el usuario definió un precio o agregó presentaciones
+            presentacionesState.any { it.precioventa > 0.0 } || presentacionesState.size > 1
+        }
+    }
+
     var estadoGuardado by remember { mutableStateOf(EstadoGuardadoPrecios.INACTIVO) }
     var mensajeErrorGuardado by remember { mutableStateOf("") }
 
@@ -102,6 +125,8 @@ fun ModuloPreciosYFraccionamiento(
             result.fold(
                 onSuccess = {
                     estadoGuardado = EstadoGuardadoPrecios.EXITO
+                    presentacionesGuardadas = presentacionesState.map { it.copy() }
+                    revisionFormulario++
                 },
                 onFailure = { error ->
                     estadoGuardado = EstadoGuardadoPrecios.ERROR
@@ -432,7 +457,7 @@ fun ModuloPreciosYFraccionamiento(
                             )
 
                             val isBase = if (product.presentacionPrincipalId.isNotBlank()) {
-                                selectedPres?.presentacionId == product.presentacionPrincipalId
+                                selectedPres.presentacionId == product.presentacionPrincipalId
                             } else {
                                 selectedIndex == 0
                             }
@@ -458,25 +483,27 @@ fun ModuloPreciosYFraccionamiento(
 
                         HorizontalDivider(color = FDColors.Border)
 
-                        TarjetaEditorFormulario(
-                            pres = selectedPres,
-                            empaqueBase = empaqueBase,
-                            unitMaster = unitMaster,
-                            editable = isPrivileged,
-                            empaquesDisponibles = empaquesDisponibles,
-                            unidadesDisponibles = unidadesDisponibles,
-                            onUpdate = { nuevoNombre, nuevoEmpaque, nuevaCant, nuevaUnidad, nuevoPrecio ->
-                                val lista = presentacionesState.toMutableList()
-                                lista[selectedIndex] = selectedPres.copy(
-                                    nombre = nuevoNombre,
-                                    empaque = nuevoEmpaque,
-                                    cantidad = nuevaCant,
-                                    unidadMedida = nuevaUnidad,
-                                    precioventa = nuevoPrecio
-                                )
-                                presentacionesState = lista
-                            }
-                        )
+                        key(selectedPres.presentacionId, revisionFormulario) {
+                            TarjetaEditorFormulario(
+                                pres = selectedPres,
+                                empaqueBase = empaqueBase,
+                                unitMaster = unitMaster,
+                                editable = isPrivileged,
+                                empaquesDisponibles = empaquesDisponibles,
+                                unidadesDisponibles = unidadesDisponibles,
+                                onUpdate = { nuevoNombre, nuevoEmpaque, nuevaCant, nuevaUnidad, nuevoPrecio ->
+                                    val lista = presentacionesState.toMutableList()
+                                    lista[selectedIndex] = selectedPres.copy(
+                                        nombre = nuevoNombre,
+                                        empaque = nuevoEmpaque,
+                                        cantidad = nuevaCant,
+                                        unidadMedida = nuevaUnidad,
+                                        precioventa = nuevoPrecio
+                                    )
+                                    presentacionesState = lista
+                                }
+                            )
+                        }
 
                         val pNum = selectedPres.precioventa
                         val cNum = selectedPres.cantidad
@@ -638,34 +665,112 @@ fun ModuloPreciosYFraccionamiento(
                                 }
                             }
                         }
-                        Button(
-                            onClick = {
-                                if (validacion.hayVentaAPerdida) {
-                                    mostrarAlertaConfirmacionPerdida = true
-                                } else {
-                                    ejecutarGuardado()
+                        val textoBoton = if (presentacionesGuardadas.isNotEmpty()) {
+                            "GUARDAR CAMBIOS"
+                        } else {
+                            "GUARDAR POLÍTICA DE PRECIOS"
+                        }
+
+                        AnimatedContent(
+                            targetState = (hayCambios || estadoGuardado == EstadoGuardadoPrecios.GUARDANDO),
+                            label = "TransicionAccionPrecios"
+                        ) { conAccionPendiente ->
+                            if (conAccionPendiente) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (presentacionesGuardadas.isNotEmpty()) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                presentacionesState = presentacionesGuardadas.map { it.copy() }
+                                                revisionFormulario++
+                                            },
+                                            enabled = estadoGuardado == EstadoGuardadoPrecios.INACTIVO,
+                                            modifier = Modifier.weight(0.35f).height(48.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(0.5.dp, FDColors.Border),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.TextSecondary)
+                                        ) {
+                                            Text(
+                                                text = "DESCARTAR",
+                                                style = FDType.Label.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            )
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (validacion.hayVentaAPerdida) {
+                                                mostrarAlertaConfirmacionPerdida = true
+                                            } else {
+                                                ejecutarGuardado()
+                                            }
+                                        },
+                                        enabled = isPrivileged && estadoGuardado == EstadoGuardadoPrecios.INACTIVO && validacion.esValidoParaGuardar,
+                                        modifier = Modifier
+                                            .weight(if (presentacionesGuardadas.isNotEmpty()) 0.65f else 1f)
+                                            .height(48.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = FDColors.Primary,
+                                            contentColor = FDColors.PrimaryText
+                                        )
+                                    ) {
+                                        if (estadoGuardado == EstadoGuardadoPrecios.GUARDANDO) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = FDColors.PrimaryText
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "GUARDANDO...",
+                                                style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            )
+                                        } else {
+                                            Text(
+                                                text = textoBoton,
+                                                style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            )
+                                        }
+                                    }
                                 }
-                            },
-                            enabled = isPrivileged && estadoGuardado == EstadoGuardadoPrecios.INACTIVO && validacion.esValidoParaGuardar,
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = FDColors.Primary,
-                                contentColor = FDColors.PrimaryText
-                            )
-                        ) {
-                            if (estadoGuardado == EstadoGuardadoPrecios.GUARDANDO) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = FDColors.PrimaryText)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "GUARDANDO...",
-                                    style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                )
                             } else {
-                                Text(
-                                    text = "GUARDAR POLÍTICA DE PRECIOS",
-                                    style = FDType.Label.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                )
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                                    color = if (presentacionesGuardadas.isNotEmpty()) FDColors.Success.copy(alpha = 0.08f) else FDColors.SurfaceElevated,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(
+                                        0.5.dp,
+                                        if (presentacionesGuardadas.isNotEmpty()) FDColors.Success.copy(alpha = 0.3f) else FDColors.Border
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            if (presentacionesGuardadas.isNotEmpty()) Icons.Outlined.CheckCircle else Icons.Outlined.Info,
+                                            contentDescription = null,
+                                            tint = if (presentacionesGuardadas.isNotEmpty()) FDColors.Success else FDColors.TextSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = if (presentacionesGuardadas.isNotEmpty()) {
+                                                "Política de precios vigente · Sin cambios pendientes"
+                                            } else {
+                                                "Ingresa un precio de venta para activar la política"
+                                            },
+                                            style = FDType.BodySmall.copy(
+                                                fontWeight = if (presentacionesGuardadas.isNotEmpty()) FontWeight.SemiBold else FontWeight.Medium,
+                                                color = if (presentacionesGuardadas.isNotEmpty()) FDColors.Success else FDColors.TextSecondary
+                                            )
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -685,8 +790,31 @@ fun ModuloPreciosYFraccionamiento(
         onVerFresco = {
             // Verdad vigente: recarga borrador con lo fresco del servidor sin perder tu trabajo previo del todo — 1 toque
             presentacionesState = if (product.presentaciones.isNotEmpty()) product.presentaciones else presentacionesState
+            presentacionesGuardadas = product.presentaciones
+            revisionFormulario++
             estadoGuardado = EstadoGuardadoPrecios.INACTIVO
             mensajeErrorGuardado = ""
         }
     )
+}
+
+/**
+ * Validador de equivalencia entre la política en memoria y la guardada en base de datos.
+ */
+private fun sonListasPresentacionesIdenticas(
+    actual: List<PresentacionProducto>,
+    guardada: List<PresentacionProducto>
+): Boolean {
+    if (actual.size != guardada.size) return false
+    for (i in actual.indices) {
+        val a = actual[i]
+        val g = guardada[i]
+        if (a.nombre.trim() != g.nombre.trim()) return false
+        if (a.empaque.trim() != g.empaque.trim()) return false
+        if (a.cantidad != g.cantidad) return false
+        if (a.unidadMedida.trim() != g.unidadMedida.trim()) return false
+        if (kotlin.math.abs(a.precioventa - g.precioventa) > 0.0001) return false
+        if (a.codigoBarras.trim() != g.codigoBarras.trim()) return false
+    }
+    return true
 }

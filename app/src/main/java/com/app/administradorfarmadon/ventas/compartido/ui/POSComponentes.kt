@@ -518,6 +518,7 @@ fun FDSearchField(
     placeholder: String = "Buscar...",
     leadingIcon: ImageVector = Icons.Default.Search,
     focusRequester: FocusRequester? = null,
+    enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     onEnterPressed: (() -> Unit)? = null,
@@ -527,7 +528,7 @@ fun FDSearchField(
     val interactionSource = remember { MutableInteractionSource() }
 
     Surface(
-        color = FDColors.InputBackground,
+        color = if (enabled) FDColors.InputBackground else FDColors.InputBackground.copy(alpha = 0.5f),
         shape = FDShapes.Small,
         modifier = modifier.height(s.inputMinH)
     ) {
@@ -536,7 +537,7 @@ fun FDSearchField(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(leadingIcon, null, tint = FDColors.Primary, modifier = Modifier.size(s.iconSmall))
+            Icon(leadingIcon, null, tint = if (enabled) FDColors.Primary else FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall))
             
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 if (busqueda.isEmpty()) {
@@ -566,8 +567,9 @@ fun FDSearchField(
                 BasicTextField(
                     value = busqueda,
                     onValueChange = onBusquedaChange,
+                    enabled = enabled,
                     interactionSource = interactionSource,
-                    textStyle = FDType.Body.copy(color = FDColors.TextPrimary, fontSize = s.textBody.value.sp),
+                    textStyle = FDType.Body.copy(color = if (enabled) FDColors.TextPrimary else FDColors.TextTertiary, fontSize = s.textBody.value.sp),
                     cursorBrush = SolidColor(FDColors.Primary),
                     singleLine = true,
                     keyboardOptions = keyboardOptions,

@@ -66,8 +66,8 @@ fun SubmoduloVentasDia(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Notificaciones en vivo
         if (uiState.mensajeExito != null) {
@@ -77,7 +77,13 @@ fun SubmoduloVentasDia(
                 icono = Icons.Default.CheckCircle
             )
         }
-        if (uiState.error != null) {
+        if (uiState.estadoCaja.esTurnoVencido) {
+            POSNotificationBar(
+                mensaje = "BLOQUEO OPERATIVO: TURNO VENCIDO. No se permiten anulaciones ni devoluciones. Resuelva el cierre de la caja pendiente.",
+                tipo = TipoEstadoFarmadon.PELIGRO,
+                icono = Icons.Default.LockClock
+            )
+        } else if (uiState.error != null) {
             POSNotificationBar(
                 mensaje = uiState.error ?: "",
                 tipo = TipoEstadoFarmadon.PELIGRO,
@@ -319,7 +325,7 @@ fun SubmoduloVentasDia(
                                     verticalArrangement = Arrangement.spacedBy(4.dp),
                                     contentPadding = PaddingValues(vertical = 4.dp)
                                 ) {
-                                    items(uiState.ventasFiltradas) { venta ->
+                                    items(uiState.ventasFiltradas, key = { it.id }) { venta ->
                                         val isSel = uiState.ventaSeleccionada?.id == venta.id
                                         val hora = if (venta.fechaHoraMs > 0) fmtHora.format(Date(venta.fechaHoraMs)) else "--:--"
 
@@ -357,14 +363,21 @@ fun SubmoduloVentasDia(
                                                     overflow = TextOverflow.Ellipsis,
                                                     modifier = Modifier.weight(1.6f)
                                                 )
-                                                Text(
-                                                    venta.cajeroNombre.ifBlank { "Mostrador" },
-                                                    style = FDType.Caption.copy(fontSize = 11.sp),
-                                                    color = FDColors.TextSecondary,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f)
-                                                )
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        venta.cajeroNombre.ifBlank { "Mostrador" },
+                                                        style = FDType.Caption.copy(fontSize = 11.sp),
+                                                        color = FDColors.TextSecondary,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    if (uiState.ventaPerteneceATurnoCerrado(venta)) {
+                                                        Text(
+                                                            "Turno previo",
+                                                            style = FDType.Label.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = FDColors.Warning)
+                                                        )
+                                                    }
+                                                }
                                                 Text(
                                                     "$simboloMoneda ${String.format(Locale.US, "%.2f", venta.total)}",
                                                     style = FDType.Numeric.copy(
@@ -397,9 +410,12 @@ fun SubmoduloVentasDia(
                 if (venta == null) {
                     DetalleVaciaState()
                 } else {
+                    val esTurnoCerrado = uiState.ventaPerteneceATurnoCerrado(venta)
                     DetalleVentaContenido(
                         venta = venta,
                         simbolo = simboloMoneda,
+                        esDeTurnoCerrado = esTurnoCerrado,
+                        esTurnoVencido = uiState.estadoCaja.esTurnoVencido,
                         onImprimir = { viewModel.imprimirTicket(context, venta) },
                         onDevolver = { onDevolver(venta) },
                         onAnular = { viewModel.abrirDialogoAnular(venta) }
@@ -411,9 +427,11 @@ fun SubmoduloVentasDia(
 
     // Modal de Confirmación de Anulación
     if (uiState.mostrarDialogoAnular && uiState.ventaAAnular != null) {
+        val esDeTurnoCerrado = uiState.ventaPerteneceATurnoCerrado(uiState.ventaAAnular!!)
         DialogoConfirmarAnulacion(
             venta = uiState.ventaAAnular!!,
             simbolo = simboloMoneda,
+            esDeTurnoCerrado = esDeTurnoCerrado,
             procesando = uiState.procesandoAnulacion,
             onDismiss = { viewModel.cerrarDialogoAnular() },
             onConfirmar = { motivo ->
@@ -460,6 +478,8 @@ private fun DetalleVaciaState() {
 private fun DetalleVentaContenido(
     venta: Venta,
     simbolo: String,
+    esDeTurnoCerrado: Boolean = false,
+    esTurnoVencido: Boolean = false,
     onImprimir: () -> Unit,
     onDevolver: () -> Unit,
     onAnular: () -> Unit
@@ -499,6 +519,30 @@ private fun DetalleVentaContenido(
                         Text(fechaTexto, style = FDType.Caption, color = FDColors.TextTertiary)
                     }
                     POSBadge(texto = textoBadge, tipo = tipoBadge)
+                }
+            }
+
+            // Aviso si la venta pertenece a un turno cerrado
+            if (venta.estado == Venta.ESTADO_COMPLETADA && esDeTurnoCerrado) {
+                item {
+                    Surface(
+                        color = FDColors.Warning.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.4f)),
+                        shape = FDShapes.Small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Lock, null, tint = FDColors.Warning, modifier = Modifier.size(18.dp))
+                            Text(
+                                "Venta de turno anterior ya cerrado. Para reembolsar o cambiar productos use DEVOLVER (Nota de Crédito); la anulación directa no descuenta dinero de turnos cerrados.",
+                                style = FDType.Caption.copy(fontSize = 10.5.sp, color = FDColors.TextPrimary)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -676,24 +720,36 @@ private fun DetalleVentaContenido(
                     Text("IMPRIMIR", style = FDType.Label.copy(fontWeight = FontWeight.Bold, color = FDColors.Primary))
                 }
 
-                // Si la venta está completada (sin devoluciones), permite ANULAR
+                // Si la venta está completada (sin devoluciones), permite ANULAR solo si es del turno actual y turno vigente
                 if (venta.estado == Venta.ESTADO_COMPLETADA) {
+                    val habilitadoAnular = !esDeTurnoCerrado && !esTurnoVencido
                     OutlinedButton(
                         onClick = onAnular,
+                        enabled = habilitadoAnular,
                         modifier = Modifier.weight(1f).height(44.dp),
                         shape = FDShapes.Small,
-                        border = BorderStroke(1.dp, FDColors.Error),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = FDColors.Error)
+                        border = BorderStroke(1.dp, if (habilitadoAnular) FDColors.Error else FDColors.Border.copy(alpha = 0.4f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = FDColors.Error,
+                            disabledContentColor = FDColors.TextTertiary
+                        )
                     ) {
-                        Icon(Icons.Default.Cancel, null, modifier = Modifier.size(16.dp), tint = FDColors.Error)
+                        Icon(if (esTurnoVencido) Icons.Default.LockClock else Icons.Default.Cancel, null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("ANULAR", style = FDType.Label.copy(fontWeight = FontWeight.Black, color = FDColors.Error))
+                        Text(
+                            when {
+                                esTurnoVencido -> "TURNO VENCIDO"
+                                esDeTurnoCerrado -> "TURNO CERRADO"
+                                else -> "ANULAR"
+                            },
+                            style = FDType.Label.copy(fontWeight = FontWeight.Black)
+                        )
                     }
                 }
 
-                // Permite Devolver solo si no está totalmente devuelta ni anulada
+                // Permite Devolver solo si no está totalmente devuelta ni anulada y el turno no está vencido
                 if (venta.estado != Venta.ESTADO_ANULADA) {
-                    val permiteDevolver = venta.estado != Venta.ESTADO_DEVOLUCION_TOTAL
+                    val permiteDevolver = venta.estado != Venta.ESTADO_DEVOLUCION_TOTAL && !esTurnoVencido
                     Button(
                         onClick = onDevolver,
                         enabled = permiteDevolver,
@@ -703,7 +759,7 @@ private fun DetalleVentaContenido(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.AssignmentReturn, null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("DEVOLVER", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                        Text(if (esTurnoVencido) "BLOQUEADO" else "DEVOLVER", style = FDType.Label.copy(fontWeight = FontWeight.Black))
                     }
                 }
             }
@@ -718,12 +774,13 @@ private fun DetalleVentaContenido(
 private fun DialogoConfirmarAnulacion(
     venta: Venta,
     simbolo: String,
+    esDeTurnoCerrado: Boolean = false,
     procesando: Boolean,
     onDismiss: () -> Unit,
     onConfirmar: (motivo: String) -> Unit
 ) {
     var motivo by remember { mutableStateOf("") }
-    val esValido = motivo.trim().length >= 5
+    val esValido = motivo.trim().length >= 5 && !esDeTurnoCerrado
 
     AlertDialog(
         onDismissRequest = { if (!procesando) onDismiss() },
@@ -735,53 +792,79 @@ private fun DialogoConfirmarAnulacion(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(
-                    color = FDColors.Error.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.3f)),
-                    shape = FDShapes.Small,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            "Esta acción anulará la venta por completo:",
-                            style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
-                            color = FDColors.Error
-                        )
-                        Text("• Todo el stock consumido regresará a los lotes originales.", style = FDType.Caption, color = FDColors.TextPrimary)
-                        Text("• Se registrará la salida del dinero ($simbolo ${String.format(Locale.US, "%.2f", venta.total)}) en la caja abierta.", style = FDType.Caption, color = FDColors.TextPrimary)
-                        Text("• Se generará el comprobante fiscal de baja correspondiente.", style = FDType.Caption, color = FDColors.TextPrimary)
+                if (esDeTurnoCerrado) {
+                    Surface(
+                        color = FDColors.Warning.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, FDColors.Warning),
+                        shape = FDShapes.Small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                "Anulación bloqueada (Turno Cerrado)",
+                                style = FDType.Body.copy(fontWeight = FontWeight.Black, fontSize = 12.sp),
+                                color = FDColors.TextPrimary
+                            )
+                            Text(
+                                "Esta venta pertenece a un turno ya cerrado. Para no descuadrar el balance de la caja actual, no se permite su anulación directa. Registre una DEVOLUCIÓN (Nota de Crédito) en su lugar.",
+                                style = FDType.Caption,
+                                color = FDColors.TextSecondary
+                            )
+                        }
+                    }
+                } else {
+                    Surface(
+                        color = FDColors.Error.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.3f)),
+                        shape = FDShapes.Small,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                "Esta acción anulará la venta por completo:",
+                                style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp),
+                                color = FDColors.Error
+                            )
+                            Text("• Todo el stock consumido regresará a los lotes originales.", style = FDType.Caption, color = FDColors.TextPrimary)
+                            Text("• Se registrará la salida del dinero ($simbolo ${String.format(Locale.US, "%.2f", venta.total)}) en la caja abierta.", style = FDType.Caption, color = FDColors.TextPrimary)
+                            Text("• Se generará el comprobante fiscal de baja correspondiente.", style = FDType.Caption, color = FDColors.TextPrimary)
+                        }
                     }
                 }
 
-                Text(
-                    "Ingresa el motivo de la anulación (mínimo 5 caracteres):",
-                    style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                    color = FDColors.TextSecondary
-                )
+                if (!esDeTurnoCerrado) {
+                    Text(
+                        "Ingresa el motivo de la anulación (mínimo 5 caracteres):",
+                        style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = FDColors.TextSecondary
+                    )
 
-                FDTextField(
-                    value = motivo,
-                    onValueChange = { motivo = it },
-                    placeholder = "Ej: Error en medio de pago, cliente desistió...",
-                    singleLine = false,
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    FDTextField(
+                        value = motivo,
+                        onValueChange = { motivo = it },
+                        placeholder = "Ej: Error en medio de pago, cliente desistió...",
+                        singleLine = false,
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
         },
         confirmButton = {
-            Button(
-                onClick = { if (esValido && !procesando) onConfirmar(motivo) },
-                enabled = esValido && !procesando,
-                colors = ButtonDefaults.buttonColors(containerColor = FDColors.Error),
-                shape = FDShapes.Small
-            ) {
-                if (procesando) {
-                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("ANULANDO...", style = FDType.Label.copy(fontWeight = FontWeight.Black))
-                } else {
-                    Text("CONFIRMAR ANULACIÓN", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+            if (!esDeTurnoCerrado) {
+                Button(
+                    onClick = { if (esValido && !procesando) onConfirmar(motivo) },
+                    enabled = esValido && !procesando,
+                    colors = ButtonDefaults.buttonColors(containerColor = FDColors.Error),
+                    shape = FDShapes.Small
+                ) {
+                    if (procesando) {
+                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("ANULANDO...", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                    } else {
+                        Text("CONFIRMAR ANULACIÓN", style = FDType.Label.copy(fontWeight = FontWeight.Black))
+                    }
                 }
             }
         },
@@ -791,7 +874,7 @@ private fun DialogoConfirmarAnulacion(
                 enabled = !procesando,
                 shape = FDShapes.Small
             ) {
-                Text("CANCELAR", style = FDType.Label.copy(fontWeight = FontWeight.Bold))
+                Text(if (esDeTurnoCerrado) "ENTENDIDO" else "CANCELAR", style = FDType.Label.copy(fontWeight = FontWeight.Bold))
             }
         }
     )

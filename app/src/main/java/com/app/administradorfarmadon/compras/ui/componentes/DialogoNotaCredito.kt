@@ -3,10 +3,12 @@ package com.app.administradorfarmadon.compras.ui.componentes
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Receipt
@@ -44,7 +46,15 @@ fun DialogoNotaCredito(
     estadoFactura: String? = null,
     autorizadoPlata: Boolean,
     onDismiss: () -> Unit,
-    onConfirmarNota: (numeroDocumento: String, monto: Double, motivo: String) -> Unit
+    onConfirmarNota: (
+        numeroDocumento: String,
+        monto: Double,
+        motivo: String,
+        salidaProductoId: String,
+        salidaProductoNombre: String,
+        salidaLote: String,
+        salidaCantidad: Double
+    ) -> Unit
 ) {
     val s = recordarMedidaAdaptativa()
     val simboloMoneda = SessionManager.monedaSimbolo.ifBlank { "S/" }
@@ -73,6 +83,11 @@ fun DialogoNotaCredito(
     var errorMonto by remember { mutableStateOf<String?>(null) }
     var errorDoc by remember { mutableStateOf<String?>(null) }
     var errorMotivo by remember { mutableStateOf<String?>(null) }
+    // Puente stock (opcional): la mercadería SE VA junto con la nota, en una sola verdad.
+    var sacaMercaderia by remember { mutableStateOf(false) }
+    var lineaElegida by remember { mutableStateOf<com.app.administradorfarmadon.inventario.compartido.modelo.ItemFacturaCompra?>(null) }
+    var mostrarMenuLineas by remember { mutableStateOf(false) }
+    var cantSalidaTxt by remember { mutableStateOf("") }
 
     // Comparación en céntimos exactos: ni un céntimo más del papel se descuenta.
     val montoNumerico = montoTexto.replace(',', '.').toDoubleOrNull()?.let { Math.round(it * 100.0) / 100.0 } ?: 0.0
@@ -80,7 +95,10 @@ fun DialogoNotaCredito(
     val montoValido = montoNumerico > 0.0 && montoNumerico <= maximoAjustableRedondeado
     val documentoValido = numeroDocumento.trim().isNotBlank()
     val motivoValido = motivo.trim().length >= 5
-    val puedeConfirmar = autorizadoPlata && !esAnulada && documentoValido && montoValido && motivoValido && !procesando
+    val cantSalidaNum = cantSalidaTxt.replace(',', '.').toDoubleOrNull() ?: 0.0
+    val salidaValida = !sacaMercaderia ||
+        (lineaElegida != null && cantSalidaNum > 0.0)
+    val puedeConfirmar = autorizadoPlata && !esAnulada && documentoValido && montoValido && motivoValido && salidaValida && !procesando
 
     val totalDespues = (maximoAjustable - montoNumerico).coerceAtLeast(0.0)
     val saldoDespues = (totalDespues - totalAbonado).coerceAtLeast(0.0)
@@ -291,6 +309,112 @@ fun DialogoNotaCredito(
                             Text(errorMotivo ?: "", style = FDType.Label.copy(fontSize = s.textLabel.value.sp, fontWeight = FontWeight.Bold), color = FDColors.Error)
                         }
 
+                        // Puente stock: si la mercadería SE VA (devolución/daño), sale del
+                        // lote en la MISMA operación que baja la deuda. Apagado = solo dinero.
+                        Surface(
+                            color = if (sacaMercaderia) FDColors.Warning.copy(alpha = 0.08f) else FDColors.SurfaceElevated,
+                            shape = RoundedCornerShape(s.radiusInput),
+                            border = BorderStroke(s.borderWidth, if (sacaMercaderia) FDColors.Warning.copy(alpha = 0.4f) else FDColors.Border),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(s.padCard),
+                                verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Text(
+                                            "Salió mercadería",
+                                            style = FDType.Label.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                            color = if (sacaMercaderia) FDColors.Warning else FDColors.TextPrimary
+                                        )
+                                        Text(
+                                            text = if (sacaMercaderia) "Se devuelve o se daña: sale del stock junto con la nota." else "Solo dinero: el stock no se toca.",
+                                            style = FDType.Caption.copy(fontSize = 9.5.sp),
+                                            color = FDColors.TextTertiary
+                                        )
+                                    }
+                                    Switch(
+                                        checked = sacaMercaderia,
+                                        onCheckedChange = { sacaMercaderia = it },
+                                        enabled = !procesando && autorizadoPlata,
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = FDColors.PrimaryText,
+                                            checkedTrackColor = FDColors.Warning,
+                                            uncheckedThumbColor = FDColors.TextTertiary,
+                                            uncheckedTrackColor = FDColors.SurfaceElevated
+                                        )
+                                    )
+                                }
+                                if (sacaMercaderia) {
+                                    val lineas = factura.items.filter { it.cantidadTotal > 0 }
+                                    Box {
+                                        OutlinedTextField(
+                                            value = lineaElegida?.let {
+                                                "${it.productoNombre} · Lote ${it.loteNumero.ifBlank { "?" }} · ${it.cantidadTotal.toInt()} und"
+                                            } ?: "",
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("LÍNEA QUE SALE", fontSize = s.textLabel.value.sp * 0.92f) },
+                                            placeholder = { Text("Elige qué mercadería se va", fontSize = s.textBody.value.sp * 0.88f, color = FDColors.TextTertiary) },
+                                            trailingIcon = {
+                                                IconButton(onClick = { mostrarMenuLineas = true }, enabled = !procesando) {
+                                                    Icon(Icons.Default.ArrowDropDown, null, tint = FDColors.TextTertiary)
+                                                }
+                                            },
+                                            singleLine = true,
+                                            enabled = !procesando,
+                                            shape = RoundedCornerShape(s.radiusInput),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { mostrarMenuLineas = true }
+                                        )
+                                        DropdownMenu(
+                                            expanded = mostrarMenuLineas,
+                                            onDismissRequest = { mostrarMenuLineas = false },
+                                            containerColor = FDColors.SurfaceElevated
+                                        ) {
+                                            if (lineas.isEmpty()) {
+                                                DropdownMenuItem(
+                                                    text = { Text("La factura no trae líneas.", fontSize = 12.sp) },
+                                                    onClick = { mostrarMenuLineas = false }
+                                                )
+                                            }
+                                            lineas.forEach { li ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            "${li.productoNombre} · Lote ${li.loteNumero.ifBlank { "?" }} · ${li.cantidadTotal.toInt()} und",
+                                                            style = FDType.Body.copy(fontSize = 12.5.sp),
+                                                            color = FDColors.TextPrimary
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        lineaElegida = li
+                                                        mostrarMenuLineas = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    OutlinedTextField(
+                                        value = cantSalidaTxt,
+                                        onValueChange = { cantSalidaTxt = it.filter { c -> c.isDigit() || c == '.' || c == ',' } },
+                                        label = { Text("UNIDADES QUE SALEN", fontSize = s.textLabel.value.sp * 0.92f) },
+                                        singleLine = true,
+                                        enabled = !procesando,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                        shape = RoundedCornerShape(s.radiusInput),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+
                         if (!autorizadoPlata) {
                             Surface(
                                 color = FDColors.WarningSubtle,
@@ -313,8 +437,17 @@ fun DialogoNotaCredito(
                             }
                         }
 
-                        if (montoValido && documentoValido) {
-                            Surface(
+                        // Alcance honesto: sin salida, la nota solo mueve DINERO. Si la mercadería
+                        // se devuelve o se daña, se activa arriba y sale del stock en la misma
+                        // operación; si no, el stock mentiría.
+                        if (!sacaMercaderia) {
+                            Text(
+                                "Esta nota solo mueve dinero, no stock.",
+                                style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                color = FDColors.TextTertiary
+                            )
+                        }
+                        if (montoValido && documentoValido) {                            Surface(
                                 color = FDColors.Primary.copy(alpha = 0.06f),
                                 shape = RoundedCornerShape(s.radiusInput),
                                 border = BorderStroke(s.borderWidth * 0.7f, FDColors.Primary.copy(alpha = 0.3f)),
@@ -333,7 +466,10 @@ fun DialogoNotaCredito(
                                                 if (excesoVista > 0.01)
                                                     "La factura quedará SALDADA y los ${String.format(Locale.US, "%.2f", excesoVista)} que ya pagaste de más nacerán como SALDO A FAVOR del proveedor (aparecerá para cobrarlo o usarlo en otra compra)."
                                                 else "La factura quedará SALDADA."
-                                            } else "Quedará un saldo de ${String.format(Locale.US, "%.2f", saldoDespues)}.",
+                                            } else "Quedará un saldo de ${String.format(Locale.US, "%.2f", saldoDespues)}." +
+                                            if (sacaMercaderia && lineaElegida != null && cantSalidaNum > 0.0) {
+                                                " Saldrán $cantSalidaNum und. de ${lineaElegida!!.productoNombre} (lote ${lineaElegida!!.loteNumero.ifBlank { "?" }})."
+                                            } else "",
                                         style = FDType.BodySmall.copy(fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold),
                                         color = FDColors.TextPrimary
                                     )
@@ -374,7 +510,17 @@ fun DialogoNotaCredito(
                                     return@Button
                                 }
                                 keyboardController?.hide(); focusManager.clearFocus()
-                                onConfirmarNota(numeroDocumento.trim().uppercase(), montoNumerico, motivo.trim())
+                                if (sacaMercaderia && (lineaElegida == null || cantSalidaNum <= 0.0)) return@Button
+                                val li = lineaElegida
+                                onConfirmarNota(
+                                    numeroDocumento.trim().uppercase(),
+                                    montoNumerico,
+                                    motivo.trim(),
+                                    if (sacaMercaderia) li?.productoId ?: "" else "",
+                                    if (sacaMercaderia) li?.productoNombre ?: "" else "",
+                                    if (sacaMercaderia) li?.loteNumero ?: "" else "",
+                                    if (sacaMercaderia) cantSalidaNum else 0.0
+                                )
                             },
                             enabled = puedeConfirmar,
                             colors = ButtonDefaults.buttonColors(

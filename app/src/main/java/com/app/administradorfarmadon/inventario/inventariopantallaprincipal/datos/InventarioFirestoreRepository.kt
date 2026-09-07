@@ -10,6 +10,8 @@ import com.app.administradorfarmadon.inventario.compartido.logica.ProductoParser
 import com.app.administradorfarmadon.inventario.compartido.modelo.MoldeProductos
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.PharmProduct
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.DocumentChange
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.CancellationException
@@ -149,6 +151,62 @@ class InventarioFirestoreRepository(
         }
 
         awaitClose { listener.remove() }
+    }
+
+    /**
+     * Observa en tiempo real una lista de productos específicos por sus IDs (R8 Verdad Vigente).
+     * Mantiene los productos del buscador y del carrito sincronizados con Firestore al instante
+     * cuando otro usuario o terminal agrega presentaciones, actualiza precios o modifica stock.
+     */
+    fun observarProductosPorIds(
+        farmaciaId: String,
+        sucursalId: String,
+        productoIds: List<String>
+    ): Flow<List<MoldeProductos>> = callbackFlow {
+        val idsLimpios = productoIds.filter { it.isNotBlank() }.distinct()
+        if (farmaciaId.isBlank() || sucursalId.isBlank() || idsLimpios.isEmpty()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val chunks = idsLimpios.chunked(30)
+        val listeners = mutableListOf<com.google.firebase.firestore.ListenerRegistration>()
+        val mapaProductos = java.util.concurrent.ConcurrentHashMap<String, MoldeProductos>()
+
+        for (chunk in chunks) {
+            val query = FarmadonPaths.inventario(db, farmaciaId, sucursalId)
+                .whereIn(FieldPath.documentId(), chunk)
+
+            val reg = query.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error escuchando productos por IDs: ${error.message}", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    for (change in snapshot.documentChanges) {
+                        val doc = change.document
+                        when (change.type) {
+                            DocumentChange.Type.REMOVED -> {
+                                mapaProductos.remove(doc.id)
+                            }
+                            else -> {
+                                val molde = ProductoParser.parseToMolde(doc)
+                                if (molde != null) {
+                                    mapaProductos[doc.id] = molde
+                                }
+                            }
+                        }
+                    }
+                    trySend(mapaProductos.values.toList())
+                }
+            }
+            listeners.add(reg)
+        }
+
+        awaitClose {
+            listeners.forEach { it.remove() }
+        }
     }
 
     /**

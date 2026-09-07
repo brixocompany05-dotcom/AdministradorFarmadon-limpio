@@ -68,7 +68,6 @@ fun TarjetaPedidoEnviado(
 ) {
     val s = recordarMedidaAdaptativa()
     var expandirHistorial by remember { mutableStateOf(false) }
-    var expandirPendientes by remember { mutableStateOf(false) }
     var confirmarAjuste by remember { mutableStateOf(false) }
     var confirmarCancelacion by remember { mutableStateOf(false) }
     var productoParaDescartar by remember { mutableStateOf<ItemPedidoCompra?>(null) }
@@ -215,105 +214,6 @@ fun TarjetaPedidoEnviado(
                     }
                 }
             }
-
-            HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
-
-            // Faltantes de la orden: visibles, contados y descartables uno por uno
-            if (productosPendientes.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(s.radiusInput * 0.75f))
-                        .background(FDColors.TextPrimary.copy(alpha = 0.02f))
-                        .border(
-                            0.6.dp,
-                            FDColors.Border.copy(alpha = 0.5f),
-                            RoundedCornerShape(s.radiusInput * 0.75f)
-                        )
-                        .clickable { expandirPendientes = !expandirPendientes }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(s.gapTiny * 1.0f)
-                        ) {
-                            Icon(
-                                Icons.Default.Schedule,
-                                null,
-                                tint = FDColors.Warning,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = "Faltan ${productosPendientes.size} producto(s) · $unidadesPendientes und.",
-                                style = FDType.Label.copy(
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = FDColors.Warning
-                            )
-                        }
-                        Icon(
-                            imageVector = if (expandirPendientes) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            tint = FDColors.TextTertiary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    AnimatedVisibility(visible = expandirPendientes) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            productosPendientes.forEach { item ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = item.productoNombre,
-                                            style = FDType.BodySmall.copy(
-                                                fontSize = 11.5.sp,
-                                                fontWeight = FontWeight.Bold
-                                            ),
-                                            color = FDColors.TextPrimary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = "Quedan ${item.saldoPendiente} de ${item.cantidad} pedidas",
-                                            style = FDType.BodySmall.copy(fontSize = 10.sp),
-                                            color = FDColors.TextTertiary
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { productoParaDescartar = item },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.RemoveShoppingCart,
-                                            "Descartar faltante",
-                                            tint = FDColors.Warning,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-
         }
     }
 

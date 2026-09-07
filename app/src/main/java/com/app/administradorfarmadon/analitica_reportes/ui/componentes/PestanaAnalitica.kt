@@ -199,6 +199,7 @@ fun PestanaAnalitica(
                         val errSub = when (sub) {
                             "INVENTARIO" -> uiState.fuentesFallidas[FuenteDatos.INVENTARIO]
                             "COMPRAS" -> uiState.fuentesFallidas[FuenteDatos.COMPRAS]
+                            "CAJA" -> uiState.fuentesFallidas[FuenteDatos.CAJA]
                             else -> null
                         }
 

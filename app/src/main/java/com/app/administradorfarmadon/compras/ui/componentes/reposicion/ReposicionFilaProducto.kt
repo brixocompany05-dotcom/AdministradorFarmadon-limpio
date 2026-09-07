@@ -50,9 +50,9 @@ fun FilaProductoDetalleProveedor(
     val empaqueStr = prod.empaque.ifBlank { "Und" }
 
     val textoStock = when {
-        esAgotado -> "Agotado · Mín $stockMinimo"
-        esCritico -> "Quedan $stockActual · Mín $stockMinimo"
-        else -> "Stock $stockActual"
+        esAgotado -> "Agotado en tienda · Mín $stockMinimo"
+        esCritico -> "En tienda: $stockActual · Mín $stockMinimo"
+        else -> "En tienda: $stockActual"
     }
     val colorStock = when {
         esAgotado -> FDColors.Warning
@@ -77,6 +77,7 @@ fun FilaProductoDetalleProveedor(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Columna principal: Nombre del producto y detalles
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -86,19 +87,19 @@ fun FilaProductoDetalleProveedor(
                     text = prod.name,
                     style = FDType.Heading3.copy(
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                        fontSize = 13.5.sp
                     ),
                     color = FDColors.TextPrimary,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(Modifier.height(2.dp))
-                val detalleSub = listOfNotNull(
-                    prod.laboratory.takeIf { it.isNotBlank() && it != "Genérico" },
-                    prod.category.takeIf { it.isNotBlank() }
-                ).joinToString("  ·  ")
+                Spacer(Modifier.height(3.dp))
+                val detalleSub = prod.laboratory.takeIf { it.isNotBlank() && it != "Genérico" }.orEmpty()
                 val subTexto = if (detalleSub.isNotBlank()) "$detalleSub  ·  $empaqueStr" else empaqueStr
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
                         text = subTexto,
                         style = FDType.BodySmall.copy(fontSize = 11.sp),
@@ -107,58 +108,65 @@ fun FilaProductoDetalleProveedor(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
+                    if (enCamino > 0) {
+                        Surface(
+                            color = FDColors.Primary.copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "$enCamino en camino",
+                                style = FDType.Caption.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Bold),
+                                color = FDColors.Primary,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.5.dp)
+                            )
+                        }
+                    }
                     if (!esSinProveedor) {
-                        Spacer(Modifier.width(6.dp))
                         Icon(
                             imageVector = Icons.Default.SwapHoriz,
                             contentDescription = "Cambiar proveedor",
                             tint = FDColors.TextTertiary.copy(alpha = 0.55f),
                             modifier = Modifier
-                                .size(14.dp)
+                                .size(15.dp)
                                 .clickable { mostrarDialogoCambiar = true }
                         )
                     }
                 }
             }
 
-            Text(
-                text = textoStock,
-                style = FDType.Label.copy(
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Bold
-                ),
-                color = colorStock,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(AnchoColStock)
-            )
+            // Columna central-derecha: Stock y Precio de compra
+            Column(
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.padding(horizontal = 8.dp)
+            ) {
+                Text(
+                    text = textoStock,
+                    style = FDType.Label.copy(
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Black
+                    ),
+                    color = colorStock,
+                    maxLines = 1,
+                    textAlign = TextAlign.End
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "$simboloMoneda ${String.format(Locale.US, "%.2f", prod.purchasePrice)}",
+                    style = FDType.Numeric.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black
+                    ),
+                    color = FDColors.TextPrimary,
+                    textAlign = TextAlign.End,
+                    maxLines = 1
+                )
+            }
 
-            Text(
-                text = if (enCamino > 0) "$enCamino en camino" else "—",
-                style = FDType.Label.copy(
-                    fontSize = 10.5.sp,
-                    fontWeight = if (enCamino > 0) FontWeight.Bold else FontWeight.Medium
-                ),
-                color = if (enCamino > 0) FDColors.Primary else FDColors.TextTertiary.copy(alpha = 0.6f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(AnchoColEnCamino)
-            )
-
-            Text(
-                text = "$simboloMoneda ${String.format(Locale.US, "%.2f", prod.purchasePrice)}",
-                style = FDType.Numeric.copy(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black
-                ),
-                color = FDColors.TextPrimary,
-                textAlign = TextAlign.End,
-                modifier = Modifier.width(AnchoColPrecio)
-            )
-
+            // Columna derecha: cantidad siempre visible (- 0 +) o Vincular.
+            // No se esconde el control: en 0 se ve apagado para que se entienda solo mirando.
             Box(
-                modifier = Modifier.width(AnchoColPedir),
-                contentAlignment = Alignment.CenterEnd
+                contentAlignment = Alignment.CenterEnd,
+                modifier = Modifier.padding(start = 4.dp)
             ) {
                 if (esSinProveedor) {
                     Surface(
@@ -176,10 +184,10 @@ fun FilaProductoDetalleProveedor(
                             Text("VINCULAR", style = FDType.Label.copy(fontSize = 10.sp, fontWeight = FontWeight.Black), color = FDColors.Primary)
                         }
                     }
-                } else if (tienePedido) {
+                } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         BotonMasMenos(
                             icono = Icons.Default.Remove,
@@ -188,16 +196,16 @@ fun FilaProductoDetalleProveedor(
                             s = s
                         )
                         Surface(
-                            color = FDColors.SurfaceElevated,
+                            color = if (tienePedido) FDColors.SurfaceElevated else FDColors.TextPrimary.copy(alpha = 0.04f),
                             shape = RoundedCornerShape(s.radiusInput * 0.55f),
                             border = BorderStroke(s.borderWidth, FDColors.Border),
-                            modifier = Modifier.width(44.dp).height(s.btnMediumH)
+                            modifier = Modifier.width(38.dp).height(s.btnMediumH)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
                                     text = "$cantPedir",
-                                    style = FDType.Label.copy(fontWeight = FontWeight.Black, fontSize = s.textInput.value.sp),
-                                    color = FDColors.TextPrimary
+                                    style = FDType.Numeric.copy(fontWeight = FontWeight.Black, fontSize = 12.5.sp),
+                                    color = if (tienePedido) FDColors.TextPrimary else FDColors.TextTertiary
                                 )
                             }
                         }
@@ -207,18 +215,6 @@ fun FilaProductoDetalleProveedor(
                             onClick = { onModificarCantidad(1) },
                             s = s
                         )
-                    }
-                } else {
-                    Surface(
-                        color = FDColors.Primary,
-                        shape = RoundedCornerShape(s.radiusChip),
-                        modifier = Modifier
-                            .size(s.btnMediumH)
-                            .clickable { onModificarCantidad(1) }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Add, null, tint = FDColors.Surface, modifier = Modifier.size(s.iconSmall))
-                        }
                     }
                 }
             }

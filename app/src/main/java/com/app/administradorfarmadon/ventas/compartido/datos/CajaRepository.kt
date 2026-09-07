@@ -42,6 +42,32 @@ class CajaRepository(
     companion object {
         private const val TAG = "CajaRepository"
         private val fmtLegible = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+
+        fun parseEstadoCaja(data: Map<String, Any>?): EstadoCaja {
+            if (data == null) return EstadoCaja()
+            @Suppress("UNCHECKED_CAST")
+            val ventasPorMetodo = (data["ventasPorMetodo"] as? Map<String, Any>)
+                ?.mapValues { (_, v) -> (v as? Number)?.toDouble() ?: 0.0 } ?: emptyMap()
+            val abiertoPorId = data["abiertoPorId"] as? String ?: ""
+            val cajeroId = data["cajeroId"] as? String ?: abiertoPorId
+            val cajaId = data["cajaId"] as? String ?: (if (cajeroId.isNotBlank()) "caja_$cajeroId" else "")
+            return EstadoCaja(
+                estado = data["estado"] as? String ?: CajaSesion.ESTADO_CERRADA,
+                sesionId = data["sesionId"] as? String ?: "",
+                fondoInicial = (data["fondoInicial"] as? Number)?.toDouble() ?: 0.0,
+                aperturaMs = (data["aperturaMs"] as? Number)?.toLong() ?: 0L,
+                abiertoPorNombre = data["abiertoPorNombre"] as? String ?: "",
+                abiertoPorId = abiertoPorId,
+                cajeroId = cajeroId,
+                cajaId = cajaId,
+                ventasPorMetodo = ventasPorMetodo,
+                ingresos = (data["ingresos"] as? Number)?.toDouble() ?: 0.0,
+                retiros = (data["retiros"] as? Number)?.toDouble() ?: 0.0,
+                devolucionesEfectivo = (data["devolucionesEfectivo"] as? Number)?.toDouble() ?: 0.0,
+                cantidadVentas = (data["cantidadVentas"] as? Number)?.toInt() ?: 0,
+                cantidadDevoluciones = (data["cantidadDevoluciones"] as? Number)?.toInt() ?: 0
+            )
+        }
     }
 
     private fun ids(): Pair<String, String>? {
@@ -53,20 +79,25 @@ class CajaRepository(
 
     // ───────────────────────────── LECTURA EN VIVO ─────────────────────────────
 
-    /** Estado vivo de la caja de la sucursal (R8). Si no existe puntero todavía → caja cerrada. */
-    fun observarEstadoCaja(): Flow<EstadoCaja> = callbackFlow {
+    /** Estado vivo de la caja del cajero autenticado (R1/R8). Si no existe puntero todavía → caja cerrada. */
+    fun observarEstadoCaja(cajeroId: String = SessionManager.idCajera): Flow<EstadoCaja> = callbackFlow {
         val (farmaciaId, sucursalId) = ids() ?: run {
             close(IllegalStateException("No hay sesión de farmacia activa."))
             return@callbackFlow
         }
-        val ref = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+        val idLimpio = cajeroId.trim()
+        val ref = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, idLimpio)
         val reg = ref.addSnapshotListener { snap, err ->
             if (err != null) {
-                Log.e(TAG, "Error escuchando estado de caja: ${err.message}", err)
+                Log.e(TAG, "Error escuchando estado de caja para '$idLimpio': ${err.message}", err)
                 close(err)
                 return@addSnapshotListener
             }
-            val parsed = parseEstadoCaja(snap?.data)
+            val parsed = parseEstadoCaja(snap?.data).let {
+                if (it.cajeroId.isBlank() && idLimpio.isNotBlank()) {
+                    it.copy(cajeroId = idLimpio, cajaId = "caja_$idLimpio")
+                } else it
+            }
             trySend(parsed)
         }
         awaitClose { reg.remove() }
@@ -102,36 +133,50 @@ class CajaRepository(
     // ───────────────────────────── APERTURA ─────────────────────────────
 
     /**
-     * Abre la caja con un fondo inicial real. Atómica: si otra tablet ya abrió,
-     * esta falla con mensaje claro (nunca abre dos cajas).
+     * Abre la caja individual del cajero con su fondo inicial.
+     * Atómica: si el cajero ya tiene un turno abierto (o vencido), se bloquea con mensaje veraz.
      */
-    suspend fun abrirCaja(fondoInicial: Double): Result<CajaSesion> {
+    suspend fun abrirCaja(
+        fondoInicial: Double,
+        cajeroId: String = SessionManager.idCajera,
+        cajeroNombre: String = SessionManager.nombreUsuario
+    ): Result<CajaSesion> {
         val (farmaciaId, sucursalId) = ids()
             ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
         if (fondoInicial < 0.0) return Result.failure(IllegalArgumentException("El fondo inicial no puede ser negativo."))
 
+        val cIdLimpio = cajeroId.trim()
+        val cNomLimpio = cajeroNombre.trim().ifBlank { "Cajero" }
+        val cajaId = if (cIdLimpio.isNotBlank()) "caja_$cIdLimpio" else "caja_principal"
+
         return try {
             val ahoraMs = HoraServidor.ahoraMs()
             val sesionRef = FarmadonPaths.cajaSesiones(db, farmaciaId, sucursalId).document()
-            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, cIdLimpio)
 
             db.runTransaction { tx ->
                 val puntero = tx.get(pointerRef)
                 val estadoActual = puntero.getString("estado") ?: CajaSesion.ESTADO_CERRADA
                 if (estadoActual == CajaSesion.ESTADO_ABIERTA) {
-                    val quien = puntero.getString("abiertoPorNombre") ?: "otra caja"
-                    throw IllegalStateException("La caja ya está abierta (la abrió $quien). Debe cerrarla para volver a abrir.")
+                    val estadoCajaObj = parseEstadoCaja(puntero.data)
+                    val mensaje = if (com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja.esTurnoVencido(estadoCajaObj, ahoraMs)) {
+                        "BLOQUEO OPERATIVO: Tu turno de caja anterior (${estadoCajaObj.fechaAperturaLegible()}) sigue pendiente de cierre. Debes resolver el cierre formal antes de abrir el turno actual."
+                    } else {
+                        "Ya tienes un turno de caja abierto en tu caja ($cajaId). Debes cerrarlo para volver a abrir."
+                    }
+                    throw IllegalStateException(mensaje)
                 }
                 val sesionData = mapOf(
                     "id" to sesionRef.id,
                     "farmaciaId" to farmaciaId,
                     "sucursalId" to sucursalId,
+                    "cajaId" to cajaId,
                     "estado" to CajaSesion.ESTADO_ABIERTA,
                     "fondoInicial" to fondoInicial,
                     "aperturaMs" to ahoraMs,
                     "aperturaLegible" to fmtLegible.format(Date(ahoraMs)),
-                    "abiertoPorId" to SessionManager.idCajera,
-                    "abiertoPorNombre" to SessionManager.nombreUsuario
+                    "abiertoPorId" to cIdLimpio,
+                    "abiertoPorNombre" to cNomLimpio
                 )
                 tx.set(sesionRef, sesionData)
                 tx.set(
@@ -139,9 +184,12 @@ class CajaRepository(
                     mapOf(
                         "estado" to CajaSesion.ESTADO_ABIERTA,
                         "sesionId" to sesionRef.id,
+                        "cajaId" to cajaId,
+                        "cajeroId" to cIdLimpio,
+                        "abiertoPorId" to cIdLimpio,
+                        "abiertoPorNombre" to cNomLimpio,
                         "fondoInicial" to fondoInicial,
                         "aperturaMs" to ahoraMs,
-                        "abiertoPorNombre" to SessionManager.nombreUsuario,
                         "ventasPorMetodo" to emptyMap<String, Double>(),
                         "ingresos" to 0.0,
                         "retiros" to 0.0,
@@ -155,15 +203,16 @@ class CajaRepository(
                 CajaSesion(
                     id = sesionRef.id,
                     estado = CajaSesion.ESTADO_ABIERTA,
+                    cajaId = cajaId,
                     fondoInicial = fondoInicial,
                     aperturaMs = ahoraMs,
                     aperturaLegible = fmtLegible.format(Date(ahoraMs)),
-                    abiertoPorId = SessionManager.idCajera,
-                    abiertoPorNombre = SessionManager.nombreUsuario
+                    abiertoPorId = cIdLimpio,
+                    abiertoPorNombre = cNomLimpio
                 )
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Error abriendo caja: ${e.message}", e)
+            Log.e(TAG, "Error abriendo caja para $cIdLimpio: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -175,6 +224,7 @@ class CajaRepository(
         tipo: String,
         monto: Double,
         motivo: String,
+        cajeroId: String = SessionManager.idCajera,
         autorizadoPorId: String = "",
         autorizadoPorNombre: String = "",
         autorizadoPorRol: String = ""
@@ -201,14 +251,23 @@ class CajaRepository(
             }
         }
 
+        val cIdLimpio = cajeroId.trim()
+        val cajaId = if (cIdLimpio.isNotBlank()) "caja_$cIdLimpio" else "caja_principal"
+
         return try {
             val ahoraMs = HoraServidor.ahoraMs()
-            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, cIdLimpio)
             val movRef = FarmadonPaths.cajaMovimientos(db, farmaciaId, sucursalId).document()
             db.runTransaction { tx ->
                 val puntero = tx.get(pointerRef)
-                if (puntero.getString("estado") != CajaSesion.ESTADO_ABIERTA) {
-                    throw IllegalStateException("La caja está cerrada. Ábrela para registrar movimientos.")
+                val estadoCajaObj = parseEstadoCaja(puntero.data)
+                val validacion = com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja.validarPermiteMovimientoManual(
+                    estadoCaja = estadoCajaObj,
+                    cajeroIdEsperado = cIdLimpio,
+                    ahoraMs = ahoraMs
+                )
+                if (validacion.isFailure) {
+                    throw validacion.exceptionOrNull() ?: IllegalStateException("Turno de caja vencido.")
                 }
                 val sesionId = puntero.getString("sesionId").orEmpty()
                 val campo = if (tipo == MovimientoCaja.TIPO_INGRESO) "ingresos" else "retiros"
@@ -236,6 +295,7 @@ class CajaRepository(
                         "id" to movRef.id,
                         "farmaciaId" to farmaciaId,
                         "sucursalId" to sucursalId,
+                        "cajaId" to cajaId,
                         "tipo" to tipo,
                         "metodoTipo" to "EFECTIVO",
                         "metodoNombre" to "Efectivo",
@@ -244,7 +304,7 @@ class CajaRepository(
                         "referenciaId" to "",
                         "referenciaNumero" to "",
                         "cajaSesionId" to sesionId,
-                        "usuarioId" to SessionManager.idCajera,
+                        "usuarioId" to cIdLimpio.ifBlank { SessionManager.idCajera },
                         "usuarioNombre" to SessionManager.nombreUsuario,
                         "autorizadoPorId" to autorizadoPorId.trim(),
                         "autorizadoPorNombre" to autorizadoPorNombre.trim(),
@@ -257,7 +317,8 @@ class CajaRepository(
                 MovimientoCaja(
                     id = movRef.id, tipo = tipo, metodoTipo = "EFECTIVO", metodoNombre = "Efectivo",
                     monto = if (tipo == MovimientoCaja.TIPO_RETIRO) -monto else monto,
-                    motivo = motivo.trim(), cajaSesionId = "", usuarioId = SessionManager.idCajera,
+                    motivo = motivo.trim(), cajaSesionId = "", cajaId = cajaId,
+                    usuarioId = cIdLimpio.ifBlank { SessionManager.idCajera },
                     usuarioNombre = SessionManager.nombreUsuario,
                     autorizadoPorId = autorizadoPorId.trim(),
                     autorizadoPorNombre = autorizadoPorNombre.trim(),
@@ -277,23 +338,35 @@ class CajaRepository(
      * Cierra el turno: deja foto final (contado vs esperado y diferencia) en la sesión
      * y libera el puntero. Si otra tablet ya cerró, esta recibe el mensaje real.
      */
-    suspend fun cerrarCaja(efectivoContado: Double, observaciones: String): Result<CajaSesion> {
+    suspend fun cerrarCaja(
+        efectivoContado: Double,
+        observaciones: String,
+        cajeroId: String = SessionManager.idCajera
+    ): Result<CajaSesion> {
         val (farmaciaId, sucursalId) = ids()
             ?: return Result.failure(IllegalStateException("No hay sesión de farmacia activa."))
         if (efectivoContado < 0.0) return Result.failure(IllegalArgumentException("El conteo no puede ser negativo."))
 
+        val cIdLimpio = cajeroId.trim()
+        val cajaId = if (cIdLimpio.isNotBlank()) "caja_$cIdLimpio" else "caja_principal"
+
         return try {
             val ahoraMs = HoraServidor.ahoraMs()
-            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId)
+            val pointerRef = FarmadonPaths.estadoCaja(db, farmaciaId, sucursalId, cIdLimpio)
             var sesionResultado: CajaSesion? = null
 
             db.runTransaction { tx ->
                 val puntero = tx.get(pointerRef)
                 if (puntero.getString("estado") != CajaSesion.ESTADO_ABIERTA) {
-                    throw IllegalStateException("La caja ya está cerrada. No hay turno que cerrar.")
+                    throw IllegalStateException("Tu caja ya está cerrada. No hay turno que cerrar.")
+                }
+                val estadoCajaObj = parseEstadoCaja(puntero.data)
+                val titular = estadoCajaObj.cajeroId.ifBlank { estadoCajaObj.abiertoPorId }
+                if (cIdLimpio.isNotBlank() && titular.isNotBlank() && titular != cIdLimpio) {
+                    throw IllegalStateException("AISLAMIENTO DE CAJA: Este turno pertenece a otro cajero ($titular). No puedes cerrarlo.")
                 }
                 val sesionId = puntero.getString("sesionId").orEmpty()
-                if (sesionId.isBlank() || sesionId == "actual") {
+                if (sesionId.isBlank() || sesionId.startsWith("actual")) {
                     throw IllegalStateException("La caja abierta no tiene un turno válido asociado.")
                 }
                 val sesionRef = FarmadonPaths.cajaSesiones(db, farmaciaId, sucursalId).document(sesionId)
@@ -350,12 +423,13 @@ class CajaRepository(
 
                 val cierreData = mapOf(
                     "estado" to CajaSesion.ESTADO_CERRADA,
+                    "cajaId" to cajaId,
                     "cierreMs" to cierreMsContable,
                     "cierreLegible" to cierreLegibleContable,
                     "cierreExtemporaneo" to esCierreDeOtroDia,
                     "cierreFisicoRealMs" to ahoraMs,
                     "cierreFisicoRealLegible" to fmtLegible.format(Date(ahoraMs)),
-                    "cerradoPorId" to SessionManager.idCajera,
+                    "cerradoPorId" to cIdLimpio.ifBlank { SessionManager.idCajera },
                     "cerradoPorNombre" to SessionManager.nombreUsuario,
                     "efectivoContado" to efectivoContado,
                     "efectivoEsperado" to esperado,
@@ -376,6 +450,9 @@ class CajaRepository(
                     mapOf(
                         "estado" to CajaSesion.ESTADO_CERRADA,
                         "sesionId" to "",
+                        "cajaId" to cajaId,
+                        "cajeroId" to cIdLimpio,
+                        "abiertoPorId" to "",
                         "fondoInicial" to 0.0,
                         "aperturaMs" to 0L,
                         "abiertoPorNombre" to "",
@@ -390,6 +467,7 @@ class CajaRepository(
                 sesionResultado = CajaSesion(
                     id = sesionId,
                     estado = CajaSesion.ESTADO_CERRADA,
+                    cajaId = cajaId,
                     fondoInicial = (sesionSnap.get("fondoInicial") as? Number)?.toDouble() ?: fondoInicial,
                     aperturaMs = aperturaMs,
                     aperturaLegible = sesionSnap.getString("aperturaLegible") ?: (puntero.getString("aperturaLegible") ?: ""),
@@ -400,7 +478,7 @@ class CajaRepository(
                     cierreExtemporaneo = esCierreDeOtroDia,
                     cierreFisicoRealMs = ahoraMs,
                     cierreFisicoRealLegible = fmtLegible.format(Date(ahoraMs)),
-                    cerradoPorId = SessionManager.idCajera,
+                    cerradoPorId = cIdLimpio.ifBlank { SessionManager.idCajera },
                     cerradoPorNombre = SessionManager.nombreUsuario,
                     efectivoContado = efectivoContado,
                     efectivoEsperado = esperado,
@@ -426,25 +504,7 @@ class CajaRepository(
 
     // ───────────────────────────── PARSERS ─────────────────────────────
 
-    fun parseEstadoCaja(data: Map<String, Any>?): EstadoCaja {
-        if (data == null) return EstadoCaja()
-        @Suppress("UNCHECKED_CAST")
-        val ventasPorMetodo = (data["ventasPorMetodo"] as? Map<String, Any>)
-            ?.mapValues { (_, v) -> (v as? Number)?.toDouble() ?: 0.0 } ?: emptyMap()
-        return EstadoCaja(
-            estado = data["estado"] as? String ?: CajaSesion.ESTADO_CERRADA,
-            sesionId = data["sesionId"] as? String ?: "",
-            fondoInicial = (data["fondoInicial"] as? Number)?.toDouble() ?: 0.0,
-            aperturaMs = (data["aperturaMs"] as? Number)?.toLong() ?: 0L,
-            abiertoPorNombre = data["abiertoPorNombre"] as? String ?: "",
-            ventasPorMetodo = ventasPorMetodo,
-            ingresos = (data["ingresos"] as? Number)?.toDouble() ?: 0.0,
-            retiros = (data["retiros"] as? Number)?.toDouble() ?: 0.0,
-            devolucionesEfectivo = (data["devolucionesEfectivo"] as? Number)?.toDouble() ?: 0.0,
-            cantidadVentas = (data["cantidadVentas"] as? Number)?.toInt() ?: 0,
-            cantidadDevoluciones = (data["cantidadDevoluciones"] as? Number)?.toInt() ?: 0
-        )
-    }
+    fun parseEstadoCaja(data: Map<String, Any>?): EstadoCaja = Companion.parseEstadoCaja(data)
 
     fun parseMovimiento(id: String, data: Map<String, Any>?): MovimientoCaja? {
         if (data == null) return null
@@ -458,6 +518,7 @@ class CajaRepository(
             referenciaId = data["referenciaId"] as? String ?: "",
             referenciaNumero = data["referenciaNumero"] as? String ?: "",
             cajaSesionId = data["cajaSesionId"] as? String ?: "",
+            cajaId = data["cajaId"] as? String ?: "",
             usuarioId = data["usuarioId"] as? String ?: "",
             usuarioNombre = data["usuarioNombre"] as? String ?: "",
             fechaMs = (data["fechaMs"] as? Number)?.toLong() ?: 0L,
@@ -470,7 +531,7 @@ class CajaRepository(
     // ───────────────────────────── AUDITORÍA HISTÓRICA DE CAJA ─────────────────────────────
 
     fun parseSesion(id: String, data: Map<String, Any>?): CajaSesion? {
-        if (data == null || id == "actual") return null
+        if (data == null || id.startsWith("actual")) return null
         @Suppress("UNCHECKED_CAST")
         val ventasPorMetodo = (data["ventasPorMetodo"] as? Map<String, Any>)
             ?.mapValues { (_, v) -> (v as? Number)?.toDouble() ?: 0.0 } ?: emptyMap()
@@ -482,6 +543,7 @@ class CajaRepository(
             aperturaLegible = data["aperturaLegible"] as? String ?: "",
             abiertoPorId = data["abiertoPorId"] as? String ?: "",
             abiertoPorNombre = data["abiertoPorNombre"] as? String ?: "",
+            cajaId = data["cajaId"] as? String ?: "",
             cierreMs = (data["cierreMs"] as? Number)?.toLong() ?: 0L,
             cierreLegible = data["cierreLegible"] as? String ?: "",
             cierreExtemporaneo = data["cierreExtemporaneo"] as? Boolean ?: false,
@@ -506,8 +568,9 @@ class CajaRepository(
     /**
      * Escucha en vivo el historial de turnos de caja (aperturas, cierres, arqueos).
      * Muestra las sesiones cerradas y la sesión activa en orden cronológico inverso.
+     * Permite filtrar por cajero para mantener el aislamiento estricto por cajero (R1/R3).
      */
-    fun observarHistorialSesiones(limite: Int = 50): Flow<List<CajaSesion>> = callbackFlow {
+    fun observarHistorialSesiones(limite: Int = 50, cajeroId: String? = null): Flow<List<CajaSesion>> = callbackFlow {
         val (farmaciaId, sucursalId) = ids() ?: run {
             trySend(emptyList())
             close()
@@ -515,7 +578,7 @@ class CajaRepository(
         }
         val ref = FarmadonPaths.cajaSesiones(db, farmaciaId, sucursalId)
             .orderBy("aperturaMs", Query.Direction.DESCENDING)
-            .limit((limite + 1).toLong())
+            .limit((limite + 20).toLong())
         val reg = ref.addSnapshotListener { snap, err ->
             if (err != null) {
                 Log.e(TAG, "Error escuchando historial de sesiones de caja: ${err.message}", err)
@@ -523,7 +586,10 @@ class CajaRepository(
                 return@addSnapshotListener
             }
             val lista = snap?.documents?.mapNotNull { doc ->
-                if (doc.id == "actual") null else parseSesion(doc.id, doc.data)
+                if (doc.id.startsWith("actual")) null else parseSesion(doc.id, doc.data)
+            }?.filter { sesion ->
+                val cid = cajeroId?.trim()
+                if (cid.isNullOrBlank()) true else sesion.abiertoPorId == cid
             }?.take(limite) ?: emptyList()
             trySend(lista)
         }

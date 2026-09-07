@@ -49,7 +49,7 @@ object ReporteExportador {
         sb.append('\uFEFF')
 
         // Membrete oficial
-        sb.append(escaparCsv(tabla.razonSocial.ifBlank { "FARMADON ENTERPRISE" })).append("\n")
+        sb.append(escaparCsv(tabla.razonSocial.ifBlank { "RAZON SOCIAL NO CONFIGURADA" })).append("\n")
         sb.append("RUC:,").append(escaparCsv(tabla.ruc.ifBlank { "—" })).append(",SEDE:,").append(escaparCsv(tabla.nombreSede)).append("\n")
         sb.append("REPORTE:,").append(escaparCsv(tabla.tipoReporte)).append("\n")
         sb.append("PERÍODO:,").append(escaparCsv(tabla.periodo)).append(",EMISIÓN (LIMA):,").append(escaparCsv(tabla.fechaGeneracionLima)).append("\n")

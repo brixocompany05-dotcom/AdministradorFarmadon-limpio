@@ -95,8 +95,8 @@ fun SubmoduloCierreCaja(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Notificaciones en vivo de éxito o error
         if (uiState.mensajeExito != null) {
@@ -196,11 +196,12 @@ fun SubmoduloCierreCaja(
             }
         } else {
             // ───────────────────────────── ESTADO: CAJA ABIERTA (MASTER-DETAIL 30% / 70%) ─────────────────────────────
-            if (uiState.estadoCaja.esDeJornadaAnterior()) {
+            val esTurnoVencido = uiState.estadoCaja.esTurnoVencido
+            if (esTurnoVencido) {
                 Surface(
-                    color = FDColors.ErrorSubtle,
+                    color = FDColors.WarningSubtle,
                     shape = FDShapes.Medium,
-                    border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -209,25 +210,22 @@ fun SubmoduloCierreCaja(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
-                            Icons.Default.Warning,
+                            Icons.Default.LockClock,
                             null,
-                            tint = FDColors.Error,
-                            modifier = Modifier.size(22.dp)
+                            tint = FDColors.Warning,
+                            modifier = Modifier.size(24.dp)
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "Turno de jornada anterior (${uiState.estadoCaja.fechaAperturaLegible()}) pendiente de liquidación",
+                                text = "BLOQUEO OPERATIVO · TURNO VENCIDO (${uiState.estadoCaja.fechaAperturaLegible()})",
                                 style = FDType.Body.copy(
-                                    fontWeight = FontWeight.Bold,
+                                    fontWeight = FontWeight.Black,
                                     fontSize = 13.sp
                                 ),
-                                color = FDColors.Error
+                                color = FDColors.Warning
                             )
                             Text(
-                                text = "Abierto por ${uiState.estadoCaja.abiertoPorNombre.ifBlank { "Personal" }} con fondo inicial de S/ %.2f. Realice el conteo físico de gaveta para asentar el arqueo real de este turno.".format(
-                                    Locale.US,
-                                    uiState.estadoCaja.fondoInicial
-                                ),
+                                text = "Este turno pertenece a una jornada anterior y está vencido. Las ventas, el carrito y los movimientos manuales están bloqueados. Realice el conteo físico de gaveta para asentar el arqueo real y confirmar el cierre definitivo.",
                                 style = FDType.Caption.copy(fontSize = 11.5.sp),
                                 color = FDColors.TextPrimary
                             )
@@ -472,9 +470,11 @@ fun SubmoduloCierreCaja(
             esperado = uiState.estadoCaja.efectivoEsperado,
             contado = uiState.totalContado,
             diferencia = uiState.diferenciaEfectivo,
+            esCierreCiego = uiState.esCierreCiego,
             observaciones = observacionesTexto,
             procesando = uiState.procesandoAccion,
             error = uiState.error,
+            ventasEnPausa = uiState.ventasEnPausa,
             onDismiss = { viewModel.cerrarDialogoConfirmarCierre() },
             onConfirmar = { viewModel.cerrarCaja(observacionesTexto) }
         )
@@ -796,59 +796,89 @@ private fun DetalleMovimientosTurno(
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { viewModel.abrirDialogoMovimiento(MovimientoCaja.TIPO_INGRESO) },
+            val esTurnoVencido = uiState.estadoCaja.esTurnoVencido
+            if (esTurnoVencido) {
+                Surface(
+                    color = FDColors.WarningSubtle,
                     shape = FDShapes.Small,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FDColors.Success,
-                        contentColor = Color.White
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier.height(38.dp)
+                    border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.4f))
                 ) {
-                    Icon(
-                        Icons.Default.AddCircle,
-                        null,
-                        modifier = Modifier.size(16.dp),
-                        tint = Color.White
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "+ Registrar Ingreso",
-                        style = FDType.Label.copy(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.LockClock,
+                            null,
+                            modifier = Modifier.size(16.dp),
+                            tint = FDColors.Warning
                         )
-                    )
+                        Text(
+                            "Turno vencido: No se permiten ingresos ni retiros manuales. Solo lectura y cierre.",
+                            style = FDType.Caption.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = FDColors.Warning
+                            )
+                        )
+                    }
                 }
-
-                Button(
-                    onClick = { viewModel.abrirDialogoMovimiento(MovimientoCaja.TIPO_RETIRO) },
-                    shape = FDShapes.Small,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = FDColors.Error,
-                        contentColor = Color.White
-                    ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier.height(38.dp)
-                ) {
-                    Icon(
-                        Icons.Default.RemoveCircle,
-                        null,
-                        modifier = Modifier.size(16.dp),
-                        tint = Color.White
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "- Registrar Retiro",
-                        style = FDType.Label.copy(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        onClick = { viewModel.abrirDialogoMovimiento(MovimientoCaja.TIPO_INGRESO) },
+                        shape = FDShapes.Small,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = FDColors.Success,
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.height(38.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AddCircle,
+                            null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White
                         )
-                    )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "+ Registrar Ingreso",
+                            style = FDType.Label.copy(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        )
+                    }
+
+                    Button(
+                        onClick = { viewModel.abrirDialogoMovimiento(MovimientoCaja.TIPO_RETIRO) },
+                        shape = FDShapes.Small,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = FDColors.Error,
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        modifier = Modifier.height(38.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.RemoveCircle,
+                            null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "- Registrar Retiro",
+                            style = FDType.Label.copy(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -1020,27 +1050,58 @@ private fun DetalleResumenYCierre(
                     formatearMoneda(simboloMoneda, p.devolucionesEfectivo)
                 )
                 HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "ESPERADO EN CAJÓN",
-                        style = FDType.Label.copy(
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Black,
-                            color = FDColors.Primary
+                if (uiState.esCierreCiego) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                "ESPERADO EN CAJÓN",
+                                style = FDType.Label.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = FDColors.Primary
+                                )
+                            )
+                            Text(
+                                "Modalidad Entrega Ciega Activa",
+                                style = FDType.Caption.copy(fontSize = 10.sp, color = FDColors.TextTertiary)
+                            )
+                        }
+                        Text(
+                            "*** (Ciego)",
+                            style = FDType.Numeric.copy(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = FDColors.TextSecondary
+                            )
                         )
-                    )
-                    Text(
-                        formatearMoneda(simboloMoneda, p.efectivoEsperado),
-                        style = FDType.Numeric.copy(
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black,
-                            color = FDColors.Primary
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "ESPERADO EN CAJÓN",
+                            style = FDType.Label.copy(
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = FDColors.Primary
+                            )
                         )
-                    )
+                        Text(
+                            formatearMoneda(simboloMoneda, p.efectivoEsperado),
+                            style = FDType.Numeric.copy(
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Black,
+                                color = FDColors.Primary
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -1394,9 +1455,11 @@ private fun DialogoConfirmarCierre(
     esperado: Double,
     contado: Double,
     diferencia: Double,
+    esCierreCiego: Boolean = false,
     observaciones: String,
     procesando: Boolean,
     error: String?,
+    ventasEnPausa: Int = 0,
     onDismiss: () -> Unit,
     onConfirmar: () -> Unit
 ) {
@@ -1432,7 +1495,8 @@ private fun DialogoConfirmarCierre(
                 }
 
                 Text(
-                    "Revisa los montos finales antes de cerrar definitivamente el turno de atención:",
+                    if (esCierreCiego) "Confirma el conteo físico de gaveta para liquidar el turno a ciegas:"
+                    else "Revisa los montos finales antes de cerrar definitivamente el turno de atención:",
                     style = FDType.Body.copy(fontSize = 12.sp),
                     color = FDColors.TextSecondary
                 )
@@ -1456,22 +1520,24 @@ private fun DialogoConfirmarCierre(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Efectivo Esperado:",
-                                style = FDType.Body.copy(fontSize = 12.5.sp),
-                                color = FDColors.TextSecondary
-                            )
-                            Text(
-                                formatearMoneda(simboloMoneda, esperado),
-                                style = FDType.Numeric.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
+                        if (!esCierreCiego) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Efectivo Esperado:",
+                                    style = FDType.Body.copy(fontSize = 12.5.sp),
+                                    color = FDColors.TextSecondary
                                 )
-                            )
+                                Text(
+                                    formatearMoneda(simboloMoneda, esperado),
+                                    style = FDType.Numeric.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                )
+                            }
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1490,32 +1556,40 @@ private fun DialogoConfirmarCierre(
                                 )
                             )
                         }
-                        HorizontalDivider(
-                            color = FDColors.Border.copy(alpha = 0.5f),
-                            thickness = 0.5.dp
-                        )
 
-                        val colorDif =
-                            if (abs(diferencia) < 0.01) FDColors.Success else FDColors.Error
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                "Diferencia:",
-                                style = FDType.Body.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                ),
-                                color = colorDif
+                        if (!esCierreCiego) {
+                            HorizontalDivider(
+                                color = FDColors.Border.copy(alpha = 0.5f),
+                                thickness = 0.5.dp
                             )
-                            Text(
-                                formatearMoneda(simboloMoneda, diferencia),
-                                style = FDType.Numeric.copy(
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 14.sp,
+
+                            val colorDif =
+                                if (abs(diferencia) < 0.01) FDColors.Success else FDColors.Error
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Diferencia:",
+                                    style = FDType.Body.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    ),
                                     color = colorDif
                                 )
+                                Text(
+                                    formatearMoneda(simboloMoneda, diferencia),
+                                    style = FDType.Numeric.copy(
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 14.sp,
+                                        color = colorDif
+                                    )
+                                )
+                            }
+                        } else {
+                            Text(
+                                "Modalidad Entrega Ciega: la diferencia teórica se revelará en el reporte al cerrar.",
+                                style = FDType.Caption.copy(fontSize = 10.5.sp, color = FDColors.TextTertiary)
                             )
                         }
                     }
@@ -1526,6 +1600,22 @@ private fun DialogoConfirmarCierre(
                         "Nota: \"$observaciones\"",
                         style = FDType.Caption.copy(color = FDColors.TextTertiary)
                     )
+                }
+
+                if (ventasEnPausa > 0) {
+                    Surface(
+                        color = FDColors.Warning.copy(alpha = 0.1f),
+                        shape = FDShapes.Small,
+                        border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "Tienes $ventasEnPausa venta${if (ventasEnPausa == 1) "" else "s"} en pausa. Resuélvela${if (ventasEnPausa == 1) "" else "s"} en Nueva Venta antes de cerrar.",
+                            style = FDType.Caption.copy(fontWeight = FontWeight.Bold),
+                            color = FDColors.Warning,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
                 }
 
                 Row(
@@ -1550,7 +1640,7 @@ private fun DialogoConfirmarCierre(
                     }
                     Button(
                         onClick = onConfirmar,
-                        enabled = !procesando,
+                        enabled = !procesando && ventasEnPausa == 0,
                         modifier = Modifier
                             .weight(1.4f)
                             .height(40.dp),

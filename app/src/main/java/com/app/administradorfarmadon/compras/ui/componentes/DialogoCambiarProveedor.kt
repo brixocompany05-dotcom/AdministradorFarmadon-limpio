@@ -235,32 +235,12 @@ fun DialogoCambiarProveedor(
                     }
                 }
 
-                // ── BUSCADOR DE PROVEEDOR ──
-                OutlinedTextField(
-                    value = busquedaProveedor,
-                    onValueChange = { busquedaProveedor = it },
-                    placeholder = { Text("Buscar droguería por nombre o RUC...", fontSize = 12.5.sp, color = FDColors.InputPlaceholder) },
-                    leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(18.dp)) },
-                    trailingIcon = if (busquedaProveedor.isNotBlank()) {
-                        {
-                            IconButton(onClick = { busquedaProveedor = "" }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Default.Close, contentDescription = "Limpiar", tint = FDColors.TextTertiary, modifier = Modifier.size(16.dp))
-                            }
-                        }
-                    } else null,
-                    singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = FDColors.InputBackground,
-                        unfocusedContainerColor = FDColors.InputBackground,
-                        focusedBorderColor = FDColors.BorderFocus,
-                        unfocusedBorderColor = FDColors.InputBorder,
-                        focusedTextColor = FDColors.InputText,
-                        unfocusedTextColor = FDColors.InputText
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
+                // ── BUSCADOR DE PROVEEDOR CÓMODO Y ESPACIOSO ──
+                CampoBuscadorModerno(
+                    busqueda = busquedaProveedor,
+                    onBusquedaChange = { busquedaProveedor = it },
+                    placeholder = "Buscar droguería por nombre o RUC...",
+                    altura = 48.dp
                 )
 
                 // ── LISTA DE PROVEEDORES (OCUPA EL ALTO RESTANTE) ──

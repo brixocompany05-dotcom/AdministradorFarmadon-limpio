@@ -19,8 +19,15 @@ object CostoRealLote {
         val cantidad = (lote["cantidad"] as? Number)?.toDouble() ?: 0.0
         val bloqueada = (lote["cantidadBloqueada"] as? Number)?.toDouble() ?: 0.0
         val total = cantidad + bloqueada
-        val costoUnitario = (lote["costoUnitario"] as? Number)?.toDouble() ?: 0.0
-        val costoCompra = (lote["costoCompra"] as? Number)?.toDouble() ?: 0.0
+        val costoUnitario = (lote["costoCompraUnitario"] as? Number)?.toDouble()
+            ?: (lote["costoUnitario"] as? Number)?.toDouble()
+            ?: (lote["costoUnitarioReal"] as? Number)?.toDouble()
+            ?: (lote["costo"] as? Number)?.toDouble()
+            ?: 0.0
+        val costoCompra = (lote["costoUltimoIngreso"] as? Number)?.toDouble()
+            ?: (lote["costoCompra"] as? Number)?.toDouble()
+            ?: (lote["costoTotal"] as? Number)?.toDouble()
+            ?: 0.0
         return when {
             costoUnitario > 0.0 -> costoUnitario
             costoCompra > 0.0 && total > 0.0 -> costoCompra / total

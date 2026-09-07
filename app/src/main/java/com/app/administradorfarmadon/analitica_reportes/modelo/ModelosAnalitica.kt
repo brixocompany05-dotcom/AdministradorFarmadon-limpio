@@ -27,7 +27,8 @@ enum class FuenteDatos(val label: String, val esCritica: Boolean) {
     VENTAS("Ventas y Facturación POS", esCritica = true),
     CAJA("Caja y Movimientos de Gaveta", esCritica = false),
     INVENTARIO("Inventario y Stock", esCritica = false),
-    COMPRAS("Compras a Proveedores", esCritica = false)
+    COMPRAS("Compras a Proveedores", esCritica = false),
+    FACTURACION("Facturación Electrónica (SUNAT)", esCritica = false)
 }
 
 /**

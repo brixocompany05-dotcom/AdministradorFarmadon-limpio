@@ -2,9 +2,9 @@ package com.app.administradorfarmadon.inventario.compartido.modelo
 
 
 /**
- * MoldeProductos —” Fachada UNIFICADA con fuente única.
+ * MoldeProductos â€” Fachada UNIFICADA con fuente Ãºnica.
  * Fuente real: productoBase + precioStock + loteInfo (3 objetos).
- * Los 65 vars antiguos delegan a esos 3 —” no hay duplicación, no hay dato a medias.
+ * Los 65 vars antiguos delegan a esos 3 â€” no hay duplicaciÃ³n, no hay dato a medias.
  * Nuevas pantallas: usen ProductoBase / PrecioStock / LoteInfo directo.
  * Pantallas viejas: siguen usando molde.nombre etc. (delegado).
  */
@@ -64,6 +64,11 @@ data class MoldeProductos(
     var presentacionPrincipalId: String
         get() = precioStock.presentacionPrincipalId
         set(value) { precioStock.presentacionPrincipalId = value }
+
+    val precioVenta: Double
+        get() = presentaciones.firstOrNull { it.presentacionId == presentacionPrincipalId }?.precioventa
+            ?: presentaciones.firstOrNull()?.precioventa
+            ?: 0.0
 
     var requiereReceta: Boolean
         get() = productoBase.requiereReceta
@@ -197,7 +202,7 @@ data class MoldeProductos(
         get() = precioStock.presentaciones
         set(value) { precioStock.presentaciones = value }
 
-    /** Verdad de precio: hay al menos una presentación con precio de venta mayor a 0. */
+    /** Verdad de precio: hay al menos una presentaciÃ³n con precio de venta mayor a 0. */
     val tienePrecioVenta: Boolean
         get() = presentaciones.any { it.precioventa > 0.0 }
 
@@ -392,17 +397,17 @@ data class PresentacionProducto(
     var precioventa: Double = 0.0,
     var codigoBarras: String = "",
     /**
-     * Códigos que ESTA presentación tuvo antes (etiquetas físicas ya impresas en la tienda).
-     * Jamás se borran mientras el producto viva: escanear la etiqueta vieja debe seguir
-     * cobrando ESTA presentación al precio actual, nunca dar "no existe" ni otra presentación.
+     * CÃ³digos que ESTA presentaciÃ³n tuvo antes (etiquetas fÃ­sicas ya impresas en la tienda).
+     * JamÃ¡s se borran mientras el producto viva: escanear la etiqueta vieja debe seguir
+     * cobrando ESTA presentaciÃ³n al precio actual, nunca dar "no existe" ni otra presentaciÃ³n.
      */
     var codigosAnteriores: List<String> = emptyList()
 )
 
 /**
- * Resultado de resolución de código para mostrador de caja o inventario.
- * Si una presentación fue descontinuada/eliminada pero la etiqueta física sigue en el estante,
- * devuelve el cálculo proporcional seguro sin romper la operación.
+ * Resultado de resoluciÃ³n de cÃ³digo para mostrador de caja o inventario.
+ * Si una presentaciÃ³n fue descontinuada/eliminada pero la etiqueta fÃ­sica sigue en el estante,
+ * devuelve el cÃ¡lculo proporcional seguro sin romper la operaciÃ³n.
  */
 data class ResolvedProductPresentation(
     val presentacionId: String,
@@ -413,7 +418,7 @@ data class ResolvedProductPresentation(
 )
 
 /**
- * Resuelve de forma infalible la presentación, cantidad y precio que corresponden a un código escaneado.
+ * Resuelve de forma infalible la presentaciÃ³n, cantidad y precio que corresponden a un cÃ³digo escaneado.
  */
 fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): ResolvedProductPresentation {
     val codLimpio = codigoEscaneado.replace(Regex("[^a-zA-Z0-9_-]"), "").uppercase()
@@ -421,7 +426,7 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
         if (it.cantidad > 0) it.precioventa / it.cantidad else it.precioventa
     } ?: 0.0
 
-    // 1. Coincidencia directa en códigos personalizados de presentaciones activas
+    // 1. Coincidencia directa en cÃ³digos personalizados de presentaciones activas
     val coincidenciaDirecta = presentaciones.firstOrNull {
         it.codigoBarras.isNotBlank() && it.codigoBarras.replace(Regex("[^a-zA-Z0-9_-]"), "").uppercase() == codLimpio
     }
@@ -434,9 +439,9 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
         )
     }
 
-    // 1.5 ETIQUETA VIEJA FÍSICA: el código fue EDITADO pero el papel ya está en el
+    // 1.5 ETIQUETA VIEJA FÃSICA: el cÃ³digo fue EDITADO pero el papel ya estÃ¡ en el
     // estante. El alias garantiza que escanear la etiqueta vieja cobra ESA misma
-    // presentación con su precio ACTUAL (nunca el de otra, nunca "no existe").
+    // presentaciÃ³n con su precio ACTUAL (nunca el de otra, nunca "no existe").
     val porAlias = presentaciones.firstOrNull { pres ->
         pres.codigosAnteriores.any { it.replace(Regex("[^a-zA-Z0-9_-]"), "").uppercase() == codLimpio }
     }
@@ -449,12 +454,12 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
         )
     }
 
-    // 2. Extraer sufijo de fracción (-B{cant} o -U{cant})
+    // 2. Extraer sufijo de fracciÃ³n (-B{cant} o -U{cant})
     val matchFraccion = Regex("-(B|U)(\\d+)$", RegexOption.IGNORE_CASE).find(codLimpio)
     if (matchFraccion != null) {
         val cantidad = matchFraccion.groupValues[2].toIntOrNull() ?: 1
 
-        // 2.1 Buscar si existe una presentación activa con esa misma cantidad
+        // 2.1 Buscar si existe una presentaciÃ³n activa con esa misma cantidad
         val presPorCantidad = presentaciones.firstOrNull { it.cantidad == cantidad }
         if (presPorCantidad != null) {
             return ResolvedProductPresentation(
@@ -465,9 +470,9 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
             )
         }
 
-        // 2.2 Fallback Infalible: La presentación fue eliminada, pero la etiqueta física tiene la cantidad
+        // 2.2 Fallback Infalible: La presentaciÃ³n fue eliminada, pero la etiqueta fÃ­sica tiene la cantidad
         val precioCalculado = Math.round(precioBaseUnitario * cantidad * 100.0) / 100.0
-        val nombreGenerico = if (cantidad == 1) "Unidad suelta" else "Fracción x $cantidad unidades"
+        val nombreGenerico = if (cantidad == 1) "Unidad suelta" else "FracciÃ³n x $cantidad unidades"
         return ResolvedProductPresentation(
             presentacionId = "descontinuada_$cantidad",
             nombrePresentacion = nombreGenerico,
@@ -477,7 +482,7 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
         )
     }
 
-    // 3. Código base del producto (Caja o presentación principal)
+    // 3. CÃ³digo base del producto (Caja o presentaciÃ³n principal)
     val presPrincipal = presentaciones.maxByOrNull { it.cantidad } ?: presentaciones.firstOrNull()
     return ResolvedProductPresentation(
         presentacionId = presPrincipal?.presentacionId ?: "base",
@@ -487,30 +492,31 @@ fun MoldeProductos.resolverPresentacionPorCodigo(codigoEscaneado: String): Resol
     )
 }
 
-// ── REGLA íšNICA DE UNIDADES ────────────────────────────────────────────────
-// lote.cantidad          = unidades FÍSICAS del producto (cajas, frascos, etc.)
-// PresentacionProducto.cantidad = unidades de CONTENIDO en esa presentación (tabletas, mL, etc.)
-// factorContenido        = cantidad de la presentación mayor = contenido declarado al crear el producto
+// â”€â”€ REGLA ÃšNICA DE UNIDADES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// lote.cantidad          = unidades FÃSICAS del producto (cajas, frascos, etc.)
+// PresentacionProducto.cantidad = unidades de CONTENIDO en esa presentaciÃ³n (tabletas, mL, etc.)
+// factorContenido        = cantidad de la presentaciÃ³n mayor = contenido declarado al crear el producto
 //
 // EJEMPLO: Panadol 180 Tab, stock 3 Cajas
-//   Vender "1 Caja"    (cantidad=180) → -180í·180 = -1.0 caja  → quedan 2 Cajas (360 Tab)
-//   Vender "1 Tableta" (cantidad=1)   → -1í·180   = -0.00556 c → quedan 2.994 Cajas (539 Tab)
+//   Vender "1 Caja"    (cantidad=180) â†’ 180Ã·180 = 1.0 caja  â†’ quedan 2 Cajas (360 Tab)
+//   Vender "1 Tableta" (cantidad=1)   â†’ 1Ã·180   = 0.00556 c â†’ quedan 2.994 Cajas (539 Tab)
 //
-// EL MÓDULO DE VENTAS DEBE USAR UnidadVentaHelper.stockFisicoParaVender()
-// para calcular cuánto descontar del lote. Nunca descontar presentacion.cantidad directo.
-// ──────────────────────────────────────────────────────────────────────────
+// EL MÃ“DULO DE VENTAS DEBE USAR UnidadVentaHelper.stockFisicoParaVender()
+// para calcular cuÃ¡nto descontar del lote. Nunca descontar presentacion.cantidad directo.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
- * Stock disponible en UNIDADES FÍSICAS (cajas, frascos · ).
- * Es la suma de lote.cantidad de todos los lotes sin bloquear.
+ * Stock disponible en UNIDADES FÃSICAS (cajas, frascos).
+ * Es la suma de lote.cantidad de todos los lotes vigentes y vendibles (excluye bloqueados y muestras no valorizadas).
  */
 val MoldeProductos.stockDisponibleFisico: Double
     get() = lotes.values.filter {
         val dias = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.diasHastaVencer(it.vencimiento)
-        dias == null || dias > 0
+        val tieneCosto = (it.costoCompraUnitario > 0.0 || it.costoUltimoIngreso > 0.0 || precioCompra > 0.0) && !it.noValorizado
+        (dias == null || dias > 0) && tieneCosto
     }.sumOf { it.cantidad.coerceAtLeast(0.0) }
 
-/** Alias de compatibilidad —” apunta a stockDisponibleFisico. */
+/** Alias de compatibilidad â€” apunta a stockDisponibleFisico. */
 val MoldeProductos.stockDisponibleUnidades: Double
     get() = stockDisponibleFisico
 
@@ -520,14 +526,9 @@ val MoldeProductos.stockFisicoTotalUnidades: Double
 val MoldeProductos.stockTotalUnidades: Double
     get() = stockDisponibleFisico
 
-val MoldeProductos.precioVenta: Double
-    get() = presentaciones.firstOrNull { it.presentacionId == presentacionPrincipalId }?.precioventa
-        ?: presentaciones.firstOrNull()?.precioventa
-        ?: 0.0
-
 /**
- * Stock disponible expresado en UNIDADES DE CONTENIDO (tabletas, mL · ) —” SOLO PARA MOSTRAR.
- * Nunca usar este valor para calcular descuentos: el cálculo correcto es UnidadVentaHelper.
+ * Stock disponible expresado en UNIDADES DE CONTENIDO (tabletas, mL) â€” SOLO PARA MOSTRAR.
+ * Nunca usar este valor para calcular descuentos: el cÃ¡lculo correcto es UnidadVentaHelper.
  */
 val MoldeProductos.stockDisponibleEnContenido: Double
     get() {
@@ -537,8 +538,8 @@ val MoldeProductos.stockDisponibleEnContenido: Double
     }
 
 /**
- * Valida si hay stock suficiente para vender la presentación dada.
- * Delega directamente a UnidadVentaHelper.calcularDescuentoFEFO (Fuente Única de Verdad).
+ * Valida si hay stock suficiente para vender la presentaciÃ³n dada.
+ * Delega directamente a UnidadVentaHelper.calcularDescuentoFEFO (Fuente Ãšnica de Verdad).
  */
 fun MoldeProductos.validarDisponibilidadVenta(presentacion: PresentacionProducto): Pair<Boolean, String?> {
     val res = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper
@@ -547,4 +548,40 @@ fun MoldeProductos.validarDisponibilidadVenta(presentacion: PresentacionProducto
         onSuccess = { true to null },
         onFailure = { false to (it.message ?: "Stock insuficiente.") }
     )
+}
+
+/**
+ * Calcula el número máximo de unidades enteras disponibles para la venta de una presentación,
+ * considerando lotes vigentes con costo (FEFO) y factor de contenido (R3/Sanitaria/Negocio).
+ */
+fun MoldeProductos.calcularStockMaximoPresentacion(presentacionId: String): Int {
+    val pres = presentaciones.firstOrNull { it.presentacionId == presentacionId }
+        ?: PresentacionProducto(
+            presentacionId = presentacionId,
+            nombre = empaque.ifBlank { "Unidad" },
+            empaque = empaque.ifBlank { "Unidad" },
+            cantidad = 1,
+            unidadMedida = unidadBase.ifBlank { "unidad" },
+            precioventa = precioVenta,
+            codigoBarras = codigo
+        )
+    val factor = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper.factorContenido(contenido, presentaciones)
+    val unidadProducto = contenidoUnidad.ifBlank { empaque }
+    val cantUnidadProd = com.app.administradorfarmadon.inventario.compartido.logica.PerfilUnidades.normalizarA(
+        pres.cantidad.toDouble(),
+        pres.unidadMedida,
+        unidadProducto
+    )
+    val fisicoPorUnidad = com.app.administradorfarmadon.inventario.compartido.logica.UnidadVentaHelper.stockFisicoParaVender(cantUnidadProd, factor)
+    if (fisicoPorUnidad <= 0.0) return Int.MAX_VALUE
+
+    val stockFisicoDisponible = lotes.values
+        .filter {
+            val dias = com.app.administradorfarmadon.inventario.compartido.logica.FechaVencimientoHelper.diasHastaVencer(it.vencimiento)
+            val tieneCosto = (it.costoCompraUnitario > 0.0 || it.costoUltimoIngreso > 0.0 || precioCompra > 0.0) && !it.noValorizado
+            (dias == null || dias > 0) && it.cantidad > 0.0 && tieneCosto
+        }
+        .sumOf { it.cantidad }
+
+    return (stockFisicoDisponible / fisicoPorUnidad).toInt().coerceAtLeast(0)
 }

@@ -73,11 +73,17 @@ fun SubmoduloDevoluciones(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Notificaciones de advertencia de caja cerrada o errores
-        if (!uiState.cajaAbierta) {
+        // Notificaciones de advertencia de turno vencido, caja cerrada o errores
+        if (uiState.estadoCaja.esTurnoVencido) {
+            POSNotificationBar(
+                mensaje = "BLOQUEO OPERATIVO: TURNO VENCIDO. Debe resolver el cierre de la caja pendiente antes de procesar devoluciones o reembolsos.",
+                tipo = TipoEstadoFarmadon.PELIGRO,
+                icono = Icons.Default.LockClock
+            )
+        } else if (!uiState.cajaAbierta) {
             POSNotificationBar(
                 mensaje = "LA CAJA SE ENCUENTRA CERRADA. ABRE EL TURNO PARA PODER EMITIR REEMBOLSOS.",
                 tipo = TipoEstadoFarmadon.PELIGRO,
@@ -143,7 +149,7 @@ fun SubmoduloDevoluciones(
                                     verticalArrangement = Arrangement.spacedBy(6.dp),
                                     contentPadding = PaddingValues(vertical = 4.dp)
                                 ) {
-                                    items(listaAMostrar) { venta ->
+                                    items(listaAMostrar, key = { it.id }) { venta ->
                                         val isSel = uiState.ventaSeleccionada?.id == venta.id
                                         TarjetaVentaResumen(
                                             venta = venta,
@@ -219,7 +225,7 @@ fun SubmoduloDevoluciones(
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             contentPadding = PaddingValues(vertical = 4.dp)
                         ) {
-                            items(venta.items) { item ->
+                            items(venta.items, key = { "${it.productoId}_${it.presentacionId}" }) { item ->
                                 val clave = "${item.productoId}_${item.presentacionId}"
                                 val cantElegida = uiState.itemsSeleccionados[clave] ?: 0
                                 val estaSeleccionado = cantElegida > 0
@@ -255,6 +261,27 @@ fun SubmoduloDevoluciones(
                         verticalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            if (uiState.esDevolucionOtroTurno) {
+                                Surface(
+                                    color = FDColors.Warning.copy(alpha = 0.1f),
+                                    shape = FDShapes.Small,
+                                    border = BorderStroke(1.dp, FDColors.Warning.copy(alpha = 0.4f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.History, null, tint = FDColors.Warning, modifier = Modifier.size(18.dp))
+                                        Text(
+                                            uiState.textoOrigenDevolucion,
+                                            style = FDType.Caption.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                                            color = FDColors.Warning
+                                        )
+                                    }
+                                }
+                            }
                             // Desglose Financiero Prorrateado
                             Surface(
                                 color = FDColors.InputBackground,
@@ -338,13 +365,40 @@ fun SubmoduloDevoluciones(
                                         }
                                     }
                                 }
+
+                                if (uiState.efectivoInsuficienteEnCaja) {
+                                Surface(
+                                    color = FDColors.ErrorSubtle,
+                                    shape = FDShapes.Small,
+                                    border = BorderStroke(1.dp, FDColors.Error.copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.ErrorOutline, null, tint = FDColors.Error, modifier = Modifier.size(18.dp))
+                                        Text(
+                                            "Efectivo insuficiente en caja: la gaveta tiene $simboloMoneda ${String.format(Locale.US, "%.2f", uiState.estadoCaja.efectivoEsperado)} y el reembolso requiere $simboloMoneda ${String.format(Locale.US, "%.2f", uiState.montoReembolsoCalculado)}. Elige otro método o ingresa dinero a caja.",
+                                            style = FDType.Caption.copy(color = FDColors.Error, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        )
+                                    }
+                                }
                             }
                         }
+                    }
 
                         // Botón Primario de Generación
                         Column(modifier = Modifier.padding(top = 10.dp)) {
+                            val textoBtn = when {
+                                uiState.estadoCaja.esTurnoVencido -> "TURNO VENCIDO · SOLO CIERRE"
+                                !uiState.cajaAbierta -> "CAJA CERRADA"
+                                uiState.efectivoInsuficienteEnCaja -> "EFECTIVO INSUFICIENTE EN CAJA"
+                                else -> "CONFIRMAR DEVOLUCIÓN ($simboloMoneda ${String.format(Locale.US, "%.2f", uiState.montoReembolsoCalculado)})"
+                            }
                             FDBotonPrimario(
-                                texto = if (uiState.cajaAbierta) "CONFIRMAR DEVOLUCIÓN ($simboloMoneda ${String.format(Locale.US, "%.2f", uiState.montoReembolsoCalculado)})" else "CAJA CERRADA",
+                                texto = textoBtn,
                                 onClick = { viewModel.confirmarDevolucion() },
                                 icono = Icons.AutoMirrored.Filled.AssignmentReturn,
                                 habilitado = uiState.puedeRegistrarDevolucion,

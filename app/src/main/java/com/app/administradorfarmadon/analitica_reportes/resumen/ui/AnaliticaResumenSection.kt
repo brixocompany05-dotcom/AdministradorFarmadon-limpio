@@ -127,7 +127,7 @@ fun AnaliticaResumenSection(
             ) {
                 // 1. Ganancia Real
                 TarjetaResumenEjecutiva(
-                    titulo = "GANANCIA NETA REAL",
+                    titulo = if (estadoResultado.tieneCostosEstimados) "GANANCIA NETA (ESTIMADA)" else "GANANCIA NETA REAL",
                     monto = "S/ %.2f".format(Locale.US, estadoResultado.utilidadNeta),
                     subtitulo = "Margen neto: %.1f%%".format(Locale.US, estadoResultado.margenNeto),
                     tag = if (estadoResultado.utilidadNeta >= 0.0) "Neto positivo" else "Déficit",
@@ -161,6 +161,7 @@ fun AnaliticaResumenSection(
                 val subCaja = when {
                     dineroYCaja.diferenciaCajaTotal < -0.01 -> "Faltante: -S/ %.2f".format(Locale.US, abs(dineroYCaja.diferenciaCajaTotal))
                     dineroYCaja.diferenciaCajaTotal > 0.01 -> "Sobrante: +S/ %.2f".format(Locale.US, dineroYCaja.diferenciaCajaTotal)
+                    dineroYCaja.cantidadTurnosCerrados == 0 -> "Sin arqueos cerrados aún"
                     else -> "Gavetas cuadradas"
                 }
                 TarjetaResumenEjecutiva(
@@ -240,7 +241,7 @@ private fun PanelEstadoResultados(
             ) {
                 Box(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
                     DesgloseLineaFinanciera(
-                        "GANANCIA NETA REAL",
+                        if (estadoResultado.tieneCostosEstimados) "GANANCIA NETA (ESTIMADA)" else "GANANCIA NETA REAL",
                         "= S/ %.2f".format(Locale.US, estadoResultado.utilidadNeta),
                         if (estadoResultado.utilidadNeta >= 0.0) FDColors.Primary else FDColors.Error,
                         esDestacada = true
@@ -271,6 +272,7 @@ private fun PanelEstadoResultados(
             val difTexto = when {
                 dineroYCaja.diferenciaCajaTotal < -0.01 -> "-S/ %.2f (Faltante en gavetas)".format(Locale.US, abs(dineroYCaja.diferenciaCajaTotal))
                 dineroYCaja.diferenciaCajaTotal > 0.01 -> "+S/ %.2f (Sobrante en gavetas)".format(Locale.US, dineroYCaja.diferenciaCajaTotal)
+                dineroYCaja.cantidadTurnosCerrados == 0 -> "Sin arqueos cerrados en el período"
                 else -> "S/ 0.00 (Cuadrada exacta)"
             }
             DesgloseLineaFinanciera(

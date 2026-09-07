@@ -132,23 +132,37 @@ fun PanelDetalleTurnoCaja(
                         color = FDColors.TextTertiary
                     )
 
-                    val metodos = sDet.ventasPorMetodo.ifEmpty { mapOf("EFECTIVO" to sDet.totalVentas) }
-                    metodos.forEach { (metodoClave, monto) ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = TIPOS_PAGO_FIJOS.find { it.id.equals(metodoClave, ignoreCase = true) }?.nombre ?: metodoClave,
-                                style = FDType.BodySmall.copy(fontSize = 12.sp),
-                                color = FDColors.TextSecondary
-                            )
-                            Text(
-                                text = "$simboloMoneda %.2f".format(Locale.US, monto),
-                                style = FDType.BodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = InterPremium),
-                                color = FDColors.TextPrimary
-                            )
+                    val metodos = if (sDet.ventasPorMetodo.isNotEmpty()) {
+                        sDet.ventasPorMetodo
+                    } else if (sDet.totalVentas > 0.0) {
+                        mapOf("EFECTIVO" to sDet.totalVentas)
+                    } else {
+                        emptyMap()
+                    }
+                    if (metodos.isEmpty()) {
+                        Text(
+                            text = "Sin cobros registrados en este turno",
+                            style = FDType.Caption.copy(fontSize = 11.5.sp),
+                            color = FDColors.TextTertiary
+                        )
+                    } else {
+                        metodos.forEach { (metodoClave, monto) ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = TIPOS_PAGO_FIJOS.find { it.id.equals(metodoClave, ignoreCase = true) }?.nombre ?: metodoClave,
+                                    style = FDType.BodySmall.copy(fontSize = 12.sp),
+                                    color = FDColors.TextSecondary
+                                )
+                                Text(
+                                    text = "$simboloMoneda %.2f".format(Locale.US, monto),
+                                    style = FDType.BodySmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = InterPremium),
+                                    color = FDColors.TextPrimary
+                                )
+                            }
                         }
                     }
 

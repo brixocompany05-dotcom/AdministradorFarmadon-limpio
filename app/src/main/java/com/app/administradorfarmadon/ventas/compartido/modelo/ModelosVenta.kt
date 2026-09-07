@@ -19,6 +19,7 @@ data class ClienteDeVenta(
     val tipoDocumento: String = "NINGUNO",
     val numeroDocumento: String = "",
     val nombre: String = "Consumidor Final",
+    val direccion: String = "",
     /** Si el cliente ya existe en el directorio de la farmacia, queda enlazado. */
     val clienteId: String = ""
 ) {
@@ -47,6 +48,8 @@ data class ItemVenta(
     val precioUnitario: Double = 0.0,
     val subtotal: Double = 0.0,
     val requiereReceta: Boolean = false,
+    /** La cajera marcó este producto como receta verificada en el mostrador. */
+    val recetaVerificada: Boolean = false,
     /** Trazabilidad de anaquel y lote sugerido por FEFO (FASE 11 H2). */
     val loteSugerido: String = "",
     val loteVencimientoSugerido: String = "",
@@ -96,6 +99,7 @@ data class Venta(
     val vuelto: Double = 0.0,
     val estado: String = ESTADO_COMPLETADA, // COMPLETADA | DEVOLUCION_PARCIAL | DEVOLUCION_TOTAL | ANULADA
     val cajaSesionId: String = "",
+    val cajaId: String = "",
     val cajeroId: String = "",
     val cajeroNombre: String = "",
     /** ms corregidos por hora de servidor (consultables y ordenables sin depender del reloj local). */
@@ -121,7 +125,11 @@ data class Venta(
     // Firma de autorización supervisor (POS Config)
     val autorizadoPorId: String = "",
     val autorizadoPorNombre: String = "",
-    val autorizadoPorRol: String = ""
+    val autorizadoPorRol: String = "",
+    // Rastro de receta verificada en mostrador (quién la pidió y cuándo)
+    val recetaVerificada: Boolean = false,
+    val recetaVerificadaPor: String = "",
+    val recetaVerificadaEnMs: Long = 0L
 ) {
     companion object {
         const val ESTADO_COMPLETADA = "COMPLETADA"
@@ -166,6 +174,7 @@ data class CajaSesion(
     val aperturaLegible: String = "",
     val abiertoPorId: String = "",
     val abiertoPorNombre: String = "",
+    val cajaId: String = "",
     // Datos del cierre (vacíos mientras está abierta)
     val cierreMs: Long = 0L,
     val cierreLegible: String = "",
@@ -186,6 +195,9 @@ data class CajaSesion(
     val cantidadVentas: Int = 0,
     val cantidadDevoluciones: Int = 0
 ) {
+    val cajaIdentificador: String
+        get() = cajaId.ifBlank { if (abiertoPorId.isNotBlank()) "caja_$abiertoPorId" else "caja_principal" }
+
     companion object {
         const val ESTADO_ABIERTA = "ABIERTA"
         const val ESTADO_CERRADA = "CERRADA"
@@ -193,7 +205,7 @@ data class CajaSesion(
 }
 
 /**
- * Puntero atómico del turno vigente (doc único por sucursal).
+ * Puntero atómico del turno vigente por cajero (R1/R3/R8: la caja y el turno son individuales por cajero).
  * Acumula en vivo el dinero esperado por método: es lo que el cierre compara
  * contra el conteo físico. Se actualiza SOLO dentro de transacciones.
  */
@@ -203,6 +215,9 @@ data class EstadoCaja(
     val fondoInicial: Double = 0.0,
     val aperturaMs: Long = 0L,
     val abiertoPorNombre: String = "",
+    val abiertoPorId: String = "",
+    val cajeroId: String = "",
+    val cajaId: String = "",
     /** Acumulado de ventas cobradas por tipo de pago: {EFECTIVO: 120.0, YAPE: 45.0, ...}.
      *  Va NETO: una devolución resta directamente del método por el que se reembolsó. */
     val ventasPorMetodo: Map<String, Double> = emptyMap(),
@@ -214,6 +229,11 @@ data class EstadoCaja(
     val cantidadVentas: Int = 0,
     val cantidadDevoluciones: Int = 0
 ) {
+    val cajaIdentificador: String
+        get() = cajaId.ifBlank {
+            val cid = cajeroId.ifBlank { abiertoPorId }
+            if (cid.isNotBlank()) "caja_$cid" else "caja_principal"
+        }
     val ventasEfectivo: Double get() = ventasPorMetodo["EFECTIVO"] ?: 0.0
     /** Lo que DEBE haber en el cajón de efectivo en este momento. */
     val efectivoEsperado: Double
@@ -243,6 +263,23 @@ data class EstadoCaja(
     }
 
     val esCajaPendienteDeOtroDia: Boolean get() = esDeJornadaAnterior()
+    val esTurnoVencido: Boolean get() = esDeJornadaAnterior()
+
+    val estadoOperativo: EstadoOperativoTurno
+        get() {
+            if (estado != CajaSesion.ESTADO_ABIERTA || aperturaMs <= 0L) return EstadoOperativoTurno.CAJA_CERRADA
+            return if (esDeJornadaAnterior()) EstadoOperativoTurno.TURNO_VENCIDO else EstadoOperativoTurno.OPERATIVO
+        }
+}
+
+/** Estado operativo unificado del turno de caja para todo el POS (R1/R3/R14). */
+enum class EstadoOperativoTurno {
+    /** Turno abierto y vigente para la jornada de hoy → POS 100% operativo. */
+    OPERATIVO,
+    /** Turno abierto cuya jornada terminó → BLOQUEO OPERATIVO GLOBAL (Solo Cierre de Caja). */
+    TURNO_VENCIDO,
+    /** No hay turno abierto → Requiere apertura de caja para operar. */
+    CAJA_CERRADA
 }
 
 /** Movimiento de dinero de la caja: venta, devolución, ingreso manual, retiro o anulación. */
@@ -257,6 +294,7 @@ data class MovimientoCaja(
     val referenciaId: String = "",
     val referenciaNumero: String = "",
     val cajaSesionId: String = "",
+    val cajaId: String = "",
     val usuarioId: String = "",
     val usuarioNombre: String = "",
     val fechaMs: Long = 0L,
@@ -329,9 +367,14 @@ data class DevolucionVenta(
     val usuarioId: String = "",
     val usuarioNombre: String = "",
     val cajaSesionId: String = "",
+    val cajaId: String = "",
     val fechaMs: Long = 0L,
     val diaClave: String = "",
     val costoTotalDevuelto: Double = 0.0,
+    // Turno donde nació la venta devuelta (trazabilidad entre turnos/cajeros)
+    val ventaCajaSesionId: String = "",
+    val ventaCajeroId: String = "",
+    val ventaCajeroNombre: String = "",
     // Firma de autorización supervisor (POS Config)
     val autorizadoPorId: String = "",
     val autorizadoPorNombre: String = "",

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,7 +23,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.administradorfarmadon.compras.datos.PedidoCompra
-import com.app.administradorfarmadon.compras.logica.ItemPedidoCompra
+import com.app.administradorfarmadon.compras.logica.MaquinaEstadosPedido
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
@@ -42,10 +44,6 @@ fun ReposicionPanelPedidos(
     simboloMoneda: String,
     s: MedidaAdaptativa,
     paddingTarjeta: Dp,
-    onEditarPedido: (PedidoCompra, List<ItemPedidoCompra>) -> Unit,
-    onEliminarPedido: (PedidoCompra) -> Unit,
-    procesandoEdicion: Boolean,
-    procesandoEliminacion: Boolean,
     onRecibirMercaderia: (PedidoCompra) -> Unit,
     onCerrarConAjuste: (PedidoCompra) -> Unit,
     onDescartarProducto: (String, String) -> Unit,
@@ -53,19 +51,36 @@ fun ReposicionPanelPedidos(
 ) {
     var pedidoAbiertoId by remember { mutableStateOf<String?>(null) }
 
-    // Verdad vigente: el detalle siempre se resuelve desde la lista actual por id,
-    // nunca desde una referencia vieja (otro usuario pudo editar o eliminar el pedido).
-    val abierto = pedidoAbiertoId?.let { id -> pedidosGuardados.find { it.id == id } }
+    val pedidosPorRecibir = remember(pedidosGuardados) {
+        pedidosGuardados
+            .filter { MaquinaEstadosPedido.perteneceAEnCamino(it.estado) }
+            .sortedByDescending { it.fechaEmisionMs }
+    }
+
+    // Verdad vigente: el detalle se resuelve desde las órdenes en camino (no se mezcla con historial).
+    val abierto = pedidoAbiertoId?.let { id -> pedidosPorRecibir.find { it.id == id } }
 
     // El botón atrás del sistema cierra el detalle abierto antes de salir de la pestaña.
     BackHandler(enabled = pedidoAbiertoId != null) {
         pedidoAbiertoId = null
     }
 
-    // Si el pedido abierto ya no existe (lo borró otro usuario), se cierra solo.
-    LaunchedEffect(pedidosGuardados) {
-        if (pedidoAbiertoId != null && abierto == null) {
-            pedidoAbiertoId = null
+    // Auto-cierre post-mutación (R14 Estado Post-Mutación):
+    // Si la orden abierta fue recibida, cerrada con ajuste, cancelada o eliminada,
+    // o si se registró una nueva entrega física en ella, se cierra el detalle automáticamente
+    // regresando a la lista de órdenes en camino. Cero botones residuales ni repetición accidental.
+    var recepcionesPreviasCount by remember(pedidoAbiertoId) {
+        mutableStateOf(abierto?.recepciones?.size ?: 0)
+    }
+    LaunchedEffect(pedidosGuardados, abierto?.recepciones?.size) {
+        if (pedidoAbiertoId != null) {
+            val ordenEnServidor = pedidosGuardados.find { it.id == pedidoAbiertoId }
+            val recepcionesActuales = abierto?.recepciones?.size ?: 0
+            val yaNoEstaEnCamino = ordenEnServidor == null || !MaquinaEstadosPedido.perteneceAEnCamino(ordenEnServidor.estado)
+            val nuevaEntregaAsentada = recepcionesActuales > recepcionesPreviasCount
+            if (yaNoEstaEnCamino || nuevaEntregaAsentada) {
+                pedidoAbiertoId = null
+            }
         }
     }
 
@@ -84,59 +99,57 @@ fun ReposicionPanelPedidos(
                 ReposicionDetallePedidoRealizado(
                     pedido = abierto,
                     simboloMoneda = simboloMoneda,
-                    procesandoEdicion = procesandoEdicion,
-                    procesandoEliminacion = procesandoEliminacion,
                     s = s,
                     onVolver = { pedidoAbiertoId = null },
-                    onEditarPedido = { pedido, items ->
-                        onEditarPedido(pedido, items)
-                    },
-                    onEliminarPedido = { pedido ->
-                        onEliminarPedido(pedido)
-                        pedidoAbiertoId = null
-                    },
                     onRecibirMercaderia = { onRecibirMercaderia(abierto) },
                     onCerrarConAjuste = { onCerrarConAjuste(abierto) },
-                    onCancelar = { onCancelarPedido(abierto.id) }
+                    onCancelar = { onCancelarPedido(abierto.id) },
+                    onDescartarProducto = { prodId -> onDescartarProducto(abierto.id, prodId) }
                 )
             } else {
-                // UNA sola lista de pedidos: primero lo que está POR RECIBIR (con sus
-                // acciones), luego el HISTORIAL de lo ya resuelto. Cero doble trabajo.
-                val pedidosPorRecibir = remember(pedidosGuardados) {
-                    pedidosGuardados
-                        .filter { it.estado == "ENVIADO" || it.estado == "ENTREGA_PARCIAL" }
-                        .sortedByDescending { it.fechaEmisionMs }
-                }
-                val pedidosHistorial = remember(pedidosGuardados) {
-                    pedidosGuardados
-                        .filter { it.estado != "ENVIADO" && it.estado != "ENTREGA_PARCIAL" }
-                        .sortedByDescending { it.fechaEmisionMs }
-                }
-
-                if (pedidosGuardados.isEmpty()) {
+                if (pedidosPorRecibir.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(s.padCard),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "Aún no hay pedidos. Cuando envíes un pedido al proveedor, aparecerá aquí.",
-                            style = FDType.BodySmall.copy(fontSize = 12.sp),
-                            color = FDColors.TextSecondary,
-                            textAlign = TextAlign.Center
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.LocalShipping,
+                                null,
+                                tint = FDColors.TextTertiary,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = "Sin pedidos en camino",
+                                style = FDType.Body.copy(fontWeight = FontWeight.Bold, fontSize = 13.sp),
+                                color = FDColors.TextPrimary
+                            )
+                            Text(
+                                text = "Cuando envíes un pedido a un proveedor, aparecerá aquí para que puedas recibir su mercadería física.",
+                                style = FDType.BodySmall.copy(fontSize = 11.5.sp),
+                                color = FDColors.TextSecondary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(s.gapSmall)
                     ) {
-                        if (pedidosPorRecibir.isNotEmpty()) {
-                            item(key = "seccion_por_recibir") {
-                                EncabezadoSeccion("POR RECIBIR")
-                            }
-                            items(pedidosPorRecibir, key = { it.id }) { pedido ->
+                        item(key = "seccion_por_recibir") {
+                            EncabezadoSeccion("PEDIDOS EN CAMINO (${pedidosPorRecibir.size})")
+                        }
+                        items(pedidosPorRecibir, key = { it.id }) { pedido ->
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(s.gapSmall)
+                            ) {
                                 TarjetaPedidoEnviado(
                                     pedido = pedido,
                                     simboloMoneda = simboloMoneda,
@@ -148,18 +161,9 @@ fun ReposicionPanelPedidos(
                                     onCancelar = { onCancelarPedido(pedido.id) },
                                     onAbrirDetalle = { pedidoAbiertoId = pedido.id }
                                 )
-                            }
-                        }
-                        if (pedidosHistorial.isNotEmpty()) {
-                            item(key = "seccion_historial") {
-                                EncabezadoSeccion("HISTORIAL")
-                            }
-                            items(pedidosHistorial, key = { it.id }) { pedido ->
-                                FilaPedidoRealizado(
-                                    pedido = pedido,
-                                    simboloMoneda = simboloMoneda,
-                                    s = s,
-                                    onClick = { pedidoAbiertoId = pedido.id }
+                                HorizontalDivider(
+                                    color = FDColors.Border.copy(alpha = 0.5f),
+                                    modifier = Modifier.padding(vertical = 4.dp)
                                 )
                             }
                         }

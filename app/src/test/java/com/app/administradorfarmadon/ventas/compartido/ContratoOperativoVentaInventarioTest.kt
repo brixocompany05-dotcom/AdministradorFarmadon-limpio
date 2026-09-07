@@ -67,6 +67,39 @@ class ContratoOperativoVentaInventarioTest {
     }
 
     @Test
+    fun `lote sin costo unitario explicito pero producto con precioCompra se vende exitosamente`() {
+        val prodConPrecioCompra = MoldeProductos(
+            nombre = "Ibuprofeno 400mg",
+            empaque = "Caja",
+            contenidoUnidad = "Caja",
+            precioCompra = 3.50,
+            lotes = mapOf(
+                "LOT-A" to LoteProducto(
+                    numero = "LOT-A",
+                    vencimiento = "12/2028",
+                    cantidad = 15.0,
+                    costoCompraUnitario = 0.0,
+                    costoUltimoIngreso = 0.0,
+                    noValorizado = false
+                )
+            )
+        )
+
+        val pres = PresentacionProducto(presentacionId = "p1", nombre = "Caja", empaque = "Caja", cantidad = 1, unidadMedida = "Caja", precioventa = 7.0)
+
+        val resultado = UnidadVentaHelper.calcularDescuentoFEFO(
+            producto = prodConPrecioCompra,
+            presentacion = pres
+        )
+
+        assertTrue("Debe tener éxito porque hereda el precioCompra del producto", resultado.isSuccess)
+        val consumidos = resultado.getOrNull().orEmpty()
+        assertEquals(1, consumidos.size)
+        assertEquals("LOT-A", consumidos.first().loteNumero)
+        assertEquals(1.0, consumidos.first().cantidadADescontar, 0.001)
+    }
+
+    @Test
     fun `lote comercial con costo si se vende y excluye lote de muestra`() {
         val prodMixto = MoldeProductos(
             nombre = "Amoxicilina 500mg",

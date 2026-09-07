@@ -4,10 +4,14 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.app.administradorfarmadon.ventas.compartido.datos.CajaRepository
 import com.app.administradorfarmadon.ventas.compartido.datos.TicketComprobantePdf
 import com.app.administradorfarmadon.ventas.compartido.datos.VentasRepository
+import com.app.administradorfarmadon.ventas.compartido.modelo.CajaSesion
 import com.app.administradorfarmadon.ventas.compartido.modelo.DevolucionVenta
+import com.app.administradorfarmadon.ventas.compartido.modelo.EstadoCaja
 import com.app.administradorfarmadon.ventas.compartido.modelo.Venta
+import com.app.administradorfarmadon.ventas.compartido.logica.ReglaBloqueoTurnoCaja
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +33,7 @@ import kotlinx.coroutines.withContext
 data class VentasDiaUiState(
     val ventas: List<Venta> = emptyList(),
     val devolucionesDia: List<DevolucionVenta> = emptyList(),
+    val estadoCaja: EstadoCaja = EstadoCaja(),
     val cargando: Boolean = true,
     val error: String? = null,
     val mensajeExito: String? = null,
@@ -40,6 +45,16 @@ data class VentasDiaUiState(
     val procesandoAnulacion: Boolean = false,
     val ventaAAnular: Venta? = null
 ) {
+    /**
+     * Determina si una venta pertenece a un turno de caja ya cerrado o distinto al activo.
+     * En esos casos, no se puede anular directamente contra el saldo del turno actual;
+     * debe procesarse vía Devolución (Nota de Crédito).
+     */
+    fun ventaPerteneceATurnoCerrado(v: Venta): Boolean {
+        if (estadoCaja.esTurnoVencido) return true
+        if (estadoCaja.estado != CajaSesion.ESTADO_ABIERTA || estadoCaja.sesionId.isBlank()) return true
+        return v.cajaSesionId.isNotBlank() && v.cajaSesionId != estadoCaja.sesionId
+    }
     // Brutas del día: suma de totales no anulados (con descuento ya aplicado).
     val totalVentasBrutas: Double
         get() = kotlin.math.round(
@@ -147,7 +162,8 @@ data class VentasDiaUiState(
  * Mantiene la lista viva conectada a Firestore y gestiona filtros, selección, anulación e impresión.
  */
 class VentasDiaViewModel(
-    private val ventasRepository: VentasRepository = VentasRepository()
+    private val ventasRepository: VentasRepository = VentasRepository(),
+    private val cajaRepository: CajaRepository = CajaRepository()
 ) : ViewModel() {
 
     companion object {
@@ -168,40 +184,60 @@ class VentasDiaViewModel(
         sucursalObserverJob?.cancel()
         sucursalObserverJob = viewModelScope.launch {
             var ultimaSucursal: String? = null
-            com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalFlow.collect { sucursal ->
-                if (sucursal != ultimaSucursal) {
-                    ultimaSucursal = sucursal
-                    _uiState.update { it.copy(ventas = emptyList(), devolucionesDia = emptyList(), ventaSeleccionada = null, cargando = true) }
-                    reconectar()
+            var ultimoCajero: String? = null
+            combine(
+                com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.sucursalFlow,
+                com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.cajeroFlow
+            ) { suc, caj -> suc to caj }
+                .collect { (sucursal, cajero) ->
+                    if (sucursal != ultimaSucursal || cajero != ultimoCajero) {
+                        ultimaSucursal = sucursal
+                        ultimoCajero = cajero
+                        _uiState.update { it.copy(ventas = emptyList(), devolucionesDia = emptyList(), ventaSeleccionada = null, cargando = true) }
+                        reconectar()
+                    }
                 }
-            }
         }
     }
 
     /**
-     * Reconecta los listeners vivos del día: ventas + devoluciones (R8).
+     * Reconecta los listeners vivos del día: ventas + devoluciones + estado de caja (R8).
      * Al entrar a la pestaña o cruzar medianoche, re-calcula la fecha actual.
      * El neto del día = brutas de hoy − reembolsos de hoy (cuadra con caja y analítica).
+     * Respeta el aislamiento por cajero (R1/R3).
      */
     fun reconectar() {
         jobObservador?.cancel()
         _uiState.update { it.copy(cargando = true, error = null) }
 
+        val cajeroId = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.idCajera
+
         jobObservador = viewModelScope.launch {
             combine(
-                ventasRepository.observarVentasDelDia(),
-                ventasRepository.observarDevolucionesDelDia()
-            ) { ventas, devs -> ventas to devs }
+                ventasRepository.observarVentasDelDia(cajeroId),
+                ventasRepository.observarDevolucionesDelDia(cajeroId),
+                cajaRepository.observarEstadoCaja(cajeroId)
+            ) { ventas, devs, estadoCaja -> Triple(ventas, devs, estadoCaja) }
                 .catch { err ->
                     Log.e(TAG, "Error observando ventas del día: ${err.message}", err)
                     _uiState.update { it.copy(cargando = false, error = err.message ?: "No se pudieron cargar las ventas del día.") }
                 }
-                .collect { (listaVentas, listaDevs) ->
+                .collect { (listaVentas, listaDevs, estadoCaja) ->
                     _uiState.update { estadoPrevio ->
                         // Mantener la venta seleccionada actualizada si sufrió algún cambio
                         val selActualizada = estadoPrevio.ventaSeleccionada?.let { sel ->
                             listaVentas.firstOrNull { it.id == sel.id }
                         }
+                        // Mantener la venta del diálogo de anulación actualizada si está abierto
+                        val anularActualizada = estadoPrevio.ventaAAnular?.let { a ->
+                            listaVentas.firstOrNull { it.id == a.id }
+                        }
+                        val yaAnuladaPorOtro = anularActualizada != null && anularActualizada.estado == Venta.ESTADO_ANULADA
+                        val cerrarDialogoAnular = estadoPrevio.mostrarDialogoAnular && yaAnuladaPorOtro
+                        val errorNuevo = if (cerrarDialogoAnular && anularActualizada != null) {
+                            "La venta '${anularActualizada.numeroCompleto}' ya fue anulada por otro usuario."
+                        } else estadoPrevio.error
+
                         // Si el filtro de método quedó sin movimiento hoy, volver a TODOS para no dejar lista vacía fantasma.
                         val filtroMetodoVigente = if (estadoPrevio.filtroMetodo != "TODOS") {
                             val metodosAhora = mutableSetOf<String>()
@@ -214,8 +250,12 @@ class VentasDiaViewModel(
                         estadoPrevio.copy(
                             ventas = listaVentas,
                             devolucionesDia = listaDevs,
+                            estadoCaja = estadoCaja,
                             cargando = false,
                             ventaSeleccionada = selActualizada,
+                            ventaAAnular = if (cerrarDialogoAnular) null else (anularActualizada ?: estadoPrevio.ventaAAnular),
+                            mostrarDialogoAnular = if (cerrarDialogoAnular) false else estadoPrevio.mostrarDialogoAnular,
+                            error = errorNuevo,
                             filtroMetodo = filtroMetodoVigente
                         )
                     }
@@ -240,6 +280,12 @@ class VentasDiaViewModel(
     }
 
     fun abrirDialogoAnular(venta: Venta) {
+        val cId = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.idCajera
+        val validacionTurno = ReglaBloqueoTurnoCaja.validarPermiteAnulacion(uiState.value.estadoCaja, cId)
+        if (validacionTurno.isFailure) {
+            _uiState.update { it.copy(error = validacionTurno.exceptionOrNull()?.message) }
+            return
+        }
         _uiState.update { it.copy(mostrarDialogoAnular = true, ventaAAnular = venta, error = null) }
     }
 
@@ -252,6 +298,24 @@ class VentasDiaViewModel(
         val motivoLimpio = motivo.trim()
         if (motivoLimpio.length < 5) {
             _uiState.update { it.copy(error = "Debe ingresar un motivo de anulación de al menos 5 caracteres.") }
+            return
+        }
+
+        val estadoActual = uiState.value
+        val cId = com.app.administradorfarmadon.autenticacion.login.datos.SessionManager.idCajera
+        val validacionTurno = ReglaBloqueoTurnoCaja.validarPermiteAnulacion(estadoActual.estadoCaja, cId)
+        if (validacionTurno.isFailure) {
+            _uiState.update { it.copy(error = validacionTurno.exceptionOrNull()?.message) }
+            return
+        }
+        val venta = estadoActual.ventas.firstOrNull { it.id == ventaId }
+        if (venta != null && estadoActual.ventaPerteneceATurnoCerrado(venta)) {
+            _uiState.update {
+                it.copy(
+                    error = "Esta venta no pertenece al turno de caja activo. " +
+                        "Para ventas de turnos cerrados, utilice DEVOLUCIÓN (Nota de Crédito) para no descuadrar la caja."
+                )
+            }
             return
         }
 

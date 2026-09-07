@@ -56,7 +56,14 @@ class CandadosFacturacionF2Test {
                 posConfigGuardado = true,
                 cajaAbierta = true
             ),
-            estadoCaja = EstadoCaja(estado = CajaSesion.ESTADO_ABIERTA),
+            estadoCaja = EstadoCaja(estado = CajaSesion.ESTADO_ABIERTA, aperturaMs = System.currentTimeMillis()),
+            metodosPagoDisponibles = listOf(
+                com.app.administradorfarmadon.configuracion.metodospago.modelo.InstanciaPago(
+                    id = "inst_efectivo",
+                    tipoId = "EFECTIVO",
+                    activa = true
+                )
+            ),
             carrito = listOf(
                 ItemVenta(
                     productoId = "p1",

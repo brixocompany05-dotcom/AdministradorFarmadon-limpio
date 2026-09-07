@@ -1,6 +1,5 @@
 package com.app.administradorfarmadon.compras.ui.componentes.reposicion
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -8,26 +7,21 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.app.administradorfarmadon.compras.logica.PedidoProveedor
 import com.app.administradorfarmadon.compras.logica.ProductoEnCamino
+import com.app.administradorfarmadon.compras.ui.componentes.CampoBuscadorModerno
 import com.app.administradorfarmadon.disenotemaapp.ui.FDColors
-import com.app.administradorfarmadon.disenotemaapp.ui.FDShapes
 import com.app.administradorfarmadon.disenotemaapp.ui.FDType
 import com.app.administradorfarmadon.disenotemaapp.ui.MedidaAdaptativa
 import com.app.administradorfarmadon.inventario.inventariopantallaprincipal.logica.PharmProduct
@@ -43,16 +37,9 @@ fun ReposicionDirectorio(
     pedidosPorProveedor: Map<String, Map<String, Int>>,
     enCaminoPorProducto: Map<String, ProductoEnCamino>,
     simboloMoneda: String,
-    totalCriticosGlobal: Int,
-    montoEnBorrador: Double,
-    totalProdsGlobal: Int,
-    totalCriticosTabs: Int,
-    totalSinProveedor: Int,
-    filtroRapido: String,
     busquedaProducto: String,
     s: MedidaAdaptativa,
     listaState: LazyListState,
-    onCambiarFiltro: (String) -> Unit,
     onCambiarBusqueda: (String) -> Unit,
     onAbrirProveedor: (String) -> Unit,
     onReponerSugeridosProveedor: (String) -> Unit
@@ -63,90 +50,14 @@ fun ReposicionDirectorio(
             .padding(s.padCardLarge)
     ) {
         // Buscador arriba como único elemento de cabecera
-        OutlinedTextField(
-            value = busquedaProducto,
-            onValueChange = onCambiarBusqueda,
-            placeholder = { Text("Buscar producto, categoría o laboratorio…", fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, null, tint = FDColors.TextTertiary, modifier = Modifier.size(s.iconSmall)) },
-            singleLine = true,
-            shape = RoundedCornerShape(s.radiusInput),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = FDColors.SurfaceElevated,
-                unfocusedContainerColor = FDColors.SurfaceElevated,
-                focusedBorderColor = FDColors.Primary,
-                unfocusedBorderColor = FDColors.Border,
-                focusedTextColor = FDColors.TextPrimary,
-                unfocusedTextColor = FDColors.TextPrimary
-            ),
-            modifier = Modifier.fillMaxWidth().height(s.inputMinH)
+        CampoBuscadorModerno(
+            busqueda = busquedaProducto,
+            onBusquedaChange = onCambiarBusqueda,
+            placeholder = "Buscar producto, categoría o laboratorio…",
+            altura = s.inputMinH
         )
 
         Spacer(modifier = Modifier.height(s.gapMedium))
-
-        // Underline tabs de inventario
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            listOf(
-                Triple("TODOS", "TODOS LOS PRODUCTOS", totalProdsGlobal),
-                Triple("CRITICOS", "STOCK POR AGOTARSE", totalCriticosTabs),
-                Triple("SIN_PROVEEDOR", "SIN PROVEEDOR", totalSinProveedor)
-            ).forEach { (idFiltro, label, count) ->
-                val isSel = filtroRapido == idFiltro
-                Column(
-                    modifier = Modifier
-                        .clickable { onCambiarFiltro(idFiltro) }
-                        .padding(bottom = 2.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(s.gapSmall * 0.8f)
-                    ) {
-                        Text(
-                            text = label,
-                            style = FDType.Label.copy(
-                                fontSize = 11.5.sp,
-                                fontWeight = if (isSel) FontWeight.Black else FontWeight.Medium,
-                                letterSpacing = 1.sp
-                            ),
-                            color = if (isSel) FDColors.Primary else FDColors.TextSecondary
-                        )
-                        Surface(
-                            color = if (isSel) FDColors.Primary.copy(alpha = 0.1f) else FDColors.TextPrimary.copy(
-                                alpha = 0.05f
-                            ),
-                            shape = FDShapes.XSmall
-                        ) {
-                            Text(
-                                text = "$count",
-                                style = FDType.Label.copy(
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Black
-                                ),
-                                color = if (isSel) FDColors.Primary else FDColors.TextTertiary,
-                                modifier = Modifier.padding(
-                                    horizontal = 6.dp,
-                                    vertical = 1.dp
-                                )
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    AnimatedVisibility(visible = isSel) {
-                        Box(
-                            modifier = Modifier
-                                .height(3.dp)
-                                .width(32.dp)
-                                .clip(FDShapes.Full)
-                                .background(FDColors.Primary)
-                        )
-                    }
-                }
-            }
-        }
 
         HorizontalDivider(color = FDColors.Border.copy(alpha = 0.5f))
 
@@ -163,13 +74,6 @@ fun ReposicionDirectorio(
                 style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp),
                 color = FDColors.TextTertiary
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(s.gapLarge)
-            ) {
-                Text("PRODUCTOS", style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp), color = FDColors.TextTertiary)
-                Text("PEDIDO", style = FDType.Label.copy(fontSize = 9.5.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp), color = FDColors.TextTertiary)
-            }
         }
 
         LazyColumn(
@@ -181,7 +85,7 @@ fun ReposicionDirectorio(
                 items = gruposFiltrados.entries.toList(),
                 key = { it.key }
             ) { (claveGrupo, productos) ->
-                val esSinProveedor = filtroRapido == "SIN_PROVEEDOR" || esProveedorPlaceholder(claveGrupo)
+                val esSinProveedor = esProveedorPlaceholder(claveGrupo)
                 val carroProv = if (esSinProveedor) {
                     val agregado = mutableMapOf<String, Int>()
                     pedidosPorProveedor.forEach { (prov, carro) ->
